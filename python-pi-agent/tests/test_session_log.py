@@ -6,8 +6,10 @@ from pi_agent_py import (
     DurableSessionEvent,
     InMemorySessionStore,
     Message,
+    SessionAppendPlan,
     SessionConflictError,
     SessionReplayError,
+    prepare_session_append,
     replay_session,
 )
 
@@ -65,6 +67,54 @@ class SessionReplayTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SessionReplayError, "not 'demo'"):
             replay_session("demo", events)
+
+
+class SessionAppendTransitionTests(unittest.TestCase):
+    def test_calculates_append_without_mutating_inputs(self) -> None:
+        current_events = [
+            DurableSessionEvent(
+                "demo",
+                1,
+                "message_committed",
+                Message(role="user", content="hello"),
+            )
+        ]
+        new_messages = [Message(role="assistant", content="hi")]
+
+        plan = prepare_session_append(
+            "demo",
+            current_events,
+            expected_version=1,
+            messages=new_messages,
+        )
+
+        self.assertIsInstance(plan, SessionAppendPlan)
+        self.assertEqual(len(current_events), 1)
+        self.assertEqual(len(new_messages), 1)
+        self.assertEqual([event.sequence for event in plan.new_events], [2])
+        self.assertEqual(plan.snapshot.version, 2)
+        self.assertEqual(
+            [message.content for message in plan.snapshot.messages],
+            ["hello", "hi"],
+        )
+
+    def test_rejects_stale_version_before_creating_events(self) -> None:
+        current_events = (
+            DurableSessionEvent(
+                "demo",
+                1,
+                "message_committed",
+                Message(role="user", content="hello"),
+            ),
+        )
+
+        with self.assertRaises(SessionConflictError):
+            prepare_session_append(
+                "demo",
+                current_events,
+                expected_version=0,
+                messages=[Message(role="assistant", content="stale")],
+            )
 
 
 class InMemorySessionEventLogTests(unittest.IsolatedAsyncioTestCase):

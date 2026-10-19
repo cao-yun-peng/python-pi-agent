@@ -20,7 +20,8 @@ DurableSessionEvent(sequence=2, message=assistant(...))
 ## 2. Definition、Provider 与 Consumer
 
 - Definition：`DurableSessionEvent` 定义会话 ID、连续序号、事件种类和已提交消息。
-- Provider：`InMemorySessionStore` 把 append 的消息转换为事件并按 session 保存。
+- Transition：`prepare_session_append()` 把旧事件和新消息计算为 `SessionAppendPlan`，`replay_session()` 把事件折叠为 snapshot。
+- Provider：`InMemorySessionStore` 只把 plan 中的新事件按 session 保存。
 - Consumer：`AgentSession` 仍只依赖 `SessionStore.load()` 与 `append()`，无需知道 replay 细节。
 - Evidence：`test_session_log.py` 验证正常回放、序号断裂、串错 session 和过期写入。
 
@@ -40,7 +41,7 @@ for event in events:
     expected_sequence += 1
 ```
 
-它不访问网络、磁盘、时钟或全局变量，因此相同事件一定产生相同快照。这种纯函数特征让恢复逻辑很容易测试，也让未来的 JSONL、SQLite 或远程存储共享同一套语义。
+它不访问网络、磁盘、时钟或全局变量，因此相同事件一定产生相同快照。`prepare_session_append()` 遵循相同原则：它返回不可变计划，不修改输入事件。纯 transition 让内存、JSONL、未来的 SQLite 或远程存储共享同一套语义。
 
 ## 4. 为什么严格检查序号
 

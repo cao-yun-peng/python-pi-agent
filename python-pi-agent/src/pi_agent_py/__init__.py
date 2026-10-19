@@ -38,8 +38,13 @@ from .errors import (
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
 from .ports import SessionStore
 from .runtime import Agent, AgentSession
-from .session import InMemorySessionStore, replay_session
+from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
+from .session_transitions import (
+    SessionAppendPlan,
+    prepare_session_append,
+    replay_session,
+)
 from .testing import FakeProvider, WaitUntilCancelled
 from .tools import (
     DenyByDefaultApprovalPolicy,
@@ -79,6 +84,7 @@ __all__ = [
     "ProviderResponseError",
     "ProviderTimeoutError",
     "SessionConflictError",
+    "SessionAppendPlan",
     "SessionReplayError",
     "SessionStorageError",
     "SessionSnapshot",
@@ -94,5 +100,6 @@ __all__ = [
     "WaitUntilCancelled",
     "StaticApprovalPolicy",
     "validate_tool_arguments",
+    "prepare_session_append",
     "replay_session",
 ]

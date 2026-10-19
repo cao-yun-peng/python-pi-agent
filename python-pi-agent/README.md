@@ -68,13 +68,14 @@ live    run_settled
 2. `src/pi_agent_py/domain.py`：什么是消息和事件
 3. `src/pi_agent_py/ports.py`：核心依赖哪些抽象
 4. `src/pi_agent_py/runtime.py`：循环如何消费流并提交消息
-5. `src/pi_agent_py/testing.py`：如何不用真实模型验证循环
-6. `tests/test_minimal_loop.py`：公开行为契约
-7. `src/pi_agent_py/providers/deepseek.py`：真实 SSE Provider 适配器
-8. `src/pi_agent_py/tools.py`：工具定义、审批策略与 schema 校验
-9. [教程：工具调用系统](tutorials/03-tool-calling.md)
-10. [教程：会话存储与 AgentSession](tutorials/04-session-runtime.md)
-11. [教程：Durable Event Log 与 Replay](tutorials/05-durable-event-log.md)
-12. [教程：JSONL 持久化](tutorials/06-jsonl-persistence.md)
+5. `src/pi_agent_py/session_transitions.py`：会话事件怎样纯计算出新状态
+6. `src/pi_agent_py/testing.py`：如何不用真实模型验证循环
+7. `tests/test_minimal_loop.py`：公开行为契约
+8. `src/pi_agent_py/providers/deepseek.py`：真实 SSE Provider 适配器
+9. `src/pi_agent_py/tools.py`：工具定义、审批策略与 schema 校验
+10. [教程：工具调用系统](tutorials/03-tool-calling.md)
+11. [教程：会话存储与 AgentSession](tutorials/04-session-runtime.md)
+12. [教程：Durable Event Log 与 Replay](tutorials/05-durable-event-log.md)
+13. [教程：JSONL 持久化](tutorials/06-jsonl-persistence.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。

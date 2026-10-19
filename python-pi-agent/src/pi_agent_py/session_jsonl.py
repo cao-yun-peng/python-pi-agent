@@ -17,15 +17,14 @@ from .domain import (
     ToolCall,
 )
 from .errors import (
-    SessionConflictError,
     SessionReplayError,
     SessionStorageError,
     SessionValidationError,
 )
-from .session import (
-    _validate_append_input,
-    _validate_session_id,
+from .session_transitions import (
+    prepare_session_append,
     replay_session,
+    validate_session_id,
 )
 
 _SCHEMA_VERSION = 1
@@ -58,7 +57,7 @@ class JsonlSessionStore:
         self,
         session_id: str,
     ) -> tuple[DurableSessionEvent, ...]:
-        _validate_session_id(session_id)
+        validate_session_id(session_id)
 
         async with self._lock:
             events = await self._read_all_events()
@@ -76,16 +75,18 @@ class JsonlSessionStore:
             session_events = tuple(
                 event for event in all_events if event.session_id == session_id
             )
-            new_events, updated_snapshot = _prepare_append(
+            plan = prepare_session_append(
                 session_id,
                 session_events,
                 expected_version,
                 messages,
             )
-            encoded_lines = tuple(_encode_event(event) for event in new_events)
+            encoded_lines = tuple(
+                _encode_event(event) for event in plan.new_events
+            )
             await self._append_lines(encoded_lines)
 
-        return updated_snapshot
+        return plan.snapshot
 
     async def _read_all_events(self) -> tuple[DurableSessionEvent, ...]:
         try:
@@ -104,38 +105,6 @@ class JsonlSessionStore:
             raise SessionStorageError(
                 f"failed to append session log: {self._path}"
             ) from error
-
-
-def _prepare_append(
-    session_id: str,
-    current_events: Sequence[DurableSessionEvent],
-    expected_version: int,
-    messages: Sequence[Message],
-) -> tuple[tuple[DurableSessionEvent, ...], SessionSnapshot]:
-    _validate_session_id(session_id)
-    new_messages = _validate_append_input(expected_version, messages)
-    current_snapshot = replay_session(session_id, current_events)
-
-    if current_snapshot.version != expected_version:
-        raise SessionConflictError(
-            f"expected version {expected_version}, "
-            f"but current version is {current_snapshot.version}"
-        )
-
-    new_events = tuple(
-        DurableSessionEvent(
-            session_id=session_id,
-            sequence=current_snapshot.version + offset,
-            kind="message_committed",
-            message=message,
-        )
-        for offset, message in enumerate(new_messages, start=1)
-    )
-    updated_snapshot = replay_session(
-        session_id,
-        (*current_events, *new_events),
-    )
-    return new_events, updated_snapshot
 
 
 def _encode_event(event: DurableSessionEvent) -> str:

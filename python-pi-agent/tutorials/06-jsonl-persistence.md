@@ -70,6 +70,8 @@ session = AgentSession(
 → 返回新 snapshot
 ```
 
+其中“比较 version → 生成事件 → replay 新 snapshot”由共享的 `prepare_session_append()` 完成。它返回 `SessionAppendPlan(new_events, snapshot)`；JSONL Provider 只编码并提交 `new_events`，成功后返回已经计算好的 snapshot。内存 Provider 使用同一个 plan，只是把事件放进字典。
+
 文件 I/O 通过 `asyncio.to_thread()` 移出事件循环。实例内 `asyncio.Lock` 防止同一个 Store 对象出现交错读写。
 
 ## 6. 跨进程运行示例

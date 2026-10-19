@@ -15,6 +15,7 @@
 | `EventSink` | session subscribe / agent events | live events 与 durable session events 分离 | 当前没有异步事件队列 |
 | `AgentSession` | Pi `AgentSession` 的 prompt 与状态编排 | Consumer 组合 Provider 与存储 capability | 已支持加载、逐消息提交和恢复，待 steer/queue/compaction |
 | `SessionStore` / `SessionSnapshot` | `SessionManager` 与 session entries | Definition / Provider / Consumer / Evidence | 已有内存与单写者 JSONL Provider，待分叉和多进程事务 |
+| `prepare_session_append` / `SessionAppendPlan` | session entry append rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一规则，尚未包含 fork transition |
 | `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | 已有严格格式、刷盘和重启恢复，尚无文件锁与迁移工具 |
 | `DurableSessionEvent` | session entries | append-only facts + replayable projection | 当前只有 `message_committed` 一种事件，尚无分支/压缩事件 |
 | committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 已能从有序事件日志回放，损坏序号会被拒绝 |

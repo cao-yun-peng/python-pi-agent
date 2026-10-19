@@ -14,7 +14,7 @@ ADR 0004 已让 durable events 成为会话事实来源，但第一份 Provider 
 - 一个文件可保存多个 session；每行保存一个带 `schema_version` 的完整 `DurableSessionEvent`。
 - 读取时严格校验字段集合、字段类型、格式版本、事件 kind 和领域对象约束。
 - JSON/结构损坏映射为 `SessionReplayError`，文件 I/O 失败映射为 `SessionStorageError` 并保留异常链。
-- append 复用现有输入校验与 replay，并遵守和内存 Provider 相同的 version 检查与事件生成语义。
+- append 通过共享纯函数 `prepare_session_append()` 获得 `SessionAppendPlan`，与内存 Provider 使用完全相同的校验、version 检查和事件生成规则。
 - 阻塞文件 I/O 使用 `asyncio.to_thread()`；同一 Store 实例用 `asyncio.Lock` 串行读写。
 - 每批追加完成后调用 `flush()` 和 `os.fsync()`。
 - 当前明确采用单写者模型，不声称支持多个进程并发写入同一文件。
