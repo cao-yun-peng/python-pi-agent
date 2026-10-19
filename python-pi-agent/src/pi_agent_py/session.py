@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from .domain import DurableSessionEvent, Message, SessionSnapshot
+from .session_transitions import (
+    prepare_session_append,
+    replay_session,
+    validate_session_id,
+)
+
+
+class InMemorySessionStore:
+    def __init__(self) -> None:
+        self._events_by_session: dict[str, list[DurableSessionEvent]] = {}
+
+    async def load(self, session_id: str) -> SessionSnapshot:
+        validate_session_id(session_id)
+
+        events = self._events_by_session.get(session_id, [])
+        return replay_session(session_id, events)
+
+    async def read_events(
+        self,
+        session_id: str,
+    ) -> tuple[DurableSessionEvent, ...]:
+        """Return an immutable copy of the durable session log."""
+        validate_session_id(session_id)
+        return tuple(self._events_by_session.get(session_id, []))
+
+    async def append(
+        self,
+        session_id: str,
+        expected_version: int,
+        messages: Sequence[Message],
+    ) -> SessionSnapshot:
+        current_events = self._events_by_session.get(session_id, [])
+        plan = prepare_session_append(
+            session_id,
+            current_events,
+            expected_version,
+            messages,
+        )
+        updated_events = [*current_events, *plan.new_events]
+        self._events_by_session[session_id] = updated_events
+
+        return plan.snapshot
