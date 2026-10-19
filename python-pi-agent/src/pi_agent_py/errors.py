@@ -44,3 +44,15 @@ class ProviderResponseError(ProviderError):
 
 class ModelProtocolError(AgentError):
     """The provider stream violated the model event protocol."""
+
+
+class ToolValidationError(AgentError):
+    """Tool arguments do not satisfy the declared input schema."""
+
+    def __init__(self, violations: tuple[str, ...]) -> None:
+        super().__init__("; ".join(violations))
+        self.violations = violations
+
+
+class AgentLoopLimitError(AgentError):
+    """The run exceeded its configured number of model requests."""

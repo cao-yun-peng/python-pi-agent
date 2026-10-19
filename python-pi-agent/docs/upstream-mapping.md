@@ -6,13 +6,16 @@
 
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
-| `Agent.run()` | `packages/agent/src/agent-loop.ts` 的 agent loop | Runtime 消费已注册能力 | 当前只有文本，没有工具调用 |
+| `Agent.run()` | `packages/agent/src/agent-loop.ts` 的 agent/tool loop | Runtime 消费已注册能力 | 已有顺序工具循环，尚无并行 batch |
 | `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 已有 DeepSeek Chat Completions，待多供应商 |
-| `DeepSeekProvider` | `pi-ai` provider adapter / stream function | Provider + Lifecycle + Evidence | 直接解析 SSE，尚无 retry 与 tool call |
+| `DeepSeekProvider` | `pi-ai` provider adapter / stream function | Provider + Lifecycle + Evidence | 可聚合流式 tool call，尚无 retry |
+| `ToolDefinition` / `Tool` | `AgentTool` 与参数 schema | Capability Definition / Provider / Consumer | 使用教学型 JSON Schema 子集 |
+| `ApprovalPolicy` | `beforeToolCall` block hook | 独立策略 capability | 默认拒绝受保护工具，尚无身份策略 |
+| tool message | `ToolResultMessage` | model-visible durable state | 已在内存提交，持久化待第 4 阶段 |
 | `EventSink` | session subscribe / agent events | live events 与 durable session events 分离 | 当前没有异步事件队列 |
 | committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 当前只在内存中，持久化待第 3 阶段 |
 | `run_settled` | Pi 的 `agent_settled` 语义 | 生命周期完成事件 | 当前没有 retry/compaction/queue 工作 |
-| `FakeProvider` | Pi 的 faux provider/testing patterns | 以证据验证 capability 契约 | 当前脚本只覆盖文本流 |
+| `FakeProvider` | Pi 的 faux provider/testing patterns | 以证据验证 capability 契约 | 已覆盖文本与完整 ToolCall |
 
 ## 学习原则
 

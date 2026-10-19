@@ -8,12 +8,15 @@ import httpx
 from pi_agent_py import (
     Agent,
     ConfigurationError,
+    Finish,
     InMemoryEventSink,
     Message,
     ProviderAuthenticationError,
     ProviderError,
     ProviderRateLimitError,
     ProviderResponseError,
+    ToolCall,
+    ToolDefinition,
 )
 from pi_agent_py.providers import DeepSeekConfig, DeepSeekProvider
 
@@ -98,6 +101,64 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("super-secret", str(raised.exception))
         self.assertNotIn("super-secret", repr(config))
+
+    async def test_normalizes_split_tool_call_and_sends_tool_schema(self) -> None:
+        captured_request: dict[str, object] = {}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            captured_request["body"] = json.loads(request.content)
+            body = "\n".join(
+                [
+                    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"weather","arguments":"{\\"city\\":"}}]},"finish_reason":null}]}',
+                    "",
+                    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"深圳\\"}"}}]},"finish_reason":null}]}',
+                    "",
+                    'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+                    "",
+                    "data: [DONE]",
+                    "",
+                ]
+            )
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                content=body.encode(),
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        self.addAsyncCleanup(client.aclose)
+        provider = DeepSeekProvider(DeepSeekConfig(api_key="test-key"), client=client)
+        definition = ToolDefinition(
+            name="weather",
+            description="Read weather for one city.",
+            input_schema={
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            },
+            side_effects="read",
+            retry_safe=True,
+            replay_safe=True,
+        )
+
+        events = await _collect(
+            provider,
+            [Message(role="user", content="深圳天气")],
+            [definition],
+        )
+
+        self.assertEqual(
+            events,
+            [
+                ToolCall("call-1", "weather", {"city": "深圳"}),
+                Finish("tool_calls"),
+            ],
+        )
+        request_body = captured_request["body"]
+        assert isinstance(request_body, dict)
+        tools = request_body["tools"]
+        assert isinstance(tools, list)
+        self.assertEqual(tools[0]["function"]["name"], "weather")
 
     async def test_rejects_malformed_stream_json(self) -> None:
         def handle(request: httpx.Request) -> httpx.Response:
@@ -186,8 +247,9 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
 async def _collect(
     provider: DeepSeekProvider,
     messages: list[Message],
+    tools: list[ToolDefinition] | None = None,
 ) -> list[object]:
-    return [event async for event in provider.stream(messages)]
+    return [event async for event in provider.stream(messages, tools or [])]
 
 
 if __name__ == "__main__":

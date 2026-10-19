@@ -11,18 +11,21 @@ import re
 from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 from urllib.parse import urlparse
 
 import httpx
 
 from ..domain import (
     Finish,
+    JSONObject,
     Message,
     ModelStreamEvent,
     TextDelta,
     ThinkingDelta,
     TokenUsage,
+    ToolCall,
+    ToolDefinition,
 )
 from ..errors import (
     ConfigurationError,
@@ -129,6 +132,7 @@ class DeepSeekProvider:
     async def stream(
         self,
         messages: Sequence[Message],
+        tools: Sequence[ToolDefinition] = (),
     ) -> AsyncIterator[ModelStreamEvent]:
         """Send model-visible history and yield normalized stream events."""
         if self._closed:
@@ -136,7 +140,7 @@ class DeepSeekProvider:
         if not messages:
             raise ProviderError("DeepSeek requires at least one message")
 
-        payload = self._build_payload(messages)
+        payload = self._build_payload(messages, tools)
         headers = {
             "Authorization": f"Bearer {self._config.api_key}",
             "Content-Type": "application/json",
@@ -160,10 +164,11 @@ class DeepSeekProvider:
                         "DeepSeek streaming response is not text/event-stream"
                     )
 
+                tool_calls = _ToolCallAccumulator()
                 async for data in _iter_sse_data(response):
                     if data == "[DONE]":
                         return
-                    for event in _normalize_chunk(data):
+                    for event in _normalize_chunk(data, tool_calls):
                         yield event
         except ProviderError:
             raise
@@ -174,13 +179,14 @@ class DeepSeekProvider:
         except httpx.HTTPError as error:
             raise ProviderError(f"DeepSeek transport failed: {type(error).__name__}") from error
 
-    def _build_payload(self, messages: Sequence[Message]) -> dict[str, object]:
+    def _build_payload(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+    ) -> dict[str, object]:
         payload: dict[str, object] = {
             "model": self._config.model,
-            "messages": [
-                {"role": message.role, "content": message.content}
-                for message in messages
-            ],
+            "messages": [_serialize_message(message) for message in messages],
             "stream": True,
             "stream_options": {"include_usage": True},
             "thinking": {"type": self._config.thinking},
@@ -191,7 +197,50 @@ class DeepSeekProvider:
             payload["max_tokens"] = self._config.max_tokens
         if self._config.user_id is not None:
             payload["user_id"] = self._config.user_id
+        if tools:
+            payload["tools"] = [_serialize_tool(definition) for definition in tools]
         return payload
+
+
+def _serialize_message(message: Message) -> dict[str, object]:
+    if message.role == "assistant" and message.tool_calls:
+        return {
+            "role": "assistant",
+            "content": message.content or None,
+            "tool_calls": [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(
+                            call.arguments,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
+                    },
+                }
+                for call in message.tool_calls
+            ],
+        }
+    if message.role == "tool":
+        return {
+            "role": "tool",
+            "content": message.content,
+            "tool_call_id": message.tool_call_id,
+        }
+    return {"role": message.role, "content": message.content}
+
+
+def _serialize_tool(definition: ToolDefinition) -> dict[str, object]:
+    return {
+        "type": "function",
+        "function": {
+            "name": definition.name,
+            "description": definition.description,
+            "parameters": dict(definition.input_schema),
+        },
+    }
 
 
 async def _iter_sse_data(response: httpx.Response) -> AsyncIterator[str]:
@@ -212,7 +261,90 @@ async def _iter_sse_data(response: httpx.Response) -> AsyncIterator[str]:
         yield "\n".join(data_lines)
 
 
-def _normalize_chunk(data: str) -> Iterator[ModelStreamEvent]:
+@dataclass(slots=True)
+class _ToolCallParts:
+    id: str | None = None
+    name: str | None = None
+    argument_chunks: list[str] = field(default_factory=list)
+
+
+class _ToolCallAccumulator:
+    def __init__(self) -> None:
+        self._calls: dict[int, _ToolCallParts] = {}
+
+    @property
+    def has_calls(self) -> bool:
+        return bool(self._calls)
+
+    def add(self, raw: object) -> None:
+        if not isinstance(raw, dict):
+            raise ProviderResponseError("DeepSeek tool call delta must be an object")
+        index = raw.get("index")
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+            raise ProviderResponseError("DeepSeek tool call index must be an integer")
+        parts = self._calls.setdefault(index, _ToolCallParts())
+
+        call_id = raw.get("id")
+        if call_id is not None:
+            if not isinstance(call_id, str) or not call_id:
+                raise ProviderResponseError("DeepSeek tool call id must be a string")
+            if parts.id is not None and parts.id != call_id:
+                raise ProviderResponseError("DeepSeek changed a streamed tool call id")
+            parts.id = call_id
+
+        function = raw.get("function")
+        if function is None:
+            return
+        if not isinstance(function, dict):
+            raise ProviderResponseError("DeepSeek tool call function must be an object")
+        name = function.get("name")
+        if name is not None:
+            if not isinstance(name, str) or not name:
+                raise ProviderResponseError("DeepSeek tool name must be a string")
+            if parts.name is not None and parts.name != name:
+                raise ProviderResponseError("DeepSeek changed a streamed tool name")
+            parts.name = name
+        arguments = function.get("arguments")
+        if arguments is not None:
+            if not isinstance(arguments, str):
+                raise ProviderResponseError(
+                    "DeepSeek streamed tool arguments must be text"
+                )
+            parts.argument_chunks.append(arguments)
+
+    def build(self) -> list[ToolCall]:
+        calls: list[ToolCall] = []
+        for index in sorted(self._calls):
+            parts = self._calls[index]
+            if parts.id is None or parts.name is None:
+                raise ProviderResponseError(
+                    "DeepSeek tool call is missing id or function name"
+                )
+            raw_arguments = "".join(parts.argument_chunks) or "{}"
+            try:
+                arguments = json.loads(raw_arguments)
+            except json.JSONDecodeError as error:
+                raise ProviderResponseError(
+                    "DeepSeek tool arguments are not valid JSON"
+                ) from error
+            if not isinstance(arguments, dict):
+                raise ProviderResponseError(
+                    "DeepSeek tool arguments must decode to an object"
+                )
+            calls.append(
+                ToolCall(
+                    id=parts.id,
+                    name=parts.name,
+                    arguments=cast(JSONObject, arguments),
+                )
+            )
+        return calls
+
+
+def _normalize_chunk(
+    data: str,
+    tool_calls: _ToolCallAccumulator,
+) -> Iterator[ModelStreamEvent]:
     try:
         chunk = json.loads(data)
     except json.JSONDecodeError as error:
@@ -244,17 +376,25 @@ def _normalize_chunk(data: str) -> Iterator[ModelStreamEvent]:
             content = delta.get("content")
             if isinstance(content, str) and content:
                 yield TextDelta(content)
-            if delta.get("tool_calls"):
-                raise ProviderResponseError(
-                    "DeepSeek returned tool calls, but this milestone has no tool runtime"
-                )
+            raw_tool_calls = delta.get("tool_calls")
+            if raw_tool_calls is not None:
+                if not isinstance(raw_tool_calls, list):
+                    raise ProviderResponseError(
+                        "DeepSeek delta.tool_calls must be a list"
+                    )
+                for raw_tool_call in raw_tool_calls:
+                    tool_calls.add(raw_tool_call)
 
         finish_reason = choice.get("finish_reason")
         if finish_reason is not None:
+            if tool_calls.has_calls:
+                yield from tool_calls.build()
             if finish_reason == "stop":
                 yield Finish("stop")
             elif finish_reason == "length":
                 yield Finish("length")
+            elif finish_reason == "tool_calls":
+                yield Finish("tool_calls")
             else:
                 raise ProviderResponseError(
                     f"DeepSeek finish reason is not supported yet: {finish_reason}"

@@ -3,14 +3,21 @@
 from .domain import (
     AgentEvent,
     AgentResult,
+    ApprovalDecision,
     Finish,
+    JSONObject,
+    JSONValue,
     Message,
     TextDelta,
     ThinkingDelta,
     TokenUsage,
+    ToolCall,
+    ToolDefinition,
+    ToolOutput,
 )
 from .errors import (
     AgentError,
+    AgentLoopLimitError,
     ConfigurationError,
     ModelProtocolError,
     ProviderAuthenticationError,
@@ -20,21 +27,34 @@ from .errors import (
     ProviderRateLimitError,
     ProviderResponseError,
     ProviderTimeoutError,
+    ToolValidationError,
 )
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
 from .runtime import Agent
 from .testing import FakeProvider, WaitUntilCancelled
+from .tools import (
+    DenyByDefaultApprovalPolicy,
+    FunctionTool,
+    StaticApprovalPolicy,
+    validate_tool_arguments,
+)
 
 __all__ = [
     "Agent",
     "AgentError",
     "AgentEvent",
+    "AgentLoopLimitError",
     "AgentResult",
+    "ApprovalDecision",
     "CallbackEventSink",
     "ConfigurationError",
+    "DenyByDefaultApprovalPolicy",
     "FakeProvider",
     "Finish",
+    "FunctionTool",
     "InMemoryEventSink",
+    "JSONObject",
+    "JSONValue",
     "Message",
     "ModelProtocolError",
     "NullEventSink",
@@ -48,5 +68,11 @@ __all__ = [
     "TextDelta",
     "ThinkingDelta",
     "TokenUsage",
+    "ToolCall",
+    "ToolDefinition",
+    "ToolOutput",
+    "ToolValidationError",
     "WaitUntilCancelled",
+    "StaticApprovalPolicy",
+    "validate_tool_arguments",
 ]
