@@ -76,7 +76,7 @@ $env:PYTHONPATH = (Resolve-Path .\python-pi-agent\src).Path
 
 ## 7. Durable 不等于已经落盘
 
-这里的 durable 指“重要状态被表达为可持久化、可回放的有序事实”。当前 `InMemorySessionStore` 在进程退出后仍会丢失数据。跨进程 durability 需要后续 JSONL 或 SQLite Provider，还要处理原子追加、刷盘、迁移和多进程并发。
+这里的 durable 指“重要状态被表达为可持久化、可回放的有序事实”。`InMemorySessionStore` 在进程退出后仍会丢失数据；下一章的 JSONL Provider 会增加跨进程恢复，同时保留相同事件与 replay 语义。
 
 ## 8. 与 Pi / DeepSeek Harness 的映射
 

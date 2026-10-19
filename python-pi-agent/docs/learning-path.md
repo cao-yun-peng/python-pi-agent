@@ -13,4 +13,4 @@
 9. **可观测性与评测**：trace、成本、延迟、回归数据集和评分器。
 10. **产品适配与多 Agent**：CLI、Web/SSE、垂直 profile、委派和预算。
 
-当前进度：阶段 1、2、3 已完成；阶段 4 已完成内存 SessionStore、乐观并发控制、跨 run 恢复、逐消息提交、durable event log 与回放，下一步实现会话分叉和进程级持久化。
+当前进度：阶段 1、2、3 已完成；阶段 4 已完成内存与 JSONL SessionStore、乐观并发控制、跨 run/进程恢复、逐消息提交、durable event log 与回放，下一步实现会话分叉；多进程并发和数据库事务留给后续存储 Provider。

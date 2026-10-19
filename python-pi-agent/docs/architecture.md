@@ -7,6 +7,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
                ^           |
                |           └── tools.py provides policies and FunctionTool
                ├── session.py implements SessionStore
+               ├── session_jsonl.py implements persistent SessionStore
                ├── testing.py implements ModelProvider
                └── providers/deepseek.py implements ModelProvider
 ```
@@ -16,6 +17,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - `runtime.py` 消费端口并维护已提交消息。
 - `runtime.AgentSession` 加载会话历史，并通过逐消息异步提交把 Agent loop 连接到 `SessionStore`。
 - `session.py` 提供 replay 纯函数和带乐观并发检查的 `InMemorySessionStore`。
+- `session_jsonl.py` 提供带格式版本、严格解码和刷盘语义的 `JsonlSessionStore`。
 - `events.py` 提供最小观察适配器。
 - `testing.py` 是确定性 Provider 实现，也是 Provider 契约的第一份证据。
 - `providers/deepseek.py` 隔离 DeepSeek 的 HTTP、认证、SSE 和错误格式。
@@ -29,13 +31,13 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 
 `AgentSession` 通过 `SessionStore.load()` 恢复历史，并在每条完整消息进入 Agent 内存和触发 `message_committed` 前先调用 `SessionStore.append()`。当前内存实现把每条消息转换为带连续 `sequence` 的 `DurableSessionEvent`；`load()` 不读取独立消息副本，而是 replay 日志生成快照。序号断裂或混入其他 session 的事件会导致 `SessionReplayError`，避免从损坏日志静默恢复。
 
-当前日志仍只存在于进程内；“durable”描述事件的恢复语义，不代表已经实现磁盘持久化。后续 JSONL 或 SQLite provider 应复用相同事件与 replay 契约。
+`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。读取、反序列化和 replay 仍使用相同领域对象，因此 runtime 无需感知存储变化。当前实现通过实例内锁串行访问，并在追加后执行 `flush()` 与 `fsync()`；它支持进程重启后的恢复，但尚不支持多个进程同时写入同一文件。
 
 ## 依赖规则
 
 - domain 不依赖 ports 或 runtime。
 - ports 只依赖 domain。
 - runtime 依赖 domain 和 ports，不依赖具体 Provider。
-- session 实现 ports 中的 `SessionStore`，ports 不依赖具体存储。
+- session 与 session_jsonl 实现 ports 中的 `SessionStore`，ports 不依赖具体存储。
 - apps 负责显式组装，不通过 import 副作用注册。
 - runtime 顺序执行工具；并行策略要等资源隔离与取消语义稳定后再加入。

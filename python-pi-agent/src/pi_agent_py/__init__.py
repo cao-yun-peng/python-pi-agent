@@ -31,6 +31,7 @@ from .errors import (
     ProviderTimeoutError,
     SessionConflictError,
     SessionReplayError,
+    SessionStorageError,
     SessionValidationError,
     ToolValidationError,
 )
@@ -38,6 +39,7 @@ from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
 from .ports import SessionStore
 from .runtime import Agent, AgentSession
 from .session import InMemorySessionStore, replay_session
+from .session_jsonl import JsonlSessionStore
 from .testing import FakeProvider, WaitUntilCancelled
 from .tools import (
     DenyByDefaultApprovalPolicy,
@@ -65,6 +67,7 @@ __all__ = [
     "InMemorySessionStore",
     "JSONObject",
     "JSONValue",
+    "JsonlSessionStore",
     "Message",
     "ModelProtocolError",
     "NullEventSink",
@@ -77,6 +80,7 @@ __all__ = [
     "ProviderTimeoutError",
     "SessionConflictError",
     "SessionReplayError",
+    "SessionStorageError",
     "SessionSnapshot",
     "SessionStore",
     "SessionValidationError",

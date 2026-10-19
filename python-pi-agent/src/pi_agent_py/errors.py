@@ -68,3 +68,7 @@ class SessionValidationError(AgentError):
 
 class SessionReplayError(AgentError):
     """A durable session log cannot be replayed safely."""
+
+
+class SessionStorageError(AgentError):
+    """A session store could not read or persist durable data."""
