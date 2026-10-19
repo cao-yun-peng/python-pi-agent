@@ -17,6 +17,8 @@ from .domain import (
     Finish,
     Message,
     TextDelta,
+    ThinkingDelta,
+    TokenUsage,
 )
 from .errors import AgentError, ModelProtocolError, ProviderError
 from .events import NullEventSink
@@ -55,16 +57,31 @@ class Agent:
             user_message = Message(role="user", content=prompt)
             self._commit(user_message)
             partial_text: list[str] = []
+            usage: TokenUsage | None = None
 
             try:
                 self._emit("model_request_started", "live")
                 finish: Finish | None = None
                 async for event in self._provider.stream(self.messages):
-                    if isinstance(event, TextDelta):
+                    if isinstance(event, ThinkingDelta):
+                        if finish is not None:
+                            raise ModelProtocolError("thinking arrived after finish")
+                        self._emit("thinking_delta", "live", text=event.text)
+                    elif isinstance(event, TextDelta):
                         if finish is not None:
                             raise ModelProtocolError("text arrived after finish")
                         partial_text.append(event.text)
                         self._emit("text_delta", "live", text=event.text)
+                    elif isinstance(event, TokenUsage):
+                        usage = event
+                        self._emit(
+                            "model_usage",
+                            "live",
+                            input_tokens=event.input_tokens,
+                            output_tokens=event.output_tokens,
+                            total_tokens=event.total_tokens,
+                            cached_input_tokens=event.cached_input_tokens,
+                        )
                     elif isinstance(event, Finish):
                         if finish is not None:
                             raise ModelProtocolError("provider emitted more than one finish")
@@ -91,6 +108,7 @@ class Agent:
                     message=assistant_message,
                     messages=self.messages,
                     finish_reason=finish.reason,
+                    usage=usage,
                 )
             except asyncio.CancelledError:
                 self._emit("run_cancelled", "live")

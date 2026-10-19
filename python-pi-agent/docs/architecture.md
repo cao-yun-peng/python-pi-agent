@@ -4,8 +4,9 @@
 
 ```text
 domain.py <- ports.py <- runtime.py <- examples / future apps
-                  ^
-                  └── testing.py implements ModelProvider
+               ^
+               ├── testing.py implements ModelProvider
+               └── providers/deepseek.py implements ModelProvider
 ```
 
 - `domain.py` 只包含无 I/O 的值对象。
@@ -13,6 +14,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - `runtime.py` 消费端口并维护已提交消息。
 - `events.py` 提供最小观察适配器。
 - `testing.py` 是确定性 Provider 实现，也是 Provider 契约的第一份证据。
+- `providers/deepseek.py` 隔离 DeepSeek 的 HTTP、认证、SSE 和错误格式。
 
 ## 状态模型
 

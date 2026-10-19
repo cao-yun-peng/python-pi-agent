@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pi-agent-py"
-version = "0.1.0"
+version = "0.2.0"
 description = "A teaching-first, modular Python agent harness"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,9 @@ license = { text = "MIT" }
 authors = [
     { name = "pi-agent contributors" },
 ]
-dependencies = []
+dependencies = [
+    "httpx>=0.27,<1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

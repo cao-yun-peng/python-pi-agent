@@ -12,7 +12,9 @@ EventKind: TypeAlias = Literal[
     "run_started",
     "message_committed",
     "model_request_started",
+    "thinking_delta",
     "text_delta",
+    "model_usage",
     "run_completed",
     "run_failed",
     "run_cancelled",
@@ -36,13 +38,30 @@ class TextDelta:
 
 
 @dataclass(frozen=True, slots=True)
+class ThinkingDelta:
+    """A piece of model reasoning that is observable but not committed."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class Finish:
     """The provider's explicit end-of-message marker."""
 
     reason: FinishReason = "stop"
 
 
-ModelStreamEvent: TypeAlias = TextDelta | Finish
+@dataclass(frozen=True, slots=True)
+class TokenUsage:
+    """Provider-neutral token accounting for one model request."""
+
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cached_input_tokens: int | None = None
+
+
+ModelStreamEvent: TypeAlias = TextDelta | ThinkingDelta | TokenUsage | Finish
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,3 +84,4 @@ class AgentResult:
     message: Message
     messages: tuple[Message, ...]
     finish_reason: FinishReason
+    usage: TokenUsage | None = None

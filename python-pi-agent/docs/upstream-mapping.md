@@ -7,7 +7,8 @@
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
 | `Agent.run()` | `packages/agent/src/agent-loop.ts` 的 agent loop | Runtime 消费已注册能力 | 当前只有文本，没有工具调用 |
-| `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 只有最小的 `TextDelta` 与 `Finish` |
+| `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 已有 DeepSeek Chat Completions，待多供应商 |
+| `DeepSeekProvider` | `pi-ai` provider adapter / stream function | Provider + Lifecycle + Evidence | 直接解析 SSE，尚无 retry 与 tool call |
 | `EventSink` | session subscribe / agent events | live events 与 durable session events 分离 | 当前没有异步事件队列 |
 | committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 当前只在内存中，持久化待第 3 阶段 |
 | `run_settled` | Pi 的 `agent_settled` 语义 | 生命周期完成事件 | 当前没有 retry/compaction/queue 工作 |

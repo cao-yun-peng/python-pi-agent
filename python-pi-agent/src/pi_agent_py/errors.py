@@ -5,8 +5,41 @@ class AgentError(Exception):
     """Base class for expected harness failures."""
 
 
+class ConfigurationError(AgentError):
+    """A component was created with invalid or missing configuration."""
+
+
 class ProviderError(AgentError):
     """The model provider failed before producing a valid response."""
+
+
+class ProviderAuthenticationError(ProviderError):
+    """The provider rejected the supplied credentials."""
+
+
+class ProviderBalanceError(ProviderError):
+    """The provider account does not have enough balance."""
+
+
+class ProviderRateLimitError(ProviderError):
+    """The provider rejected a request because a rate limit was reached."""
+
+
+class ProviderTimeoutError(ProviderError):
+    """The provider request exceeded its configured timeout."""
+
+
+class ProviderHTTPError(ProviderError):
+    """An HTTP provider returned a non-success response."""
+
+    def __init__(self, status_code: int, message: str, *, retryable: bool) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retryable = retryable
+
+
+class ProviderResponseError(ProviderError):
+    """The provider returned a response that could not be normalized."""
 
 
 class ModelProtocolError(AgentError):

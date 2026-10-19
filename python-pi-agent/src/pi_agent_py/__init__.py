@@ -6,8 +6,21 @@ from .domain import (
     Finish,
     Message,
     TextDelta,
+    ThinkingDelta,
+    TokenUsage,
 )
-from .errors import AgentError, ModelProtocolError, ProviderError
+from .errors import (
+    AgentError,
+    ConfigurationError,
+    ModelProtocolError,
+    ProviderAuthenticationError,
+    ProviderBalanceError,
+    ProviderError,
+    ProviderHTTPError,
+    ProviderRateLimitError,
+    ProviderResponseError,
+    ProviderTimeoutError,
+)
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
 from .runtime import Agent
 from .testing import FakeProvider, WaitUntilCancelled
@@ -18,6 +31,7 @@ __all__ = [
     "AgentEvent",
     "AgentResult",
     "CallbackEventSink",
+    "ConfigurationError",
     "FakeProvider",
     "Finish",
     "InMemoryEventSink",
@@ -25,6 +39,14 @@ __all__ = [
     "ModelProtocolError",
     "NullEventSink",
     "ProviderError",
+    "ProviderAuthenticationError",
+    "ProviderBalanceError",
+    "ProviderHTTPError",
+    "ProviderRateLimitError",
+    "ProviderResponseError",
+    "ProviderTimeoutError",
     "TextDelta",
+    "ThinkingDelta",
+    "TokenUsage",
     "WaitUntilCancelled",
 ]
