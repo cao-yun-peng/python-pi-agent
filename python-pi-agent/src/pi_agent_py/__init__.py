@@ -8,6 +8,7 @@ from .domain import (
     JSONObject,
     JSONValue,
     Message,
+    SessionSnapshot,
     TextDelta,
     ThinkingDelta,
     TokenUsage,
@@ -27,10 +28,14 @@ from .errors import (
     ProviderRateLimitError,
     ProviderResponseError,
     ProviderTimeoutError,
+    SessionConflictError,
+    SessionValidationError,
     ToolValidationError,
 )
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
-from .runtime import Agent
+from .ports import SessionStore
+from .runtime import Agent, AgentSession
+from .session import InMemorySessionStore
 from .testing import FakeProvider, WaitUntilCancelled
 from .tools import (
     DenyByDefaultApprovalPolicy,
@@ -45,6 +50,7 @@ __all__ = [
     "AgentEvent",
     "AgentLoopLimitError",
     "AgentResult",
+    "AgentSession",
     "ApprovalDecision",
     "CallbackEventSink",
     "ConfigurationError",
@@ -53,6 +59,7 @@ __all__ = [
     "Finish",
     "FunctionTool",
     "InMemoryEventSink",
+    "InMemorySessionStore",
     "JSONObject",
     "JSONValue",
     "Message",
@@ -65,6 +72,10 @@ __all__ = [
     "ProviderRateLimitError",
     "ProviderResponseError",
     "ProviderTimeoutError",
+    "SessionConflictError",
+    "SessionSnapshot",
+    "SessionStore",
+    "SessionValidationError",
     "TextDelta",
     "ThinkingDelta",
     "TokenUsage",

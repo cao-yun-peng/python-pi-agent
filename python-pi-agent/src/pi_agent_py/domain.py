@@ -116,6 +116,15 @@ class Message:
 
 
 @dataclass(frozen=True, slots=True)
+class SessionSnapshot:
+    """An immutable view of one session at a known version."""
+
+    session_id: str
+    version: int
+    messages: tuple[Message, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TextDelta:
     """A piece of assistant text emitted by a model provider."""
 

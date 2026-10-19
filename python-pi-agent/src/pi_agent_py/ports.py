@@ -11,6 +11,7 @@ from .domain import (
     JSONObject,
     Message,
     ModelStreamEvent,
+    SessionSnapshot,
     ToolCall,
     ToolDefinition,
     ToolOutput,
@@ -34,6 +35,23 @@ class EventSink(Protocol):
 
     def emit(self, event: AgentEvent) -> None:
         """Record or enqueue an event and return immediately."""
+        ...
+
+
+class SessionStore(Protocol):
+    """Loads and atomically appends model-visible session history."""
+
+    async def load(self, session_id: str) -> SessionSnapshot:
+        """Load an immutable snapshot of the current session state."""
+        ...
+
+    async def append(
+        self,
+        session_id: str,
+        expected_version: int,
+        messages: Sequence[Message],
+    ) -> SessionSnapshot:
+        """Append messages if the persisted version still matches."""
         ...
 
 

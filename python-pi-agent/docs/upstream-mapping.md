@@ -11,9 +11,11 @@
 | `DeepSeekProvider` | `pi-ai` provider adapter / stream function | Provider + Lifecycle + Evidence | 可聚合流式 tool call，尚无 retry |
 | `ToolDefinition` / `Tool` | `AgentTool` 与参数 schema | Capability Definition / Provider / Consumer | 使用教学型 JSON Schema 子集 |
 | `ApprovalPolicy` | `beforeToolCall` block hook | 独立策略 capability | 默认拒绝受保护工具，尚无身份策略 |
-| tool message | `ToolResultMessage` | model-visible durable state | 已在内存提交，持久化待第 4 阶段 |
+| tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交，待 durable event replay |
 | `EventSink` | session subscribe / agent events | live events 与 durable session events 分离 | 当前没有异步事件队列 |
-| committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 当前只在内存中，持久化待第 3 阶段 |
+| `AgentSession` | Pi `AgentSession` 的 prompt 与状态编排 | Consumer 组合 Provider 与存储 capability | 已支持加载、逐消息提交和恢复，待 steer/queue/compaction |
+| `SessionStore` / `SessionSnapshot` | `SessionManager` 与 session entries | Definition / Provider / Consumer / Evidence | 已有内存实现和乐观版本，待事件日志、分叉和进程级持久化 |
+| committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 已能从 SessionStore 恢复，尚未从事件日志回放 |
 | `run_settled` | Pi 的 `agent_settled` 语义 | 生命周期完成事件 | 当前没有 retry/compaction/queue 工作 |
 | `FakeProvider` | Pi 的 faux provider/testing patterns | 以证据验证 capability 契约 | 已覆盖文本与完整 ToolCall |
 

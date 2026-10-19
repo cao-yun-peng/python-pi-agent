@@ -56,3 +56,11 @@ class ToolValidationError(AgentError):
 
 class AgentLoopLimitError(AgentError):
     """The run exceeded its configured number of model requests."""
+
+
+class SessionConflictError(AgentError):
+    """The session changed after the caller last loaded it."""
+
+
+class SessionValidationError(AgentError):
+    """Session input does not satisfy the storage contract."""

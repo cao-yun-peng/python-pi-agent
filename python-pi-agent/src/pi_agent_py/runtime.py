@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from .domain import (
@@ -13,6 +13,7 @@ from .domain import (
     EventKind,
     Finish,
     Message,
+    SessionSnapshot,
     TextDelta,
     ThinkingDelta,
     TokenUsage,
@@ -28,7 +29,7 @@ from .errors import (
     ToolValidationError,
 )
 from .events import NullEventSink
-from .ports import ApprovalPolicy, EventSink, ModelProvider, Tool
+from .ports import ApprovalPolicy, EventSink, ModelProvider, SessionStore, Tool
 from .tools import DenyByDefaultApprovalPolicy, validate_tool_arguments
 
 
@@ -49,6 +50,8 @@ class Agent:
         tools: Sequence[Tool] = (),
         approval_policy: ApprovalPolicy | None = None,
         event_sink: EventSink | None = None,
+        initial_messages: Sequence[Message] = (),
+        message_committer: Callable[[Message], Awaitable[None]] | None = None,
         system_prompt: str | None = None,
         max_model_requests: int = 8,
     ) -> None:
@@ -59,6 +62,10 @@ class Agent:
         if duplicate_names:
             names = ", ".join(sorted(duplicate_names))
             raise ValueError(f"duplicate tool names: {names}")
+        if initial_messages and system_prompt is not None:
+            raise ValueError(
+                "initial_messages and system_prompt cannot be supplied together"
+            )
 
         self._provider = provider
         self._tools = {tool.definition.name: tool for tool in tools}
@@ -66,7 +73,8 @@ class Agent:
         self._approval_policy = approval_policy or DenyByDefaultApprovalPolicy()
         self._event_sink = event_sink or NullEventSink()
         self._max_model_requests = max_model_requests
-        self._messages: list[Message] = []
+        self._message_committer = message_committer
+        self._messages = list(initial_messages)
         if system_prompt is not None:
             self._messages.append(Message(role="system", content=system_prompt))
         self._run_lock = asyncio.Lock()
@@ -83,18 +91,20 @@ class Agent:
 
         async with self._run_lock:
             self._emit("run_started", "live")
-            self._commit(Message(role="user", content=prompt))
             total_usage: TokenUsage | None = None
 
             try:
+                await self._commit(Message(role="user", content=prompt))
                 for request_number in range(1, self._max_model_requests + 1):
                     turn = await self._request_model(request_number)
                     total_usage = _merge_usage(total_usage, turn.usage)
-                    self._commit(turn.message)
+                    await self._commit(turn.message)
 
                     if turn.message.tool_calls:
                         if turn.finish.reason == "length":
-                            self._fail_truncated_tool_calls(turn.message.tool_calls)
+                            await self._fail_truncated_tool_calls(
+                                turn.message.tool_calls
+                            )
                         else:
                             await self._execute_tool_calls(turn.message.tool_calls)
                         continue
@@ -214,7 +224,7 @@ class Agent:
                     tool_call_id=call.id,
                     tool_name=call.name,
                 )
-                self._commit_tool_result(
+                await self._commit_tool_result(
                     call,
                     ToolOutput(
                         content=f'Tool "{call.name}" is not available.',
@@ -233,7 +243,7 @@ class Agent:
                     tool_name=call.name,
                     violations=error.violations,
                 )
-                self._commit_tool_result(
+                await self._commit_tool_result(
                     call,
                     ToolOutput(
                         content=f"Tool arguments are invalid: {error}",
@@ -245,7 +255,7 @@ class Agent:
             if tool.definition.requires_approval:
                 approved = await self._review_tool_call(call, tool.definition)
                 if not approved:
-                    self._commit_tool_result(
+                    await self._commit_tool_result(
                         call,
                         ToolOutput(
                             content="Tool call was denied by the approval policy.",
@@ -255,7 +265,7 @@ class Agent:
                     continue
 
             output = await self._run_tool(tool, call)
-            self._commit_tool_result(call, output)
+            await self._commit_tool_result(call, output)
 
     async def _review_tool_call(
         self,
@@ -344,9 +354,12 @@ class Agent:
         )
         return output
 
-    def _fail_truncated_tool_calls(self, calls: Sequence[ToolCall]) -> None:
+    async def _fail_truncated_tool_calls(
+        self,
+        calls: Sequence[ToolCall],
+    ) -> None:
         for call in calls:
-            self._commit_tool_result(
+            await self._commit_tool_result(
                 call,
                 ToolOutput(
                     content=(
@@ -357,8 +370,12 @@ class Agent:
                 ),
             )
 
-    def _commit_tool_result(self, call: ToolCall, output: ToolOutput) -> None:
-        self._commit(
+    async def _commit_tool_result(
+        self,
+        call: ToolCall,
+        output: ToolOutput,
+    ) -> None:
+        await self._commit(
             Message(
                 role="tool",
                 content=output.content,
@@ -369,7 +386,10 @@ class Agent:
             )
         )
 
-    def _commit(self, message: Message) -> None:
+    async def _commit(self, message: Message) -> None:
+        if self._message_committer is not None:
+            await self._message_committer(message)
+
         self._messages.append(message)
         self._emit("message_committed", "durable", **_message_payload(message))
 
@@ -380,6 +400,87 @@ class Agent:
         **payload: object,
     ) -> None:
         self._event_sink.emit(AgentEvent(kind=kind, channel=channel, payload=payload))
+
+
+class _SessionWriter:
+    """Append one message at a time while carrying the latest version."""
+
+    def __init__(
+        self,
+        session_store: SessionStore,
+        snapshot: SessionSnapshot,
+    ) -> None:
+        self._session_store = session_store
+        self._snapshot = snapshot
+
+    @property
+    def snapshot(self) -> SessionSnapshot:
+        return self._snapshot
+
+    async def commit(self, message: Message) -> None:
+        self._snapshot = await self._session_store.append(
+            self._snapshot.session_id,
+            self._snapshot.version,
+            (message,),
+        )
+
+
+class AgentSession:
+    """Loads one session, runs the agent loop, and persists new messages."""
+
+    def __init__(
+        self,
+        session_id: str,
+        session_store: SessionStore,
+        provider: ModelProvider,
+        *,
+        tools: Sequence[Tool] = (),
+        approval_policy: ApprovalPolicy | None = None,
+        event_sink: EventSink | None = None,
+        system_prompt: str | None = None,
+        max_model_requests: int = 8,
+    ) -> None:
+        self._session_id = session_id
+        self._session_store = session_store
+        self._provider = provider
+        self._tools = tuple(tools)
+        self._approval_policy = approval_policy
+        self._event_sink = event_sink
+        self._system_prompt = system_prompt
+        self._max_model_requests = max_model_requests
+        self._run_lock = asyncio.Lock()
+
+    async def run(self, prompt: str) -> AgentResult:
+        """Run against the latest stored history and persist the new messages."""
+        if not prompt.strip():
+            raise ValueError("prompt must contain non-whitespace text")
+
+        async with self._run_lock:
+            snapshot = await self._session_store.load(self._session_id)
+            writer = _SessionWriter(self._session_store, snapshot)
+
+            if not snapshot.messages and self._system_prompt is not None:
+                await writer.commit(
+                    Message(role="system", content=self._system_prompt)
+                )
+
+            agent = Agent(
+                self._provider,
+                tools=self._tools,
+                approval_policy=self._approval_policy,
+                event_sink=self._event_sink,
+                initial_messages=writer.snapshot.messages,
+                message_committer=writer.commit,
+                max_model_requests=self._max_model_requests,
+            )
+            result = await agent.run(prompt)
+
+            return AgentResult(
+                message=result.message,
+                messages=writer.snapshot.messages,
+                finish_reason=result.finish_reason,
+                usage=result.usage,
+            )
 
 
 def _require_unfinished(finish: Finish | None, event_name: str) -> None:
