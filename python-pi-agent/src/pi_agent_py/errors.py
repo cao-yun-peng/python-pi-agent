@@ -64,3 +64,7 @@ class SessionConflictError(AgentError):
 
 class SessionValidationError(AgentError):
     """Session input does not satisfy the storage contract."""
+
+
+class SessionReplayError(AgentError):
+    """A durable session log cannot be replayed safely."""

@@ -4,6 +4,7 @@ from .domain import (
     AgentEvent,
     AgentResult,
     ApprovalDecision,
+    DurableSessionEvent,
     Finish,
     JSONObject,
     JSONValue,
@@ -29,13 +30,14 @@ from .errors import (
     ProviderResponseError,
     ProviderTimeoutError,
     SessionConflictError,
+    SessionReplayError,
     SessionValidationError,
     ToolValidationError,
 )
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
 from .ports import SessionStore
 from .runtime import Agent, AgentSession
-from .session import InMemorySessionStore
+from .session import InMemorySessionStore, replay_session
 from .testing import FakeProvider, WaitUntilCancelled
 from .tools import (
     DenyByDefaultApprovalPolicy,
@@ -55,6 +57,7 @@ __all__ = [
     "CallbackEventSink",
     "ConfigurationError",
     "DenyByDefaultApprovalPolicy",
+    "DurableSessionEvent",
     "FakeProvider",
     "Finish",
     "FunctionTool",
@@ -73,6 +76,7 @@ __all__ = [
     "ProviderResponseError",
     "ProviderTimeoutError",
     "SessionConflictError",
+    "SessionReplayError",
     "SessionSnapshot",
     "SessionStore",
     "SessionValidationError",
@@ -86,4 +90,5 @@ __all__ = [
     "WaitUntilCancelled",
     "StaticApprovalPolicy",
     "validate_tool_arguments",
+    "replay_session",
 ]

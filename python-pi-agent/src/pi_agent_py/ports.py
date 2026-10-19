@@ -8,6 +8,7 @@ from typing import Protocol
 from .domain import (
     AgentEvent,
     ApprovalDecision,
+    DurableSessionEvent,
     JSONObject,
     Message,
     ModelStreamEvent,
@@ -43,6 +44,13 @@ class SessionStore(Protocol):
 
     async def load(self, session_id: str) -> SessionSnapshot:
         """Load an immutable snapshot of the current session state."""
+        ...
+
+    async def read_events(
+        self,
+        session_id: str,
+    ) -> tuple[DurableSessionEvent, ...]:
+        """Read the ordered durable facts used to rebuild the session."""
         ...
 
     async def append(

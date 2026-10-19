@@ -48,7 +48,7 @@ runtime 不知道实现使用字典、JSONL、SQLite 还是远程数据库。
 
 ### InMemorySessionStore
 
-`InMemorySessionStore` 是第一份确定性实现。内部使用可变 list 追加消息，对外返回 tuple 快照，防止调用者绕过版本检查修改历史。
+`InMemorySessionStore` 是第一份确定性实现。内部使用可变 list 追加 durable events，对外返回 tuple 日志和 tuple 消息快照，防止调用者绕过版本检查修改历史。
 
 ### AgentSession
 
@@ -73,7 +73,7 @@ A: append(expected=2) → version 3
 B: append(expected=2) → conflict
 ```
 
-如果没有比较版本，B 可能基于过期上下文继续写入。当前内存实现用消息数量表示版本；以后事件日志会使用稳定序号，数据库实现则必须在一个事务中完成“比较版本并追加”。
+如果没有比较版本，B 可能基于过期上下文继续写入。当前版本表示 replay 已消费的最后事件序号；数据库实现必须在一个事务中完成“比较版本并追加”。
 
 ## 4. 为什么逐消息提交
 
@@ -129,7 +129,7 @@ not stored: assistant message
 
 - `AgentSession` 对应 Pi 中 session 对 Agent loop 和消息状态的编排职责，但当前没有 queue、steer、fork 和 compaction。
 - `SessionStore` 使用 DeepSeek Harness 风格的 capability seam：Definition 是端口和快照，Provider 是内存实现，Consumer 是 `AgentSession`，Evidence 是测试与示例。
-- 当前主动省略数据库、事件日志、跨进程锁和迁移机制，先把加载、提交、失败和取消语义讲清楚。
+- 当前内存 Provider 已使用事件日志作为事实来源；仍主动省略数据库、跨进程锁和迁移机制，先把加载、提交、失败和取消语义讲清楚。
 
 ## 8. 掌握标准
 
@@ -141,4 +141,4 @@ not stored: assistant message
 4. 为什么 tool result 必须连同 `tool_call_id` 一起恢复。
 5. 为什么流式 token 不应直接成为 durable message。
 
-下一步将把“消息列表存储”提升为追加式 durable event log，并通过 replay 重建 `SessionSnapshot`。
+下一章会拆开事件追加与 replay，解释 `SessionSnapshot` 为什么只是日志投影。

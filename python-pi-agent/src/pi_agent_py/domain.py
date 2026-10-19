@@ -12,6 +12,7 @@ Role: TypeAlias = Literal["system", "user", "assistant", "tool"]
 FinishReason: TypeAlias = Literal["stop", "length", "tool_calls"]
 ToolSideEffects: TypeAlias = Literal["none", "read", "write", "external"]
 EventChannel: TypeAlias = Literal["durable", "live", "capability"]
+SessionEventKind: TypeAlias = Literal["message_committed"]
 EventKind: TypeAlias = Literal[
     "run_started",
     "message_committed",
@@ -113,6 +114,24 @@ class Message:
             raise ValueError("only tool messages may be marked as errors")
         if self.structured_content is not None and self.role != "tool":
             raise ValueError("only tool messages may contain structured content")
+
+
+@dataclass(frozen=True, slots=True)
+class DurableSessionEvent:
+    """One ordered fact in a replayable session log."""
+
+    session_id: str
+    sequence: int
+    kind: SessionEventKind
+    message: Message
+
+    def __post_init__(self) -> None:
+        if not self.session_id.strip():
+            raise ValueError("session event id must not be empty")
+        if self.sequence <= 0:
+            raise ValueError("session event sequence must be greater than zero")
+        if self.kind != "message_committed":
+            raise ValueError(f"unsupported session event kind: {self.kind}")
 
 
 @dataclass(frozen=True, slots=True)
