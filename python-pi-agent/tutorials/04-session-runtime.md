@@ -127,7 +127,7 @@ not stored: assistant message
 
 ## 7. 与 Pi 和 DeepSeek Harness 的映射
 
-- `AgentSession` 对应 Pi 中 session 对 Agent loop 和消息状态的编排职责，但当前没有 queue、steer、fork 和 compaction。
+- `AgentSession` 对应 Pi 中 session 对 Agent loop 和消息状态的编排职责；截至本章尚未加入 queue、steer、fork 和 compaction，后续章节会逐步补齐其中一部分。
 - `SessionStore` 使用 DeepSeek Harness 风格的 capability seam：Definition 是端口和快照，Provider 是内存实现，Consumer 是 `AgentSession`，Evidence 是测试与示例。
 - 当前内存 Provider 已使用事件日志作为事实来源；仍主动省略数据库、跨进程锁和迁移机制，先把加载、提交、失败和取消语义讲清楚。
 

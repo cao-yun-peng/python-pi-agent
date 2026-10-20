@@ -103,6 +103,8 @@ pairwise 时随机交换 A/B 顺序，控制长度差，避免位置偏差和偏
 - 摘要失败或取消后 durable log 不变。
 - 版本冲突不得覆盖并发消息。
 - 下一轮 Provider context 必须来自 replay 后 snapshot。
+- 工具结果使阈值越界时，必须先持久化完整 assistant tool call/tool result，再追加 compaction event，最后发起第二次 Provider 请求。
+- 工具续轮压缩不得拆散 tool call/result；摘要失败或取消时保留已经提交的工具轮次，并且不得发起第二次 Provider 请求。
 - 记录压缩耗时、摘要 token 成本、压缩前后 token 和触发频率。
 
 这对应 OpenAI 所说的 trace-first：先定位失败发生在 policy、summary、store 还是下游回答，再决定优化哪一层。

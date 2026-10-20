@@ -15,7 +15,7 @@ JSONL -> 严格反序列化 -> durable events -> replay -> 跨进程恢复
 完整历史 -> ContextStrategy -> ContextPlan -> 单次模型请求投影
 完整历史 -> turn 分组 -> token budget -> 最近完整上下文投影
 旧完整 turns -> 摘要策略 -> context_compacted event -> replay -> 重启后恢复
-候选上下文 -> token threshold policy -> 自动 durable compaction -> Agent run
+候选上下文 -> token threshold policy -> run 前/工具续轮前 durable compaction
 ```
 
 它同时提供脚本化 `FakeProvider` 和真实 `DeepSeekProvider`。默认测试仍然确定、离线且不会产生 API 费用。
@@ -77,8 +77,8 @@ live    run_settled
 
 1. [教程：最小 Agent Loop](tutorials/01-minimal-agent-loop.md)
 2. `src/pi_agent_py/domain.py`：什么是消息和事件
-3. `src/pi_agent_py/ports.py`：核心依赖哪些抽象
-4. `src/pi_agent_py/runtime.py`：循环如何消费流并提交消息
+3. `src/pi_agent_py/ports.py`：核心依赖哪些抽象，以及观察端口与拦截 Hook 的区别
+4. `src/pi_agent_py/runtime.py`：循环如何消费流、提交消息，并在下一次模型请求前调用 `NextTurnHook`
 5. `src/pi_agent_py/session_transitions.py`：会话事件怎样纯计算出新状态
 6. `src/pi_agent_py/testing.py`：如何不用真实模型验证循环
 7. `tests/test_minimal_loop.py`：公开行为契约
@@ -92,7 +92,7 @@ live    run_settled
 15. [教程：ContextStrategy 接缝](tutorials/08-context-strategy.md)
 16. [教程：Token Budget 与完整消息组](tutorials/09-token-budget-context.md)
 17. [教程：Durable Compaction](tutorials/10-durable-compaction.md)
-18. [教程：Token Threshold 自动压缩](tutorials/11-automatic-compaction.md)
+18. [教程：Token Threshold 自动压缩与 NextTurnHook](tutorials/11-automatic-compaction.md)
 19. [Compaction 质量评测方案](docs/compaction-evaluation.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。

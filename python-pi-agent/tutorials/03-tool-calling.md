@@ -13,6 +13,7 @@ ModelProvider
   -> Tool.execute()
   -> ToolOutput
   -> commit tool message
+  -> prepare_next_turn Hook
   -> 下一次模型请求
   -> 最终 assistant message
 ```
@@ -45,6 +46,8 @@ tool       call-1 -> 5
 ```
 
 这样会话持久化后才能重建“为什么执行了这个工具”以及“结果属于哪次调用”。
+
+工具结果提交后，runtime 才到达 `prepare_next_turn` 安全点。这个顺序保证 Hook 不会插进 assistant tool call 与对应 tool result 之间。第 11 章会让 `AgentSession` 在该 Hook 中重新检查 token 阈值，并在必要时把 replay 后的压缩历史交给下一次模型请求；第三章的工具校验、审批与执行代码不需要依赖 compaction。
 
 ## Schema 校验发生在审批之前
 
@@ -93,4 +96,4 @@ OpenAI-compatible SSE 会把一个函数的 JSON 参数拆成多个 `arguments` 
 - durable event store 与崩溃恢复
 - retry-safe 与 replay-safe 的自动恢复策略
 
-下一章加入会话事件日志后，工具意图和结果将可以持久化、回放与恢复。
+下一章先把工具意图和结果接到会话存储；第 5、6 章再加入 durable event log、replay 与 JSONL 恢复，第 11 章把自动压缩接到本章预留的工具续轮安全点。
