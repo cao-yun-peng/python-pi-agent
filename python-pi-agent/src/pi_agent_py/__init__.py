@@ -1,9 +1,11 @@
 """Teaching-first building blocks for a modular Python agent harness."""
 
+from .context import FullHistoryContextStrategy
 from .domain import (
     AgentEvent,
     AgentResult,
     ApprovalDecision,
+    ContextPlan,
     DurableSessionEvent,
     Finish,
     JSONObject,
@@ -21,6 +23,7 @@ from .errors import (
     AgentError,
     AgentLoopLimitError,
     ConfigurationError,
+    ContextPreparationError,
     ModelProtocolError,
     ProviderAuthenticationError,
     ProviderBalanceError,
@@ -36,7 +39,7 @@ from .errors import (
     ToolValidationError,
 )
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
-from .ports import SessionStore
+from .ports import ContextStrategy, SessionStore
 from .runtime import Agent, AgentSession
 from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
@@ -64,10 +67,14 @@ __all__ = [
     "ApprovalDecision",
     "CallbackEventSink",
     "ConfigurationError",
+    "ContextPlan",
+    "ContextPreparationError",
+    "ContextStrategy",
     "DenyByDefaultApprovalPolicy",
     "DurableSessionEvent",
     "FakeProvider",
     "Finish",
+    "FullHistoryContextStrategy",
     "FunctionTool",
     "InMemoryEventSink",
     "InMemorySessionStore",

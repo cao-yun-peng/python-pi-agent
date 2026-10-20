@@ -6,9 +6,11 @@ import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 
+from .context import FullHistoryContextStrategy
 from .domain import (
     AgentEvent,
     AgentResult,
+    ContextPlan,
     EventChannel,
     EventKind,
     Finish,
@@ -24,12 +26,20 @@ from .domain import (
 from .errors import (
     AgentError,
     AgentLoopLimitError,
+    ContextPreparationError,
     ModelProtocolError,
     ProviderError,
     ToolValidationError,
 )
 from .events import NullEventSink
-from .ports import ApprovalPolicy, EventSink, ModelProvider, SessionStore, Tool
+from .ports import (
+    ApprovalPolicy,
+    ContextStrategy,
+    EventSink,
+    ModelProvider,
+    SessionStore,
+    Tool,
+)
 from .tools import DenyByDefaultApprovalPolicy, validate_tool_arguments
 
 
@@ -49,6 +59,7 @@ class Agent:
         *,
         tools: Sequence[Tool] = (),
         approval_policy: ApprovalPolicy | None = None,
+        context_strategy: ContextStrategy | None = None,
         event_sink: EventSink | None = None,
         initial_messages: Sequence[Message] = (),
         message_committer: Callable[[Message], Awaitable[None]] | None = None,
@@ -71,6 +82,7 @@ class Agent:
         self._tools = {tool.definition.name: tool for tool in tools}
         self._tool_definitions = tuple(definitions)
         self._approval_policy = approval_policy or DenyByDefaultApprovalPolicy()
+        self._context_strategy = context_strategy or FullHistoryContextStrategy()
         self._event_sink = event_sink or NullEventSink()
         self._max_model_requests = max_model_requests
         self._message_committer = message_committer
@@ -139,6 +151,7 @@ class Agent:
                 self._emit("run_settled", "live")
 
     async def _request_model(self, request_number: int) -> _ModelTurn:
+        context = await self._prepare_context(request_number)
         self._emit(
             "model_request_started",
             "live",
@@ -152,7 +165,7 @@ class Agent:
         finish: Finish | None = None
 
         async for event in self._provider.stream(
-            self.messages,
+            context.messages,
             self._tool_definitions,
         ):
             if isinstance(event, ThinkingDelta):
@@ -216,6 +229,38 @@ class Agent:
             finish=finish,
             usage=usage,
         )
+
+    async def _prepare_context(self, request_number: int) -> ContextPlan:
+        history = self.messages
+        try:
+            context = await self._context_strategy.prepare(history)
+        except asyncio.CancelledError:
+            raise
+        except ContextPreparationError:
+            raise
+        except Exception as error:
+            raise ContextPreparationError("context strategy failed") from error
+
+        if not isinstance(context, ContextPlan):
+            raise ContextPreparationError(
+                "context strategy must return ContextPlan"
+            )
+        if context.source_message_count != len(history):
+            raise ContextPreparationError(
+                "context plan source_message_count does not match history"
+            )
+
+        self._emit(
+            "context_prepared",
+            "capability",
+            request_number=request_number,
+            source_message_count=context.source_message_count,
+            selected_message_count=len(context.messages),
+            omitted_message_count=context.omitted_message_count,
+            token_budget=context.token_budget,
+            estimated_tokens=context.estimated_tokens,
+        )
+        return context
 
     async def _execute_tool_calls(self, calls: Sequence[ToolCall]) -> None:
         for call in calls:
@@ -439,6 +484,7 @@ class AgentSession:
         *,
         tools: Sequence[Tool] = (),
         approval_policy: ApprovalPolicy | None = None,
+        context_strategy: ContextStrategy | None = None,
         event_sink: EventSink | None = None,
         system_prompt: str | None = None,
         max_model_requests: int = 8,
@@ -448,6 +494,7 @@ class AgentSession:
         self._provider = provider
         self._tools = tuple(tools)
         self._approval_policy = approval_policy
+        self._context_strategy = context_strategy
         self._event_sink = event_sink
         self._system_prompt = system_prompt
         self._max_model_requests = max_model_requests
@@ -471,6 +518,7 @@ class AgentSession:
                 self._provider,
                 tools=self._tools,
                 approval_policy=self._approval_policy,
+                context_strategy=self._context_strategy,
                 event_sink=self._event_sink,
                 initial_messages=writer.snapshot.messages,
                 message_committer=writer.commit,

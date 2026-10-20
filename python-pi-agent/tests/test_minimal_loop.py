@@ -33,6 +33,7 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             [
                 "run_started",
                 "message_committed",
+                "context_prepared",
                 "model_request_started",
                 "text_delta",
                 "text_delta",

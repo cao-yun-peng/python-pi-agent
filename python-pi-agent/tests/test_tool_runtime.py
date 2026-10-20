@@ -86,11 +86,13 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 if event.channel == "capability"
             ],
             [
+                "context_prepared",
                 "tool_call_received",
                 "tool_approval_requested",
                 "tool_approval_decided",
                 "tool_execution_started",
                 "tool_execution_finished",
+                "context_prepared",
             ],
         )
 

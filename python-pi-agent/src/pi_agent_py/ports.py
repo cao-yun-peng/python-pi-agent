@@ -8,6 +8,7 @@ from typing import Protocol
 from .domain import (
     AgentEvent,
     ApprovalDecision,
+    ContextPlan,
     DurableSessionEvent,
     JSONObject,
     Message,
@@ -36,6 +37,14 @@ class EventSink(Protocol):
 
     def emit(self, event: AgentEvent) -> None:
         """Record or enqueue an event and return immediately."""
+        ...
+
+
+class ContextStrategy(Protocol):
+    """Builds the model-visible projection for one provider request."""
+
+    async def prepare(self, messages: Sequence[Message]) -> ContextPlan:
+        """Prepare context without mutating the committed session history."""
         ...
 
 

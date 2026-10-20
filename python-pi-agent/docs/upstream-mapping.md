@@ -15,6 +15,8 @@
 | tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交并可从 durable event replay |
 | `EventSink` | session subscribe / agent events | live events 与 durable session events 分离 | 当前没有异步事件队列 |
 | `AgentSession` | Pi `AgentSession` 的 prompt 与状态编排 | Consumer 组合 Provider 与存储 capability | 已支持加载、逐消息提交和恢复，待 steer/queue/compaction |
+| `ContextPlan` / `ContextStrategy` | `packages/agent/src/agent-loop.ts` 的 `runLoop()` 在模型调用前执行 `transformContext` | Definition / Provider / Consumer capability seam | 已分离 durable history 与请求投影，当前默认仍发送完整历史 |
+| `context_prepared` | compaction/context 生命周期事件 | capability evidence | 仅记录数量与预算元数据，不持久化提示词正文 |
 | `SessionStore` / `SessionSnapshot` | `SessionManager` 与 session entries | Definition / Provider / Consumer / Evidence | 内存与单写者 JSONL Provider 均支持持久化 fork，待多进程事务 |
 | `prepare_session_append` / `fork_session_events` | session append / fork rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一套 replay、append 与 fork 规则 |
 | `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | 已有严格格式、刷盘和重启恢复，尚无文件锁与迁移工具 |

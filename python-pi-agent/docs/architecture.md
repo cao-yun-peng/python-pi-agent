@@ -5,6 +5,7 @@
 ```text
 domain.py <- ports.py <- runtime.py <- examples / future apps
                ^           |
+               |           ├── context.py implements ContextStrategy
                |           └── tools.py provides policies and FunctionTool
                ├── session_transitions.py provides pure state transitions
                ├── session.py implements SessionStore
@@ -16,6 +17,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - `domain.py` 只包含无 I/O 的值对象。
 - `ports.py` 定义核心运行时所需能力，不提供供应商实现。
 - `runtime.py` 消费端口并维护已提交消息。
+- `context.py` 提供默认的 `FullHistoryContextStrategy`，把完整历史投影为一次模型请求的 `ContextPlan`。
 - `runtime.AgentSession` 加载会话历史，并通过逐消息异步提交把 Agent loop 连接到 `SessionStore`。
 - `session_transitions.py` 集中实现 replay、append 与 fork 的校验和事件生成，不执行 I/O 或修改调用者状态。
 - `session.py` 提供 `InMemorySessionStore`，只负责内存事件容器。
@@ -33,6 +35,8 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 
 `AgentSession` 通过 `SessionStore.load()` 恢复历史，并在每条完整消息进入 Agent 内存和触发 `message_committed` 前先调用 `SessionStore.append()`。两个 Store 都调用 `prepare_session_append()` 获得不可变 `SessionAppendPlan`，其中包含待保存事件和保存后的 snapshot；Provider 只负责提交计划。序号断裂或混入其他 session 的事件会导致 `SessionReplayError`，避免从损坏日志静默恢复。
 
+每次模型请求前，runtime 把完整 committed history 交给 `ContextStrategy`，并只把返回的 `ContextPlan.messages` 发送给 `ModelProvider`。默认策略不省略消息。`context_prepared` capability event 暴露源消息数、选中数和省略数，但不复制消息正文。策略投影不会删除或改写 `Agent.messages` 与 durable log。
+
 `SessionStore.fork()` 从源日志的指定 version 创建一个新的目标 session。两个 Store 都调用 `fork_session_events()` 复制经过 replay 校验的历史前缀，拒绝覆盖已有目标，并允许源和目标在分叉后独立追加。当前事件模型没有 `session_created` 元数据，因此持久化 fork 必须至少包含一个事件。
 
 `JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。schema v2 保存 assistant thinking；解码器仍可读取没有该字段的 v1 日志。读取、反序列化和 replay 使用相同领域对象，因此 runtime 无需感知存储变化。append 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
@@ -42,6 +46,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - domain 不依赖 ports 或 runtime。
 - ports 只依赖 domain。
 - runtime 依赖 domain 和 ports，不依赖具体 Provider。
+- runtime 消费 `ContextStrategy` 端口；默认实现位于 context，策略不得反向修改 durable history。
 - session_transitions 只依赖领域对象和稳定错误，不依赖存储 Provider。
 - session 与 session_jsonl 实现 ports 中的 `SessionStore`，ports 不依赖具体存储。
 - apps 负责显式组装，不通过 import 副作用注册。

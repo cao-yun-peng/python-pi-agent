@@ -16,6 +16,7 @@ SessionEventKind: TypeAlias = Literal["message_committed"]
 EventKind: TypeAlias = Literal[
     "run_started",
     "message_committed",
+    "context_prepared",
     "model_request_started",
     "thinking_delta",
     "text_delta",
@@ -144,6 +145,33 @@ class SessionSnapshot:
     session_id: str
     version: int
     messages: tuple[Message, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ContextPlan:
+    """The model-visible projection prepared for one provider request."""
+
+    messages: tuple[Message, ...]
+    source_message_count: int
+    omitted_message_count: int = 0
+    token_budget: int | None = None
+    estimated_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.messages, tuple):
+            raise TypeError("context plan messages must be a tuple")
+        if self.source_message_count < 0:
+            raise ValueError("source_message_count must not be negative")
+        if self.omitted_message_count < 0:
+            raise ValueError("omitted_message_count must not be negative")
+        if self.omitted_message_count > self.source_message_count:
+            raise ValueError(
+                "omitted_message_count must not exceed source_message_count"
+            )
+        if self.token_budget is not None and self.token_budget < 0:
+            raise ValueError("token_budget must not be negative")
+        if self.estimated_tokens is not None and self.estimated_tokens < 0:
+            raise ValueError("estimated_tokens must not be negative")
 
 
 @dataclass(frozen=True, slots=True)

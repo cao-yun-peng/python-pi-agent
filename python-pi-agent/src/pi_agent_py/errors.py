@@ -46,6 +46,10 @@ class ModelProtocolError(AgentError):
     """The provider stream violated the model event protocol."""
 
 
+class ContextPreparationError(AgentError):
+    """A context strategy failed to prepare a valid model request."""
+
+
 class ToolValidationError(AgentError):
     """Tool arguments do not satisfy the declared input schema."""
 
