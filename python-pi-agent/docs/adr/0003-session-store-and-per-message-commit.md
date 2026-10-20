@@ -2,9 +2,10 @@
 
 ## Status
 
-Accepted
+Accepted — partially superseded by ADR 0004 and ADR 0005
 
-消息列表作为存储事实来源、用消息数量解释版本的部分已由 ADR 0004 演进为 durable event log；逐消息提交与乐观并发决定仍然有效。
+ADR 0004 取代了“消息列表是事实来源”和“消息数量就是版本”的部分；ADR 0005
+取代了“尚无跨进程持久化”的限制。逐消息提交、SessionStore 端口和乐观并发决定仍然有效。
 
 ## Context
 
@@ -32,8 +33,8 @@ Accepted
 - Provider 失败或任务取消后，已经完成持久化的消息仍可恢复。
 - 每条消息产生一次存储调用；后续实现可以在保持契约的前提下用事务或日志批次优化。
 - 同一 `AgentSession` 的 run 由内存锁串行化；跨实例冲突由 `expected_version` 检测。
-- 当前内存实现用消息数量表示版本，适合追加式教学切片；durable event log 将使用稳定的日志序号。
-- 当前阶段尚未支持进程重启、事件回放和会话分叉；ADR 0004、0005 与 0007 已分别加入这些能力。
+- 该阶段的内存实现曾用消息数量表示版本；ADR 0004 已改为稳定的 durable event sequence。
+- 该阶段尚未支持进程重启和会话分叉；ADR 0005 与 ADR 0007 已分别加入这两项能力。
 
 ## Verification
 
