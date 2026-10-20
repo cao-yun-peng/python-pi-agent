@@ -7,12 +7,15 @@ from pi_agent_py import (
     InMemorySessionStore,
     Message,
     SessionAppendPlan,
+    SessionCompaction,
+    SessionCompactionPlan,
     SessionConflictError,
     SessionReplayError,
     SessionValidationError,
     ToolCall,
     fork_session_events,
     prepare_session_append,
+    prepare_session_compaction,
     replay_session,
 )
 
@@ -120,6 +123,77 @@ class SessionAppendTransitionTests(unittest.TestCase):
             )
 
 
+class SessionCompactionTransitionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        messages = (
+            Message(role="system", content="Be helpful."),
+            Message(role="user", content="old question"),
+            Message(role="assistant", content="old answer"),
+            Message(role="user", content="recent question"),
+            Message(role="assistant", content="recent answer"),
+        )
+        self.events = tuple(
+            DurableSessionEvent(
+                "demo",
+                sequence,
+                "message_committed",
+                message,
+            )
+            for sequence, message in enumerate(messages, start=1)
+        )
+        self.compaction = SessionCompaction(
+            replace_start=1,
+            replaced_message_count=2,
+            summary_message=Message(role="user", content="summary of old turn"),
+        )
+
+    def test_appends_one_event_and_replays_the_compacted_projection(self) -> None:
+        plan = prepare_session_compaction(
+            "demo",
+            self.events,
+            expected_version=5,
+            compaction=self.compaction,
+        )
+
+        self.assertIsInstance(plan, SessionCompactionPlan)
+        self.assertEqual(plan.event.sequence, 6)
+        self.assertEqual(plan.event.kind, "context_compacted")
+        self.assertEqual(plan.snapshot.version, 6)
+        self.assertEqual(
+            [message.content for message in plan.snapshot.messages],
+            [
+                "Be helpful.",
+                "summary of old turn",
+                "recent question",
+                "recent answer",
+            ],
+        )
+
+    def test_rejects_a_stale_version(self) -> None:
+        with self.assertRaises(SessionConflictError):
+            prepare_session_compaction(
+                "demo",
+                self.events,
+                expected_version=4,
+                compaction=self.compaction,
+            )
+
+    def test_replay_rejects_a_compaction_outside_the_history(self) -> None:
+        invalid = DurableSessionEvent(
+            "demo",
+            6,
+            "context_compacted",
+            compaction=SessionCompaction(
+                replace_start=1,
+                replaced_message_count=10,
+                summary_message=Message(role="user", content="invalid"),
+            ),
+        )
+
+        with self.assertRaisesRegex(SessionReplayError, "exceeds"):
+            replay_session("demo", (*self.events, invalid))
+
+
 class SessionForkTransitionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.source_events = [
@@ -171,6 +245,32 @@ class SessionForkTransitionTests(unittest.TestCase):
 
         self.assertEqual(len(forked_events), 3)
         self.assertEqual(forked_events[-1].message.content, "third")
+
+    def test_forks_and_replays_a_compaction_event(self) -> None:
+        compacted_event = DurableSessionEvent(
+            "source",
+            4,
+            "context_compacted",
+            compaction=SessionCompaction(
+                replace_start=0,
+                replaced_message_count=2,
+                summary_message=Message(role="user", content="summary"),
+            ),
+        )
+
+        forked_events = fork_session_events(
+            [*self.source_events, compacted_event],
+            "branch",
+        )
+
+        self.assertEqual(forked_events[-1].kind, "context_compacted")
+        self.assertEqual(
+            [
+                message.content
+                for message in replay_session("branch", forked_events).messages
+            ],
+            ["summary", "third"],
+        )
 
     def test_deep_copies_mutable_message_content_between_branches(self) -> None:
         source_arguments = {"filters": {"city": "Beijing"}}
@@ -288,6 +388,50 @@ class InMemorySessionEventLogTests(unittest.IsolatedAsyncioTestCase):
                 0,
                 [Message(role="user", content="stale")],
             )
+
+    async def test_compact_persists_an_event_and_allows_later_append(self) -> None:
+        store = InMemorySessionStore()
+        await store.append(
+            "demo",
+            0,
+            [
+                Message(role="user", content="old"),
+                Message(role="assistant", content="answer"),
+                Message(role="user", content="recent"),
+            ],
+        )
+
+        compacted = await store.compact(
+            "demo",
+            3,
+            SessionCompaction(
+                replace_start=0,
+                replaced_message_count=2,
+                summary_message=Message(role="user", content="summary"),
+            ),
+        )
+        appended = await store.append(
+            "demo",
+            compacted.version,
+            [Message(role="assistant", content="after compaction")],
+        )
+
+        self.assertEqual(compacted.version, 4)
+        self.assertEqual(appended.version, 5)
+        self.assertEqual(
+            [event.kind for event in await store.read_events("demo")],
+            [
+                "message_committed",
+                "message_committed",
+                "message_committed",
+                "context_compacted",
+                "message_committed",
+            ],
+        )
+        self.assertEqual(
+            [message.content for message in appended.messages],
+            ["summary", "recent", "after compaction"],
+        )
 
     async def test_forks_and_then_allows_the_branches_to_diverge(self) -> None:
         store = InMemorySessionStore()

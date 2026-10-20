@@ -13,6 +13,7 @@ from .domain import (
     JSONValue,
     Message,
     Role,
+    SessionCompaction,
     SessionSnapshot,
     ToolCall,
 )
@@ -25,13 +26,21 @@ from .errors import (
 from .session_transitions import (
     fork_session_events,
     prepare_session_append,
+    prepare_session_compaction,
     replay_session,
     validate_session_id,
 )
 
-_SCHEMA_VERSION = 2
-_SUPPORTED_SCHEMA_VERSIONS = {1, 2}
-_EVENT_KEYS = {"schema_version", "session_id", "sequence", "kind", "message"}
+_SCHEMA_VERSION = 3
+_SUPPORTED_SCHEMA_VERSIONS = {1, 2, 3}
+_LEGACY_EVENT_KEYS = {
+    "schema_version",
+    "session_id",
+    "sequence",
+    "kind",
+    "message",
+}
+_EVENT_KEYS_V3 = {*_LEGACY_EVENT_KEYS, "compaction"}
 _MESSAGE_KEYS_V1 = {
     "role",
     "content",
@@ -43,6 +52,11 @@ _MESSAGE_KEYS_V1 = {
 }
 _MESSAGE_KEYS_V2 = {*_MESSAGE_KEYS_V1, "thinking"}
 _TOOL_CALL_KEYS = {"id", "name", "arguments"}
+_COMPACTION_KEYS = {
+    "replace_start",
+    "replaced_message_count",
+    "summary_message",
+}
 _ROLES = {"system", "user", "assistant", "tool"}
 
 
@@ -89,6 +103,27 @@ class JsonlSessionStore:
                 _encode_event(event) for event in plan.new_events
             )
             await self._append_lines(encoded_lines)
+
+        return plan.snapshot
+
+    async def compact(
+        self,
+        session_id: str,
+        expected_version: int,
+        compaction: SessionCompaction,
+    ) -> SessionSnapshot:
+        async with self._lock:
+            all_events = await self._read_all_events()
+            session_events = tuple(
+                event for event in all_events if event.session_id == session_id
+            )
+            plan = prepare_session_compaction(
+                session_id,
+                session_events,
+                expected_version,
+                compaction,
+            )
+            await self._append_lines((_encode_event(plan.event),))
 
         return plan.snapshot
 
@@ -156,28 +191,23 @@ class JsonlSessionStore:
 
 
 def _encode_event(event: DurableSessionEvent) -> str:
+    message = _encode_message(event.message) if event.message is not None else None
+    compaction = None
+    if event.compaction is not None:
+        compaction = {
+            "replace_start": event.compaction.replace_start,
+            "replaced_message_count": event.compaction.replaced_message_count,
+            "summary_message": _encode_message(
+                event.compaction.summary_message
+            ),
+        }
     record = {
         "schema_version": _SCHEMA_VERSION,
         "session_id": event.session_id,
         "sequence": event.sequence,
         "kind": event.kind,
-        "message": {
-            "role": event.message.role,
-            "content": event.message.content,
-            "thinking": event.message.thinking,
-            "tool_calls": [
-                {
-                    "id": call.id,
-                    "name": call.name,
-                    "arguments": call.arguments,
-                }
-                for call in event.message.tool_calls
-            ],
-            "tool_call_id": event.message.tool_call_id,
-            "tool_name": event.message.tool_name,
-            "is_error": event.message.is_error,
-            "structured_content": event.message.structured_content,
-        },
+        "message": message,
+        "compaction": compaction,
     }
     try:
         return json.dumps(
@@ -205,25 +235,45 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
 
     try:
         record = _require_object(raw, "event")
-        _require_exact_keys(record, _EVENT_KEYS, "event")
         schema_version = _require_int(record["schema_version"], "schema_version")
         if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(f"unsupported schema_version: {schema_version}")
 
+        expected_event_keys = (
+            _EVENT_KEYS_V3 if schema_version == 3 else _LEGACY_EVENT_KEYS
+        )
+        _require_exact_keys(record, expected_event_keys, "event")
+
         session_id = _require_string(record["session_id"], "session_id")
         sequence = _require_int(record["sequence"], "sequence")
         kind = _require_string(record["kind"], "kind")
-        if kind != "message_committed":
-            raise ValueError(f"unsupported event kind: {kind}")
-
-        message_record = _require_object(record["message"], "message")
-        message = _decode_message(message_record, schema_version)
-        return DurableSessionEvent(
-            session_id=session_id,
-            sequence=sequence,
-            kind="message_committed",
-            message=message,
-        )
+        if kind == "message_committed":
+            if schema_version == 3 and record["compaction"] is not None:
+                raise ValueError(
+                    "message_committed event compaction must be null"
+                )
+            message_record = _require_object(record["message"], "message")
+            message = _decode_message(message_record, schema_version)
+            return DurableSessionEvent(
+                session_id=session_id,
+                sequence=sequence,
+                kind="message_committed",
+                message=message,
+            )
+        if kind == "context_compacted" and schema_version == 3:
+            if record["message"] is not None:
+                raise ValueError("context_compacted event message must be null")
+            compaction_record = _require_object(
+                record["compaction"],
+                "compaction",
+            )
+            return DurableSessionEvent(
+                session_id=session_id,
+                sequence=sequence,
+                kind="context_compacted",
+                compaction=_decode_compaction(compaction_record),
+            )
+        raise ValueError(f"unsupported event kind: {kind}")
     except (KeyError, TypeError, ValueError) as error:
         raise SessionReplayError(
             f"invalid session event at line {line_number}: {error}"
@@ -234,7 +284,9 @@ def _decode_message(
     record: Mapping[str, object],
     schema_version: int,
 ) -> Message:
-    expected_keys = _MESSAGE_KEYS_V2 if schema_version == 2 else _MESSAGE_KEYS_V1
+    expected_keys = (
+        _MESSAGE_KEYS_V2 if schema_version >= 2 else _MESSAGE_KEYS_V1
+    )
     _require_exact_keys(record, expected_keys, "message")
     role_text = _require_string(record["role"], "message.role")
     if role_text not in _ROLES:
@@ -253,7 +305,7 @@ def _decode_message(
         content=_require_string(record["content"], "message.content"),
         thinking=(
             _require_string(record["thinking"], "message.thinking")
-            if schema_version == 2
+            if schema_version >= 2
             else ""
         ),
         tool_calls=tool_calls,
@@ -267,6 +319,45 @@ def _decode_message(
         ),
         is_error=_require_bool(record["is_error"], "message.is_error"),
         structured_content=cast(JSONValue, record["structured_content"]),
+    )
+
+
+def _encode_message(message: Message) -> dict[str, object]:
+    return {
+        "role": message.role,
+        "content": message.content,
+        "thinking": message.thinking,
+        "tool_calls": [
+            {
+                "id": call.id,
+                "name": call.name,
+                "arguments": call.arguments,
+            }
+            for call in message.tool_calls
+        ],
+        "tool_call_id": message.tool_call_id,
+        "tool_name": message.tool_name,
+        "is_error": message.is_error,
+        "structured_content": message.structured_content,
+    }
+
+
+def _decode_compaction(record: Mapping[str, object]) -> SessionCompaction:
+    _require_exact_keys(record, _COMPACTION_KEYS, "compaction")
+    summary_record = _require_object(
+        record["summary_message"],
+        "compaction.summary_message",
+    )
+    return SessionCompaction(
+        replace_start=_require_int(
+            record["replace_start"],
+            "compaction.replace_start",
+        ),
+        replaced_message_count=_require_int(
+            record["replaced_message_count"],
+            "compaction.replaced_message_count",
+        ),
+        summary_message=_decode_message(summary_record, 3),
     )
 
 

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .domain import DurableSessionEvent, Message, SessionSnapshot
+from .domain import DurableSessionEvent, Message, SessionCompaction, SessionSnapshot
 from .errors import SessionConflictError, SessionValidationError
 from .session_transitions import (
     fork_session_events,
     prepare_session_append,
+    prepare_session_compaction,
     replay_session,
     validate_session_id,
 )
@@ -46,6 +47,22 @@ class InMemorySessionStore:
         updated_events = [*current_events, *plan.new_events]
         self._events_by_session[session_id] = updated_events
 
+        return plan.snapshot
+
+    async def compact(
+        self,
+        session_id: str,
+        expected_version: int,
+        compaction: SessionCompaction,
+    ) -> SessionSnapshot:
+        current_events = self._events_by_session.get(session_id, [])
+        plan = prepare_session_compaction(
+            session_id,
+            current_events,
+            expected_version,
+            compaction,
+        )
+        self._events_by_session[session_id] = [*current_events, plan.event]
         return plan.snapshot
 
     async def fork(

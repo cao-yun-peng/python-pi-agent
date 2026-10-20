@@ -14,16 +14,18 @@
 | `ApprovalPolicy` | `beforeToolCall` block hook | 独立策略 capability | 默认拒绝受保护工具，尚无身份策略 |
 | tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交并可从 durable event replay |
 | `EventSink` | session subscribe / agent events | live events 与 durable session events 分离 | 当前没有异步事件队列 |
-| `AgentSession` | Pi `AgentSession` 的 prompt 与状态编排 | Consumer 组合 Provider 与存储 capability | 已支持加载、逐消息提交和恢复，待 steer/queue/compaction |
+| `AgentSession` | Pi `AgentSession` 的 prompt、状态与 compaction 编排 | Consumer 组合 Provider 与存储 capability | 已支持加载、逐消息提交、恢复和手动压缩，待 steer/queue/自动触发 |
 | `ContextPlan` / `ContextStrategy` | `packages/agent/src/agent-loop.ts` 的 `runLoop()` 在模型调用前执行 `transformContext` | Definition / Provider / Consumer capability seam | 已分离 durable history 与请求投影，当前默认仍发送完整历史 |
 | `TokenEstimator` / `TokenBudgetContextStrategy` | `packages/coding-agent/src/core/compaction/compaction.ts` 的 `estimateTokens()` / `findCutPoint()` | 可替换估算 Provider + 策略 Consumer | 同样使用字符启发式；本项目按完整 user turn 裁剪，不允许 split turn |
 | `context_prepared` | compaction/context 生命周期事件 | capability evidence | 仅记录数量与预算元数据，不持久化提示词正文 |
+| `CompactionStrategy` / `ModelCompactionStrategy` | `compaction.ts` 的 `compact()` 与 summary generation | 可替换 Definition / Provider / Consumer | 使用独立 ModelProvider，不暴露工具；待增量摘要与质量 eval |
+| `SessionCompaction` / `context_compacted` | `CompactionEntry` 与 session context reconstruction | durable capability evidence | 保存前缀替换操作并由 replay 应用；当前不支持 split-turn 和文件跟踪 |
 | `SessionStore` / `SessionSnapshot` | `SessionManager` 与 session entries | Definition / Provider / Consumer / Evidence | 内存与单写者 JSONL Provider 均支持持久化 fork，待多进程事务 |
-| `prepare_session_append` / `fork_session_events` | session append / fork rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一套 replay、append 与 fork 规则 |
-| `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | 已有严格格式、刷盘和重启恢复，尚无文件锁与迁移工具 |
-| `DurableSessionEvent` | session entries | append-only facts + replayable projection | fork 通过复制事件前缀实现；尚无父子分支元数据或压缩事件 |
+| `prepare_session_append` / `prepare_session_compaction` / `fork_session_events` | session append / compaction / fork rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一套 replay、append、compact 与 fork 规则 |
+| `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | schema v3 支持压缩事件、严格格式、刷盘和重启恢复，尚无文件锁与迁移工具 |
+| `DurableSessionEvent` | session entries | append-only facts + replayable projection | 支持消息与前缀压缩；fork 复制事件前缀，尚无父子分支元数据 |
 | committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 文本、tool call、tool result 与 assistant thinking 已能回放；损坏序号会被拒绝 |
-| `run_settled` | Pi 的 `agent_settled` 语义 | 生命周期完成事件 | 当前没有 retry/compaction/queue 工作 |
+| `run_settled` / `compaction_*` | Pi 的 agent/compaction 生命周期事件 | live 与 capability evidence | 已区分 run 与压缩生命周期，当前没有 retry/queue worker |
 | `FakeProvider` | Pi 的 faux provider/testing patterns | 以证据验证 capability 契约 | 已覆盖文本与完整 ToolCall |
 
 ## 学习原则

@@ -14,6 +14,7 @@ from .domain import (
     Message,
     ModelStreamEvent,
     SessionSnapshot,
+    SessionCompaction,
     ToolCall,
     ToolDefinition,
     ToolOutput,
@@ -56,6 +57,14 @@ class TokenEstimator(Protocol):
         ...
 
 
+class CompactionStrategy(Protocol):
+    """Summarizes a validated prefix selected for durable compaction."""
+
+    async def summarize(self, messages: Sequence[Message]) -> str:
+        """Return non-empty summary text without mutating the messages."""
+        ...
+
+
 class SessionStore(Protocol):
     """Loads, appends, and forks model-visible session history."""
 
@@ -77,6 +86,15 @@ class SessionStore(Protocol):
         messages: Sequence[Message],
     ) -> SessionSnapshot:
         """Append messages if the persisted version still matches."""
+        ...
+
+    async def compact(
+        self,
+        session_id: str,
+        expected_version: int,
+        compaction: SessionCompaction,
+    ) -> SessionSnapshot:
+        """Atomically append a compaction event at the expected version."""
         ...
 
     async def fork(

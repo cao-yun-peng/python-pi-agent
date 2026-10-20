@@ -1,5 +1,12 @@
 """Teaching-first building blocks for a modular Python agent harness."""
 
+from .compaction import (
+    CompactionPreparation,
+    ModelCompactionStrategy,
+    build_summary_message,
+    prepare_compaction,
+    serialize_conversation,
+)
 from .context import (
     CharacterTokenEstimator,
     FullHistoryContextStrategy,
@@ -16,6 +23,7 @@ from .domain import (
     JSONObject,
     JSONValue,
     Message,
+    SessionCompaction,
     SessionSnapshot,
     TextDelta,
     ThinkingDelta,
@@ -27,6 +35,8 @@ from .domain import (
 from .errors import (
     AgentError,
     AgentLoopLimitError,
+    CompactionError,
+    CompactionNotNeededError,
     ConfigurationError,
     ContextBudgetExceededError,
     ContextPreparationError,
@@ -45,17 +55,24 @@ from .errors import (
     ToolValidationError,
 )
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
-from .ports import ContextStrategy, SessionStore, TokenEstimator
+from .ports import (
+    CompactionStrategy,
+    ContextStrategy,
+    SessionStore,
+    TokenEstimator,
+)
 from .runtime import Agent, AgentSession
 from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
 from .session_transitions import (
     SessionAppendPlan,
+    SessionCompactionPlan,
     fork_session_events,
     prepare_session_append,
+    prepare_session_compaction,
     replay_session,
 )
-from .testing import FakeProvider, WaitUntilCancelled
+from .testing import FakeCompactionStrategy, FakeProvider, WaitUntilCancelled
 from .tools import (
     DenyByDefaultApprovalPolicy,
     FunctionTool,
@@ -73,6 +90,10 @@ __all__ = [
     "ApprovalDecision",
     "CallbackEventSink",
     "CharacterTokenEstimator",
+    "CompactionError",
+    "CompactionNotNeededError",
+    "CompactionPreparation",
+    "CompactionStrategy",
     "ConfigurationError",
     "ContextBudgetExceededError",
     "ContextPlan",
@@ -80,6 +101,7 @@ __all__ = [
     "ContextStrategy",
     "DenyByDefaultApprovalPolicy",
     "DurableSessionEvent",
+    "FakeCompactionStrategy",
     "FakeProvider",
     "Finish",
     "FullHistoryContextStrategy",
@@ -90,6 +112,7 @@ __all__ = [
     "JSONValue",
     "JsonlSessionStore",
     "Message",
+    "ModelCompactionStrategy",
     "ModelProtocolError",
     "NullEventSink",
     "ProviderError",
@@ -101,6 +124,8 @@ __all__ = [
     "ProviderTimeoutError",
     "SessionConflictError",
     "SessionAppendPlan",
+    "SessionCompaction",
+    "SessionCompactionPlan",
     "SessionReplayError",
     "SessionStorageError",
     "SessionSnapshot",
@@ -118,8 +143,12 @@ __all__ = [
     "WaitUntilCancelled",
     "StaticApprovalPolicy",
     "validate_tool_arguments",
+    "build_summary_message",
     "fork_session_events",
     "group_context_messages",
     "prepare_session_append",
+    "prepare_session_compaction",
+    "prepare_compaction",
     "replay_session",
+    "serialize_conversation",
 ]

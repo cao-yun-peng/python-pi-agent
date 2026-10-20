@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from .domain import Message, ModelStreamEvent, ToolDefinition
-from .errors import ProviderError
+from .errors import CompactionError, ProviderError
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +18,7 @@ class WaitUntilCancelled:
 
 
 FakeStep: TypeAlias = ModelStreamEvent | Exception | WaitUntilCancelled
+FakeCompactionStep: TypeAlias = str | Exception | WaitUntilCancelled
 
 
 class FakeProvider:
@@ -47,3 +48,28 @@ class FakeProvider:
             if isinstance(step, Exception):
                 raise step
             yield step
+
+
+class FakeCompactionStrategy:
+    """Returns scripted summaries while recording the selected history."""
+
+    def __init__(self, responses: Iterable[FakeCompactionStep]) -> None:
+        self._responses = deque(responses)
+        self.requests: list[tuple[Message, ...]] = []
+        self.blocked = asyncio.Event()
+
+    async def summarize(self, messages: Sequence[Message]) -> str:
+        self.requests.append(tuple(messages))
+        if not self._responses:
+            raise CompactionError(
+                "fake compaction strategy has no scripted response left"
+            )
+
+        response = self._responses.popleft()
+        if isinstance(response, WaitUntilCancelled):
+            self.blocked.set()
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable after cancellation")
+        if isinstance(response, Exception):
+            raise response
+        return response

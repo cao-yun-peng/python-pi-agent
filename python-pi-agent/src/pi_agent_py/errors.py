@@ -62,6 +62,14 @@ class ContextBudgetExceededError(ContextPreparationError):
         self.token_budget = token_budget
 
 
+class CompactionError(AgentError):
+    """Durable context compaction could not be completed."""
+
+
+class CompactionNotNeededError(CompactionError):
+    """The session does not contain enough completed turns to compact."""
+
+
 class ToolValidationError(AgentError):
     """Tool arguments do not satisfy the declared input schema."""
 

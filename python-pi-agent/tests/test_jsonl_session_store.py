@@ -12,6 +12,7 @@ from pi_agent_py import (
     Finish,
     JsonlSessionStore,
     Message,
+    SessionCompaction,
     SessionConflictError,
     SessionReplayError,
     SessionStorageError,
@@ -53,7 +54,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             ]
             self.assertEqual(
                 [record["schema_version"] for record in records],
-                [2, 2],
+                [3, 3],
             )
             self.assertEqual([record["sequence"] for record in records], [1, 2])
 
@@ -85,6 +86,88 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 snapshot.messages,
                 (Message(role="assistant", content="旧消息"),),
+            )
+
+    async def test_reads_legacy_v2_message_with_thinking(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            record = {
+                "schema_version": 2,
+                "session_id": "legacy",
+                "sequence": 1,
+                "kind": "message_committed",
+                "message": {
+                    "role": "assistant",
+                    "content": "旧回答",
+                    "thinking": "旧思考",
+                    "tool_calls": [],
+                    "tool_call_id": None,
+                    "tool_name": None,
+                    "is_error": False,
+                    "structured_content": None,
+                },
+            }
+            path.write_text(
+                json.dumps(record, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            snapshot = await JsonlSessionStore(path).load("legacy")
+
+            self.assertEqual(
+                snapshot.messages,
+                (
+                    Message(
+                        role="assistant",
+                        content="旧回答",
+                        thinking="旧思考",
+                    ),
+                ),
+            )
+
+    async def test_compaction_survives_reopen_and_keeps_original_events(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            store = JsonlSessionStore(path)
+            await store.append(
+                "demo",
+                0,
+                [
+                    Message(role="user", content="old"),
+                    Message(role="assistant", content="old answer"),
+                    Message(role="user", content="recent"),
+                ],
+            )
+
+            compacted = await store.compact(
+                "demo",
+                3,
+                SessionCompaction(
+                    replace_start=0,
+                    replaced_message_count=2,
+                    summary_message=Message(role="user", content="summary"),
+                ),
+            )
+            reopened = JsonlSessionStore(path)
+
+            self.assertEqual(compacted, await reopened.load("demo"))
+            self.assertEqual(compacted.version, 4)
+            self.assertEqual(
+                [message.content for message in compacted.messages],
+                ["summary", "recent"],
+            )
+            records = [
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(records), 4)
+            self.assertEqual(records[-1]["kind"], "context_compacted")
+            self.assertIsNone(records[-1]["message"])
+            self.assertEqual(
+                records[-1]["compaction"]["replaced_message_count"],
+                2,
             )
 
     async def test_new_store_instance_resumes_agent_session(self) -> None:

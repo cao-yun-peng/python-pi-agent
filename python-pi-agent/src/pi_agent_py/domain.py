@@ -12,11 +12,15 @@ Role: TypeAlias = Literal["system", "user", "assistant", "tool"]
 FinishReason: TypeAlias = Literal["stop", "length", "tool_calls"]
 ToolSideEffects: TypeAlias = Literal["none", "read", "write", "external"]
 EventChannel: TypeAlias = Literal["durable", "live", "capability"]
-SessionEventKind: TypeAlias = Literal["message_committed"]
+SessionEventKind: TypeAlias = Literal["message_committed", "context_compacted"]
 EventKind: TypeAlias = Literal[
     "run_started",
     "message_committed",
     "context_prepared",
+    "compaction_started",
+    "compaction_completed",
+    "compaction_failed",
+    "compaction_cancelled",
     "model_request_started",
     "thinking_delta",
     "text_delta",
@@ -121,20 +125,54 @@ class Message:
 
 
 @dataclass(frozen=True, slots=True)
+class SessionCompaction:
+    """A durable replacement of one contiguous historical message prefix."""
+
+    replace_start: int
+    replaced_message_count: int
+    summary_message: Message
+
+    def __post_init__(self) -> None:
+        if self.replace_start < 0:
+            raise ValueError("compaction replace_start must not be negative")
+        if self.replaced_message_count <= 0:
+            raise ValueError(
+                "compaction replaced_message_count must be greater than zero"
+            )
+        if self.summary_message.role != "user":
+            raise ValueError("compaction summary message must use the user role")
+        if not self.summary_message.content.strip():
+            raise ValueError("compaction summary message must not be empty")
+        if self.summary_message.tool_calls:
+            raise ValueError("compaction summary message cannot contain tool calls")
+
+
+@dataclass(frozen=True, slots=True)
 class DurableSessionEvent:
     """One ordered fact in a replayable session log."""
 
     session_id: str
     sequence: int
     kind: SessionEventKind
-    message: Message
+    message: Message | None = None
+    compaction: SessionCompaction | None = None
 
     def __post_init__(self) -> None:
         if not self.session_id.strip():
             raise ValueError("session event id must not be empty")
         if self.sequence <= 0:
             raise ValueError("session event sequence must be greater than zero")
-        if self.kind != "message_committed":
+        if self.kind == "message_committed":
+            if self.message is None or self.compaction is not None:
+                raise ValueError(
+                    "message_committed event requires only a message payload"
+                )
+        elif self.kind == "context_compacted":
+            if self.compaction is None or self.message is not None:
+                raise ValueError(
+                    "context_compacted event requires only a compaction payload"
+                )
+        else:
             raise ValueError(f"unsupported session event kind: {self.kind}")
 
 
