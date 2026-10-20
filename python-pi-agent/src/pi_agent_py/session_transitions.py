@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 
 from .domain import DurableSessionEvent, Message, SessionSnapshot
@@ -84,6 +85,45 @@ def prepare_session_append(
     return SessionAppendPlan(new_events=new_events, snapshot=snapshot)
 
 
+def fork_session_events(
+    source_events: Sequence[DurableSessionEvent],
+    target_session_id: str,
+    at_version: int | None = None,
+) -> tuple[DurableSessionEvent, ...]:
+    """Copy a validated source history into an isolated session event stream."""
+    validate_session_id(target_session_id)
+    normalized_events = tuple(source_events)
+
+    if not normalized_events:
+        _validate_fork_version(at_version, source_version=0)
+        return ()
+
+    source_session_id = normalized_events[0].session_id
+    source_snapshot = replay_session(source_session_id, normalized_events)
+
+    if source_session_id == target_session_id:
+        raise SessionValidationError(
+            "target_session_id must differ from the source session id"
+        )
+
+    fork_version = _validate_fork_version(
+        at_version,
+        source_version=source_snapshot.version,
+    )
+    forked_events = tuple(
+        DurableSessionEvent(
+            session_id=target_session_id,
+            sequence=event.sequence,
+            kind=event.kind,
+            message=deepcopy(event.message),
+        )
+        for event in normalized_events[:fork_version]
+    )
+
+    replay_session(target_session_id, forked_events)
+    return forked_events
+
+
 def validate_session_id(session_id: str) -> None:
     if not session_id.strip():
         raise SessionValidationError("session_id must not be empty")
@@ -101,3 +141,18 @@ def _normalize_append_input(
         raise SessionValidationError("messages must not be empty")
 
     return normalized_messages
+
+
+def _validate_fork_version(
+    at_version: int | None,
+    *,
+    source_version: int,
+) -> int:
+    fork_version = source_version if at_version is None else at_version
+    if fork_version < 0:
+        raise SessionValidationError("at_version must not be negative")
+    if fork_version > source_version:
+        raise SessionValidationError(
+            f"at_version {fork_version} exceeds source version {source_version}"
+        )
+    return fork_version

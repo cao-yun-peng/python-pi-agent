@@ -9,6 +9,9 @@ from pi_agent_py import (
     SessionAppendPlan,
     SessionConflictError,
     SessionReplayError,
+    SessionValidationError,
+    ToolCall,
+    fork_session_events,
     prepare_session_append,
     replay_session,
 )
@@ -115,6 +118,140 @@ class SessionAppendTransitionTests(unittest.TestCase):
                 expected_version=0,
                 messages=[Message(role="assistant", content="stale")],
             )
+
+
+class SessionForkTransitionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.source_events = [
+            DurableSessionEvent(
+                "source",
+                1,
+                "message_committed",
+                Message(role="user", content="first"),
+            ),
+            DurableSessionEvent(
+                "source",
+                2,
+                "message_committed",
+                Message(role="assistant", content="second"),
+            ),
+            DurableSessionEvent(
+                "source",
+                3,
+                "message_committed",
+                Message(role="user", content="third"),
+            ),
+        ]
+
+    def test_forks_a_prefix_without_mutating_source_events(self) -> None:
+        forked_events = fork_session_events(
+            self.source_events,
+            "branch",
+            at_version=2,
+        )
+
+        self.assertEqual(len(self.source_events), 3)
+        self.assertEqual(
+            [event.session_id for event in self.source_events],
+            ["source", "source", "source"],
+        )
+        self.assertEqual(
+            [event.session_id for event in forked_events],
+            ["branch", "branch"],
+        )
+        self.assertEqual([event.sequence for event in forked_events], [1, 2])
+        self.assertEqual(
+            [event.message.content for event in forked_events],
+            ["first", "second"],
+        )
+        self.assertEqual(replay_session("branch", forked_events).version, 2)
+
+    def test_forks_the_full_history_by_default(self) -> None:
+        forked_events = fork_session_events(self.source_events, "branch")
+
+        self.assertEqual(len(forked_events), 3)
+        self.assertEqual(forked_events[-1].message.content, "third")
+
+    def test_deep_copies_mutable_message_content_between_branches(self) -> None:
+        source_arguments = {"filters": {"city": "Beijing"}}
+        source_events = [
+            DurableSessionEvent(
+                "source",
+                1,
+                "message_committed",
+                Message(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        ToolCall(
+                            id="call-1",
+                            name="weather",
+                            arguments=source_arguments,
+                        ),
+                    ),
+                ),
+            )
+        ]
+
+        forked_events = fork_session_events(source_events, "branch")
+        forked_filters = forked_events[0].message.tool_calls[0].arguments[
+            "filters"
+        ]
+        self.assertIsInstance(forked_filters, dict)
+        forked_filters["city"] = "Shanghai"
+
+        self.assertEqual(source_arguments["filters"]["city"], "Beijing")
+
+    def test_allows_forking_before_the_first_event(self) -> None:
+        forked_events = fork_session_events(
+            self.source_events,
+            "branch",
+            at_version=0,
+        )
+
+        self.assertEqual(forked_events, ())
+
+    def test_rejects_a_version_past_the_source_history(self) -> None:
+        with self.assertRaisesRegex(
+            SessionValidationError,
+            "at_version 4 exceeds source version 3",
+        ):
+            fork_session_events(
+                self.source_events,
+                "branch",
+                at_version=4,
+            )
+
+    def test_rejects_a_negative_version(self) -> None:
+        with self.assertRaisesRegex(
+            SessionValidationError,
+            "at_version must not be negative",
+        ):
+            fork_session_events(
+                self.source_events,
+                "branch",
+                at_version=-1,
+            )
+
+    def test_rejects_using_the_source_id_as_the_target_id(self) -> None:
+        with self.assertRaisesRegex(
+            SessionValidationError,
+            "must differ",
+        ):
+            fork_session_events(self.source_events, "source")
+
+    def test_rejects_a_corrupt_source_log(self) -> None:
+        corrupt_events = [
+            DurableSessionEvent(
+                "source",
+                2,
+                "message_committed",
+                Message(role="user", content="gap"),
+            )
+        ]
+
+        with self.assertRaises(SessionReplayError):
+            fork_session_events(corrupt_events, "branch")
 
 
 class InMemorySessionEventLogTests(unittest.IsolatedAsyncioTestCase):

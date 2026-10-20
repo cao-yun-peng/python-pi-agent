@@ -42,6 +42,7 @@ from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
 from .session_transitions import (
     SessionAppendPlan,
+    fork_session_events,
     prepare_session_append,
     replay_session,
 )
@@ -100,6 +101,7 @@ __all__ = [
     "WaitUntilCancelled",
     "StaticApprovalPolicy",
     "validate_tool_arguments",
+    "fork_session_events",
     "prepare_session_append",
     "replay_session",
 ]
