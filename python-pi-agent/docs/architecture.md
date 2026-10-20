@@ -27,7 +27,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 
 ## 状态模型
 
-当前 durable event log 是会话事实来源，`SessionSnapshot.messages` 是通过 replay 得到的模型可见状态投影。用户消息在请求前提交；assistant 消息只有在收到明确的 `Finish` 后才提交。流式文本仅通过 live event 暴露。
+当前 durable event log 是会话事实来源，`SessionSnapshot.messages` 是通过 replay 得到的模型可见状态投影。用户消息在请求前提交；assistant 消息只有在收到明确的 `Finish` 后才提交。流式文本和 thinking delta 立即通过 live event 暴露；完成后的 thinking 单独保存在 `Message.thinking`，不混入面向用户的正文，但可供供应商协议在后续请求中重放。
 
 工具调用以带 `tool_calls` 的 assistant message 持久存在，工具结果以引用 `tool_call_id` 的 tool message 回填。schema 错误、审批拒绝和执行失败也是模型可见结果；外部取消则终止整个 run。
 
@@ -35,7 +35,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 
 `SessionStore.fork()` 从源日志的指定 version 创建一个新的目标 session。两个 Store 都调用 `fork_session_events()` 复制经过 replay 校验的历史前缀，拒绝覆盖已有目标，并允许源和目标在分叉后独立追加。当前事件模型没有 `session_created` 元数据，因此持久化 fork 必须至少包含一个事件。
 
-`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。读取、反序列化和 replay 仍使用相同领域对象，因此 runtime 无需感知存储变化。append 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
+`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。schema v2 保存 assistant thinking；解码器仍可读取没有该字段的 v1 日志。读取、反序列化和 replay 使用相同领域对象，因此 runtime 无需感知存储变化。append 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
 
 ## 依赖规则
 

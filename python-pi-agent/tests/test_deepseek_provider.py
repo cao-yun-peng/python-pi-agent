@@ -9,7 +9,9 @@ from pi_agent_py import (
     Agent,
     ConfigurationError,
     Finish,
+    FunctionTool,
     InMemoryEventSink,
+    JSONObject,
     Message,
     ProviderAuthenticationError,
     ProviderError,
@@ -17,6 +19,7 @@ from pi_agent_py import (
     ProviderResponseError,
     ToolCall,
     ToolDefinition,
+    ToolOutput,
 )
 from pi_agent_py.providers import DeepSeekConfig, DeepSeekProvider
 
@@ -65,7 +68,10 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
 
         result = await agent.run("打个招呼")
 
-        self.assertEqual(result.message, Message(role="assistant", content="你好"))
+        self.assertEqual(
+            result.message,
+            Message(role="assistant", content="你好", thinking="先思考"),
+        )
         self.assertIsNotNone(result.usage)
         assert result.usage is not None
         self.assertEqual(result.usage.total_tokens, 7)
@@ -159,6 +165,82 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
         tools = request_body["tools"]
         assert isinstance(tools, list)
         self.assertEqual(tools[0]["function"]["name"], "weather")
+
+    async def test_replays_reasoning_content_after_thinking_tool_call(self) -> None:
+        captured_bodies: list[dict[str, object]] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            captured_bodies.append(json.loads(request.content))
+            if len(captured_bodies) == 1:
+                body = "\n".join(
+                    [
+                        'data: {"choices":[{"delta":{"reasoning_content":"先查实时天气"},"finish_reason":null}]}',
+                        "",
+                        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-weather","type":"function","function":{"name":"weather","arguments":"{\\"city\\":\\"深圳\\"}"}}]},"finish_reason":null}]}',
+                        "",
+                        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+                        "",
+                        "data: [DONE]",
+                        "",
+                    ]
+                )
+            else:
+                body = "\n".join(
+                    [
+                        'data: {"choices":[{"delta":{"reasoning_content":"根据工具结果回答"},"finish_reason":null}]}',
+                        "",
+                        'data: {"choices":[{"delta":{"content":"深圳晴"},"finish_reason":null}]}',
+                        "",
+                        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+                        "",
+                        "data: [DONE]",
+                        "",
+                    ]
+                )
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                content=body.encode(),
+            )
+
+        async def weather(arguments: JSONObject) -> ToolOutput:
+            self.assertEqual(arguments, {"city": "深圳"})
+            return ToolOutput(content="晴")
+
+        definition = ToolDefinition(
+            name="weather",
+            description="Read weather for one city.",
+            input_schema={
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            },
+            side_effects="read",
+            retry_safe=True,
+            replay_safe=True,
+        )
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        self.addAsyncCleanup(client.aclose)
+        provider = DeepSeekProvider(
+            DeepSeekConfig(api_key="test-key", thinking="enabled"),
+            client=client,
+        )
+        agent = Agent(provider, tools=[FunctionTool(definition, weather)])
+
+        result = await agent.run("深圳天气如何？")
+
+        self.assertEqual(result.message.content, "深圳晴")
+        self.assertEqual(result.messages[1].thinking, "先查实时天气")
+        self.assertEqual(result.message.thinking, "根据工具结果回答")
+        self.assertEqual(len(captured_bodies), 2)
+        second_messages = captured_bodies[1]["messages"]
+        assert isinstance(second_messages, list)
+        assistant_message = second_messages[1]
+        assert isinstance(assistant_message, dict)
+        self.assertEqual(
+            assistant_message["reasoning_content"],
+            "先查实时天气",
+        )
 
     async def test_rejects_malformed_stream_json(self) -> None:
         def handle(request: httpx.Request) -> httpx.Response:

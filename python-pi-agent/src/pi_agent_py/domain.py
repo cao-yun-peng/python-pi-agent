@@ -101,8 +101,11 @@ class Message:
     tool_name: str | None = None
     is_error: bool = False
     structured_content: JSONValue = None
+    thinking: str = ""
 
     def __post_init__(self) -> None:
+        if self.thinking and self.role != "assistant":
+            raise ValueError("only assistant messages may contain thinking")
         if self.tool_calls and self.role != "assistant":
             raise ValueError("only assistant messages may contain tool calls")
         if self.role == "tool":
@@ -152,7 +155,7 @@ class TextDelta:
 
 @dataclass(frozen=True, slots=True)
 class ThinkingDelta:
-    """A piece of model reasoning that is observable but not committed."""
+    """A streamed piece of model reasoning used to build assistant state."""
 
     text: str
 

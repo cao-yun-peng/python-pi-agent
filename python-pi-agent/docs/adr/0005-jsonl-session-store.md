@@ -11,7 +11,7 @@ ADR 0004 已让 durable events 成为会话事实来源，但第一份 Provider 
 ## Decision
 
 - 新增实现现有 `SessionStore` 端口的 `JsonlSessionStore`。
-- 一个文件可保存多个 session；每行保存一个带 `schema_version` 的完整 `DurableSessionEvent`。
+- 一个文件可保存多个 session；每行保存一个带 `schema_version` 的完整 `DurableSessionEvent`。当前写入 v2，并兼容读取 v1。
 - 读取时严格校验字段集合、字段类型、格式版本、事件 kind 和领域对象约束。
 - JSON/结构损坏映射为 `SessionReplayError`，文件 I/O 失败映射为 `SessionStorageError` 并保留异常链。
 - append 通过共享纯函数 `prepare_session_append()` 获得 `SessionAppendPlan`，与内存 Provider 使用完全相同的校验、version 检查和事件生成规则。
@@ -28,7 +28,7 @@ ADR 0004 已让 durable events 成为会话事实来源，但第一份 Provider 
 
 ## Consequences
 
-- 全新 Store 和 AgentSession 可以在进程重启后恢复完整消息、工具调用和结构化工具结果。
+- 全新 Store 和 AgentSession 可以在进程重启后恢复完整消息、assistant thinking、工具调用和结构化工具结果。
 - 文件可以人工审查，损坏记录会显式阻止 replay。
 - 每次 load/append 都扫描整个文件，成本为 O(全部事件)，仅适合教学和小型单写者应用。
 - 两个独立进程仍可能同时读到相同 version 并交错追加；需要文件锁或事务数据库才能解决。

@@ -184,9 +184,18 @@ class DeepSeekProvider:
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
     ) -> dict[str, object]:
+        include_reasoning_content = (
+            self._config.thinking == "enabled" and bool(tools)
+        )
         payload: dict[str, object] = {
             "model": self._config.model,
-            "messages": [_serialize_message(message) for message in messages],
+            "messages": [
+                _serialize_message(
+                    message,
+                    include_reasoning_content=include_reasoning_content,
+                )
+                for message in messages
+            ],
             "stream": True,
             "stream_options": {"include_usage": True},
             "thinking": {"type": self._config.thinking},
@@ -202,9 +211,13 @@ class DeepSeekProvider:
         return payload
 
 
-def _serialize_message(message: Message) -> dict[str, object]:
+def _serialize_message(
+    message: Message,
+    *,
+    include_reasoning_content: bool,
+) -> dict[str, object]:
     if message.role == "assistant" and message.tool_calls:
-        return {
+        serialized: dict[str, object] = {
             "role": "assistant",
             "content": message.content or None,
             "tool_calls": [
@@ -223,13 +236,19 @@ def _serialize_message(message: Message) -> dict[str, object]:
                 for call in message.tool_calls
             ],
         }
+        if include_reasoning_content:
+            serialized["reasoning_content"] = message.thinking
+        return serialized
     if message.role == "tool":
         return {
             "role": "tool",
             "content": message.content,
             "tool_call_id": message.tool_call_id,
         }
-    return {"role": message.role, "content": message.content}
+    serialized = {"role": message.role, "content": message.content}
+    if message.role == "assistant" and include_reasoning_content:
+        serialized["reasoning_content"] = message.thinking
+    return serialized
 
 
 def _serialize_tool(definition: ToolDefinition) -> dict[str, object]:

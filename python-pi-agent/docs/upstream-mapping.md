@@ -8,7 +8,8 @@
 |---|---|---|---|
 | `Agent.run()` | `packages/agent/src/agent-loop.ts` 的 agent/tool loop | Runtime 消费已注册能力 | 已有顺序工具循环，尚无并行 batch |
 | `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 已有 DeepSeek Chat Completions，待多供应商 |
-| `DeepSeekProvider` | `pi-ai` provider adapter / stream function | Provider + Lifecycle + Evidence | 可聚合流式 tool call，尚无 retry |
+| `DeepSeekProvider` | `pi-ai` provider adapter / stream function | Provider + Lifecycle + Evidence | 可聚合流式 tool call 并回传 thinking reasoning，尚无 retry 与通用 signature 兼容层 |
+| `Message.thinking` | assistant `ThinkingContent` / `thinkingSignature` | model-visible provider continuity state | 已持久化并供 DeepSeek tool turn 重放；尚无独立内容块、签名和跨模型转换 |
 | `ToolDefinition` / `Tool` | `AgentTool` 与参数 schema | Capability Definition / Provider / Consumer | 使用教学型 JSON Schema 子集 |
 | `ApprovalPolicy` | `beforeToolCall` block hook | 独立策略 capability | 默认拒绝受保护工具，尚无身份策略 |
 | tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交并可从 durable event replay |
@@ -18,7 +19,7 @@
 | `prepare_session_append` / `fork_session_events` | session append / fork rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一套 replay、append 与 fork 规则 |
 | `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | 已有严格格式、刷盘和重启恢复，尚无文件锁与迁移工具 |
 | `DurableSessionEvent` | session entries | append-only facts + replayable projection | fork 通过复制事件前缀实现；尚无父子分支元数据或压缩事件 |
-| committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 已能从有序事件日志回放，损坏序号会被拒绝 |
+| committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 文本、tool call、tool result 与 assistant thinking 已能回放；损坏序号会被拒绝 |
 | `run_settled` | Pi 的 `agent_settled` 语义 | 生命周期完成事件 | 当前没有 retry/compaction/queue 工作 |
 | `FakeProvider` | Pi 的 faux provider/testing patterns | 以证据验证 capability 契约 | 已覆盖文本与完整 ToolCall |
 

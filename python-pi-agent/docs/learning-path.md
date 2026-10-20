@@ -3,7 +3,7 @@
 每一阶段都必须形成可运行的纵向切片，而不是先造一批空接口。
 
 1. **消息、流和最小循环**：理解一次 Agent run 如何开始、提交和 settled。
-2. **真实 Provider 适配**：DeepSeek SSE、认证、错误映射、usage 和生命周期。
+2. **真实 Provider 适配**：DeepSeek SSE、认证、错误映射、usage、thinking replay 和生命周期。
 3. **工具调用**：schema、调度、tool result、失败和权限。
 4. **会话与事件日志**：追加式存储、回放、恢复和分叉。
 5. **上下文策略**：资源加载、token budget、裁剪与压缩。

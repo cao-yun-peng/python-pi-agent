@@ -30,6 +30,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
                 Message(
                     role="assistant",
                     content="",
+                    thinking="先查天气",
                     tool_calls=(ToolCall("call-1", "weather", {"city": "成都"}),),
                 ),
                 Message(
@@ -50,8 +51,41 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
                 json.loads(line)
                 for line in path.read_text(encoding="utf-8").splitlines()
             ]
-            self.assertEqual([record["schema_version"] for record in records], [1, 1])
+            self.assertEqual(
+                [record["schema_version"] for record in records],
+                [2, 2],
+            )
             self.assertEqual([record["sequence"] for record in records], [1, 2])
+
+    async def test_reads_legacy_v1_message_without_thinking(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            record = {
+                "schema_version": 1,
+                "session_id": "legacy",
+                "sequence": 1,
+                "kind": "message_committed",
+                "message": {
+                    "role": "assistant",
+                    "content": "旧消息",
+                    "tool_calls": [],
+                    "tool_call_id": None,
+                    "tool_name": None,
+                    "is_error": False,
+                    "structured_content": None,
+                },
+            }
+            path.write_text(
+                json.dumps(record, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            snapshot = await JsonlSessionStore(path).load("legacy")
+
+            self.assertEqual(
+                snapshot.messages,
+                (Message(role="assistant", content="旧消息"),),
+            )
 
     async def test_new_store_instance_resumes_agent_session(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

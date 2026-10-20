@@ -29,9 +29,10 @@ from .session_transitions import (
     validate_session_id,
 )
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+_SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 _EVENT_KEYS = {"schema_version", "session_id", "sequence", "kind", "message"}
-_MESSAGE_KEYS = {
+_MESSAGE_KEYS_V1 = {
     "role",
     "content",
     "tool_calls",
@@ -40,6 +41,7 @@ _MESSAGE_KEYS = {
     "is_error",
     "structured_content",
 }
+_MESSAGE_KEYS_V2 = {*_MESSAGE_KEYS_V1, "thinking"}
 _TOOL_CALL_KEYS = {"id", "name", "arguments"}
 _ROLES = {"system", "user", "assistant", "tool"}
 
@@ -162,6 +164,7 @@ def _encode_event(event: DurableSessionEvent) -> str:
         "message": {
             "role": event.message.role,
             "content": event.message.content,
+            "thinking": event.message.thinking,
             "tool_calls": [
                 {
                     "id": call.id,
@@ -204,7 +207,7 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
         record = _require_object(raw, "event")
         _require_exact_keys(record, _EVENT_KEYS, "event")
         schema_version = _require_int(record["schema_version"], "schema_version")
-        if schema_version != _SCHEMA_VERSION:
+        if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(f"unsupported schema_version: {schema_version}")
 
         session_id = _require_string(record["session_id"], "session_id")
@@ -214,7 +217,7 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
             raise ValueError(f"unsupported event kind: {kind}")
 
         message_record = _require_object(record["message"], "message")
-        message = _decode_message(message_record)
+        message = _decode_message(message_record, schema_version)
         return DurableSessionEvent(
             session_id=session_id,
             sequence=sequence,
@@ -227,8 +230,12 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
         ) from error
 
 
-def _decode_message(record: Mapping[str, object]) -> Message:
-    _require_exact_keys(record, _MESSAGE_KEYS, "message")
+def _decode_message(
+    record: Mapping[str, object],
+    schema_version: int,
+) -> Message:
+    expected_keys = _MESSAGE_KEYS_V2 if schema_version == 2 else _MESSAGE_KEYS_V1
+    _require_exact_keys(record, expected_keys, "message")
     role_text = _require_string(record["role"], "message.role")
     if role_text not in _ROLES:
         raise ValueError(f"unsupported message role: {role_text}")
@@ -244,6 +251,11 @@ def _decode_message(record: Mapping[str, object]) -> Message:
     return Message(
         role=cast(Role, role_text),
         content=_require_string(record["content"], "message.content"),
+        thinking=(
+            _require_string(record["thinking"], "message.thinking")
+            if schema_version == 2
+            else ""
+        ),
         tool_calls=tool_calls,
         tool_call_id=_require_optional_string(
             record["tool_call_id"],

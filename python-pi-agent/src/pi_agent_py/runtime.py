@@ -145,6 +145,7 @@ class Agent:
             request_number=request_number,
         )
         partial_text: list[str] = []
+        partial_thinking: list[str] = []
         tool_calls: list[ToolCall] = []
         tool_call_ids: set[str] = set()
         usage: TokenUsage | None = None
@@ -156,6 +157,7 @@ class Agent:
         ):
             if isinstance(event, ThinkingDelta):
                 _require_unfinished(finish, "thinking")
+                partial_thinking.append(event.text)
                 self._emit("thinking_delta", "live", text=event.text)
             elif isinstance(event, TextDelta):
                 _require_unfinished(finish, "text")
@@ -208,6 +210,7 @@ class Agent:
             message=Message(
                 role="assistant",
                 content="".join(partial_text),
+                thinking="".join(partial_thinking),
                 tool_calls=tuple(tool_calls),
             ),
             finish=finish,
@@ -492,6 +495,7 @@ def _message_payload(message: Message) -> dict[str, object]:
     return {
         "role": message.role,
         "content": message.content,
+        "thinking": message.thinking,
         "tool_calls": [
             {"id": call.id, "name": call.name, "arguments": call.arguments}
             for call in message.tool_calls
