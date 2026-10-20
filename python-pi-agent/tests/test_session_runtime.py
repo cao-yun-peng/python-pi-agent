@@ -11,12 +11,17 @@ from pi_agent_py import (
     FakeCompactionStrategy,
     FakeProvider,
     Finish,
+    FunctionTool,
     InMemoryEventSink,
     InMemorySessionStore,
+    JSONObject,
     Message,
     ProviderError,
     TextDelta,
     TokenThresholdCompactionPolicy,
+    ToolCall,
+    ToolDefinition,
+    ToolOutput,
     WaitUntilCancelled,
 )
 
@@ -24,6 +29,18 @@ from pi_agent_py import (
 class MessageCountEstimator:
     def estimate(self, messages: Sequence[Message]) -> int:
         return len(messages)
+
+
+def _large_result_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="large_result",
+        description="Return a large model-visible result.",
+        input_schema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    )
 
 
 class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
@@ -203,6 +220,202 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
                 "compaction_started",
                 "compaction_completed",
             ],
+        )
+
+    async def test_compacts_after_tool_results_before_the_next_model_request(
+        self,
+    ) -> None:
+        async def large_result(arguments: JSONObject) -> ToolOutput:
+            del arguments
+            return ToolOutput(content="large tool result")
+
+        store = InMemorySessionStore()
+        await store.append(
+            "demo",
+            0,
+            [
+                Message(role="user", content="old question"),
+                Message(role="assistant", content="old answer"),
+                Message(role="user", content="recent question"),
+                Message(role="assistant", content="recent answer"),
+            ],
+        )
+        provider = FakeProvider(
+            [
+                [ToolCall("call-1", "large_result", {}), Finish("tool_calls")],
+                [TextDelta("finished after compaction"), Finish()],
+            ]
+        )
+        strategy = FakeCompactionStrategy(["old work summary"])
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            store,
+            provider,
+            tools=[FunctionTool(_large_result_definition(), large_result)],
+            compaction_policy=TokenThresholdCompactionPolicy(
+                7,
+                estimator=MessageCountEstimator(),
+            ),
+            compaction_strategy=strategy,
+            event_sink=events,
+        )
+
+        result = await session.run("use the tool")
+
+        self.assertEqual(len(provider.requests), 2)
+        self.assertEqual(
+            [message.content for message in provider.requests[1]],
+            [
+                "<conversation-summary>\nold work summary\n"
+                "</conversation-summary>",
+                "use the tool",
+                "",
+                "large tool result",
+            ],
+        )
+        self.assertEqual(
+            [message.role for message in provider.requests[1]],
+            ["user", "user", "assistant", "tool"],
+        )
+        self.assertEqual(result.message.content, "finished after compaction")
+        self.assertEqual(
+            [event.kind for event in await store.read_events("demo")],
+            [
+                "message_committed",
+                "message_committed",
+                "message_committed",
+                "message_committed",
+                "message_committed",
+                "message_committed",
+                "message_committed",
+                "context_compacted",
+                "message_committed",
+            ],
+        )
+        self.assertEqual(
+            [
+                event.payload["should_compact"]
+                for event in events.events
+                if event.kind == "compaction_evaluated"
+            ],
+            [False, True],
+        )
+
+    async def test_in_loop_compaction_failure_preserves_committed_tool_result(
+        self,
+    ) -> None:
+        async def large_result(arguments: JSONObject) -> ToolOutput:
+            del arguments
+            return ToolOutput(content="large tool result")
+
+        store = InMemorySessionStore()
+        await store.append(
+            "demo",
+            0,
+            [
+                Message(role="user", content="old question"),
+                Message(role="assistant", content="old answer"),
+                Message(role="user", content="recent question"),
+                Message(role="assistant", content="recent answer"),
+            ],
+        )
+        provider = FakeProvider(
+            [[ToolCall("call-1", "large_result", {}), Finish("tool_calls")]]
+        )
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            store,
+            provider,
+            tools=[FunctionTool(_large_result_definition(), large_result)],
+            compaction_policy=TokenThresholdCompactionPolicy(
+                7,
+                estimator=MessageCountEstimator(),
+            ),
+            compaction_strategy=FakeCompactionStrategy(
+                [CompactionError("summary failed")]
+            ),
+            event_sink=events,
+        )
+
+        with self.assertRaises(CompactionError):
+            await session.run("use the tool")
+
+        snapshot = await store.load("demo")
+        self.assertEqual(len(provider.requests), 1)
+        self.assertEqual(
+            [message.role for message in snapshot.messages[-3:]],
+            ["user", "assistant", "tool"],
+        )
+        self.assertNotIn(
+            "context_compacted",
+            [event.kind for event in await store.read_events("demo")],
+        )
+        self.assertEqual(
+            [event.kind for event in events.events[-4:]],
+            [
+                "compaction_started",
+                "compaction_failed",
+                "run_failed",
+                "run_settled",
+            ],
+        )
+
+    async def test_in_loop_compaction_cancellation_preserves_tool_result(
+        self,
+    ) -> None:
+        async def large_result(arguments: JSONObject) -> ToolOutput:
+            del arguments
+            return ToolOutput(content="large tool result")
+
+        store = InMemorySessionStore()
+        await store.append(
+            "demo",
+            0,
+            [
+                Message(role="user", content="old question"),
+                Message(role="assistant", content="old answer"),
+                Message(role="user", content="recent question"),
+                Message(role="assistant", content="recent answer"),
+            ],
+        )
+        provider = FakeProvider(
+            [[ToolCall("call-1", "large_result", {}), Finish("tool_calls")]]
+        )
+        strategy = FakeCompactionStrategy([WaitUntilCancelled()])
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            store,
+            provider,
+            tools=[FunctionTool(_large_result_definition(), large_result)],
+            compaction_policy=TokenThresholdCompactionPolicy(
+                7,
+                estimator=MessageCountEstimator(),
+            ),
+            compaction_strategy=strategy,
+            event_sink=events,
+        )
+
+        task = asyncio.create_task(session.run("use the tool"))
+        await strategy.blocked.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+        snapshot = await store.load("demo")
+        self.assertEqual(
+            [message.role for message in snapshot.messages[-3:]],
+            ["user", "assistant", "tool"],
+        )
+        self.assertNotIn(
+            "context_compacted",
+            [event.kind for event in await store.read_events("demo")],
+        )
+        self.assertEqual(
+            [event.kind for event in events.events[-3:]],
+            ["compaction_cancelled", "run_cancelled", "run_settled"],
         )
 
     async def test_does_not_summarize_below_the_threshold(self) -> None:

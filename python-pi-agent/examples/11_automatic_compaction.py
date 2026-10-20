@@ -1,19 +1,31 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 
 from pi_agent_py import (
     AgentSession,
-    CharacterTokenEstimator,
     FakeCompactionStrategy,
     FakeProvider,
     Finish,
+    FunctionTool,
     InMemoryEventSink,
     InMemorySessionStore,
+    JSONObject,
     Message,
     TextDelta,
     TokenThresholdCompactionPolicy,
+    ToolCall,
+    ToolDefinition,
+    ToolOutput,
 )
+
+
+class MessageCountEstimator:
+    """Make the two threshold decisions obvious in this teaching example."""
+
+    def estimate(self, messages: Sequence[Message]) -> int:
+        return len(messages)
 
 
 async def main() -> None:
@@ -37,18 +49,36 @@ async def main() -> None:
 
     events = InMemoryEventSink()
     provider = FakeProvider(
-        [[TextDelta("The policy checks before each session run."), Finish()]]
+        [
+            [ToolCall("call-1", "load_notes", {}), Finish("tool_calls")],
+            [TextDelta("Compaction ran before this second request."), Finish()],
+        ]
+    )
+
+    async def load_notes(arguments: JSONObject) -> ToolOutput:
+        del arguments
+        return ToolOutput(content="A large model-visible tool result.")
+
+    tool = FunctionTool(
+        ToolDefinition(
+            name="load_notes",
+            description="Load notes for the current task.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        load_notes,
     )
     session = AgentSession(
         "lesson",
         store,
         provider,
+        tools=[tool],
         compaction_policy=TokenThresholdCompactionPolicy(
-            100,
-            estimator=CharacterTokenEstimator(
-                characters_per_token=1,
-                per_message_overhead=0,
-            ),
+            7,
+            estimator=MessageCountEstimator(),
         ),
         compaction_strategy=FakeCompactionStrategy(
             ["The user learned append-only logs and replayed snapshots."]
@@ -56,15 +86,17 @@ async def main() -> None:
         event_sink=events,
     )
 
-    await session.run("When is compaction triggered?")
-    decision = next(
-        event for event in events.events if event.kind == "compaction_evaluated"
-    )
+    await session.run("Load the notes, then explain the trigger point.")
+    decisions = [
+        event.payload
+        for event in events.events
+        if event.kind == "compaction_evaluated"
+    ]
 
-    print("decision:", dict(decision.payload))
-    print("provider context:")
-    for message in provider.requests[0]:
-        print(f"  {message.role}: {message.content}")
+    print("decisions:", [dict(decision) for decision in decisions])
+    print("second provider context:")
+    for message in provider.requests[1]:
+        print(f"  {message.role}: {message.content or message.tool_calls}")
     print("trace:", [event.kind for event in events.events])
 
 

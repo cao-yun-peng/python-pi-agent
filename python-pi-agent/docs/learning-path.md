@@ -13,4 +13,4 @@
 9. **可观测性与评测**：trace、成本、延迟、回归数据集和评分器。
 10. **产品适配与多 Agent**：CLI、Web/SSE、垂直 profile、委派和预算。
 
-当前进度：阶段 1、2、3 已完成；阶段 4 已完成内存与 JSONL SessionStore、乐观并发控制、跨 run/进程恢复、逐消息提交、durable event log、回放、持久化分叉和 replayable compaction event；分支元数据、多进程并发和数据库事务留给后续存储 Provider。阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、默认全历史策略、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction 和 run 前 token threshold 自动触发；下一步是 compaction eval 最小实现、精确 tokenizer、工具循环内触发与资源加载。
+当前进度：阶段 1、2、3 已完成；阶段 4 已完成内存与 JSONL SessionStore、乐观并发控制、跨 run/进程恢复、逐消息提交、durable event log、回放、持久化分叉和 replayable compaction event；分支元数据、多进程并发和数据库事务留给后续存储 Provider。阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、默认全历史策略、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发；下一步是 compaction eval 最小实现、精确 tokenizer 与资源加载。

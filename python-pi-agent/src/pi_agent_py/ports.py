@@ -50,6 +50,19 @@ class ContextStrategy(Protocol):
         ...
 
 
+class NextTurnHook(Protocol):
+    """Intercepts the safe boundary before another model request."""
+
+    async def prepare(
+        self,
+        messages: Sequence[Message],
+        *,
+        next_request_number: int,
+    ) -> Sequence[Message]:
+        """Return the canonical history for the next model request."""
+        ...
+
+
 class TokenEstimator(Protocol):
     """Estimates model-context tokens for an ordered message sequence."""
 

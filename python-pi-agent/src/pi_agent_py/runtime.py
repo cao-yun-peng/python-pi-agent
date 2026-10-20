@@ -50,6 +50,7 @@ from .ports import (
     ContextStrategy,
     EventSink,
     ModelProvider,
+    NextTurnHook,
     SessionStore,
     Tool,
 )
@@ -76,6 +77,7 @@ class Agent:
         event_sink: EventSink | None = None,
         initial_messages: Sequence[Message] = (),
         message_committer: Callable[[Message], Awaitable[None]] | None = None,
+        next_turn_hook: NextTurnHook | None = None,
         system_prompt: str | None = None,
         max_model_requests: int = 8,
     ) -> None:
@@ -99,6 +101,7 @@ class Agent:
         self._event_sink = event_sink or NullEventSink()
         self._max_model_requests = max_model_requests
         self._message_committer = message_committer
+        self._next_turn_hook = next_turn_hook
         self._messages = list(initial_messages)
         if system_prompt is not None:
             self._messages.append(Message(role="system", content=system_prompt))
@@ -132,6 +135,8 @@ class Agent:
                             )
                         else:
                             await self._execute_tool_calls(turn.message.tool_calls)
+                        if request_number < self._max_model_requests:
+                            await self._prepare_next_turn(request_number + 1)
                         continue
 
                     self._emit(
@@ -274,6 +279,32 @@ class Agent:
             estimated_tokens=context.estimated_tokens,
         )
         return context
+
+    async def _prepare_next_turn(self, next_request_number: int) -> None:
+        """Let an interceptor refresh canonical history at a safe boundary."""
+        hook = self._next_turn_hook
+        if hook is None:
+            return
+
+        try:
+            prepared = tuple(
+                await hook.prepare(
+                    self.messages,
+                    next_request_number=next_request_number,
+                )
+            )
+        except asyncio.CancelledError:
+            raise
+        except AgentError:
+            raise
+        except Exception as error:
+            raise ContextPreparationError("next-turn hook failed") from error
+
+        if any(not isinstance(message, Message) for message in prepared):
+            raise ContextPreparationError(
+                "next-turn hook must return only Message values"
+            )
+        self._messages = list(prepared)
 
     async def _execute_tool_calls(self, calls: Sequence[ToolCall]) -> None:
         for call in calls:
@@ -494,6 +525,32 @@ class _SessionWriter:
         return self._snapshot
 
 
+class _SessionNextTurnHook:
+    """Adapts session compaction to the Agent's generic next-turn hook."""
+
+    def __init__(
+        self,
+        writer: _SessionWriter,
+        prepare: Callable[[_SessionWriter], Awaitable[None]],
+    ) -> None:
+        self._writer = writer
+        self._prepare = prepare
+
+    async def prepare(
+        self,
+        messages: Sequence[Message],
+        *,
+        next_request_number: int,
+    ) -> Sequence[Message]:
+        del next_request_number
+        if tuple(messages) != self._writer.snapshot.messages:
+            raise CompactionError(
+                "agent and session histories diverged before next-turn preparation"
+            )
+        await self._prepare(self._writer)
+        return self._writer.snapshot.messages
+
+
 class AgentSession:
     """Loads one session, runs the agent loop, and persists new messages."""
 
@@ -543,7 +600,10 @@ class AgentSession:
                     Message(role="system", content=self._system_prompt)
                 )
 
-            await self._maybe_auto_compact(writer, prompt)
+            await self._maybe_auto_compact(
+                writer,
+                pending_messages=(Message(role="user", content=prompt),),
+            )
 
             agent = Agent(
                 self._provider,
@@ -553,6 +613,14 @@ class AgentSession:
                 event_sink=self._event_sink,
                 initial_messages=writer.snapshot.messages,
                 message_committer=writer.commit,
+                next_turn_hook=(
+                    _SessionNextTurnHook(
+                        writer,
+                        self._maybe_auto_compact,
+                    )
+                    if self._compaction_policy is not None
+                    else None
+                ),
                 max_model_requests=self._max_model_requests,
             )
             result = await agent.run(prompt)
@@ -610,14 +678,14 @@ class AgentSession:
     async def _maybe_auto_compact(
         self,
         writer: _SessionWriter,
-        incoming_prompt: str,
+        pending_messages: Sequence[Message] = (),
     ) -> None:
         if self._compaction_policy is None:
             return
 
         candidate_messages = (
             *writer.snapshot.messages,
-            Message(role="user", content=incoming_prompt),
+            *pending_messages,
         )
         try:
             decision = self._compaction_policy.evaluate(candidate_messages)

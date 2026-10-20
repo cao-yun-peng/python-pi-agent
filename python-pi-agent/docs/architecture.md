@@ -41,7 +41,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 
 预算策略通过可替换 `TokenEstimator` 计算投影大小。system 消息固定保留；从 user 到下一个 user 之前的 assistant tool call、tool result 与最终回答组成不可拆分 turn。策略保留连续的最近 turn，mandatory context 超预算时显式失败，不截断当前输入或工具链。
 
-durable compaction 可由 `AgentSession.compact()` 显式触发，也可在配置 `CompactionPolicy` 后于每次 `AgentSession.run()` 前自动触发。`TokenThresholdCompactionPolicy` 估算 persisted history 加 incoming prompt；达到阈值后，`prepare_compaction()` 保留 leading system messages 与指定数量的近期完整 turn，`CompactionStrategy` 只为旧前缀生成摘要。摘要成功后，Store 以乐观版本检查追加一个 `context_compacted` event；replay 将指定前缀替换为带标记的 summary message。旧消息事件不删除，所以失败与取消不会产生半成品，重启与 fork 仍走同一 replay 规则。当前同一次工具循环内不重复评估，也不减少日志磁盘占用。
+durable compaction 可由 `AgentSession.compact()` 显式触发，也可在配置 `CompactionPolicy` 后自动触发。run 前，`TokenThresholdCompactionPolicy` 估算 persisted history 加 incoming prompt；同一工具循环内，Agent 在所有 tool result 提交后、下一次模型请求前调用 `NextTurnHook`，`AgentSession` 的适配器再次估算当前 durable snapshot。达到阈值后，`prepare_compaction()` 保留 leading system messages 与指定数量的近期完整 turn，`CompactionStrategy` 只为旧前缀生成摘要。摘要成功后，Store 以乐观版本检查追加一个 `context_compacted` event；replay 将指定前缀替换为带标记的 summary message，Hook 再把 replay 后的 canonical history 返回给 Agent。旧消息事件不删除，所以失败与取消不会产生半成品，重启与 fork 仍走同一 replay 规则；compaction 仍不减少日志磁盘占用。
 
 `SessionStore.fork()` 从源日志的指定 version 创建一个新的目标 session。两个 Store 都调用 `fork_session_events()` 复制经过 replay 校验的历史前缀，拒绝覆盖已有目标，并允许源和目标在分叉后独立追加。当前事件模型没有 `session_created` 元数据，因此持久化 fork 必须至少包含一个事件。
 
@@ -55,6 +55,7 @@ durable compaction 可由 `AgentSession.compact()` 显式触发，也可在配�
 - runtime 消费 `ContextStrategy` 端口；默认实现位于 context，策略不得反向修改 durable history。
 - runtime 消费 `CompactionStrategy` 端口；策略只生成摘要，持久化由 `SessionStore` 控制。
 - runtime 消费 `CompactionPolicy` 端口；policy 只决定何时触发，不生成摘要或写存储。
+- Agent loop 消费 `NextTurnHook` 端口；Hook 可以在安全边界替换下一轮 canonical history，但 SessionStore 与 compaction 细节只存在于 `AgentSession` 适配器。
 - session_transitions 只依赖领域对象和稳定错误，不依赖存储 Provider。
 - session 与 session_jsonl 实现 ports 中的 `SessionStore`，ports 不依赖具体存储。
 - apps 负责显式组装，不通过 import 副作用注册。

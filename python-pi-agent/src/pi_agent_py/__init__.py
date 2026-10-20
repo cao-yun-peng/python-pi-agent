@@ -62,6 +62,7 @@ from .ports import (
     CompactionPolicy,
     CompactionStrategy,
     ContextStrategy,
+    NextTurnHook,
     SessionStore,
     TokenEstimator,
 )
@@ -121,6 +122,7 @@ __all__ = [
     "Message",
     "ModelCompactionStrategy",
     "ModelProtocolError",
+    "NextTurnHook",
     "NullEventSink",
     "ProviderError",
     "ProviderAuthenticationError",

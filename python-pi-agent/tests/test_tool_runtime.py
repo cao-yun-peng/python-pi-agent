@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from collections.abc import Sequence
 
 from pi_agent_py import (
     Agent,
@@ -11,6 +12,7 @@ from pi_agent_py import (
     FunctionTool,
     InMemoryEventSink,
     JSONObject,
+    Message,
     StaticApprovalPolicy,
     TextDelta,
     TokenUsage,
@@ -18,6 +20,21 @@ from pi_agent_py import (
     ToolDefinition,
     ToolOutput,
 )
+
+
+class RecordingNextTurnHook:
+    def __init__(self) -> None:
+        self.calls: list[tuple[tuple[Message, ...], int]] = []
+
+    async def prepare(
+        self,
+        messages: Sequence[Message],
+        *,
+        next_request_number: int,
+    ) -> Sequence[Message]:
+        history = tuple(messages)
+        self.calls.append((history, next_request_number))
+        return history
 
 
 class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
@@ -95,6 +112,38 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "context_prepared",
             ],
         )
+
+    async def test_next_turn_hook_runs_after_tool_result_commit(self) -> None:
+        async def add(arguments: JSONObject) -> ToolOutput:
+            del arguments
+            return ToolOutput(content="2")
+
+        provider = FakeProvider(
+            [
+                [
+                    ToolCall("call-hook", "add", {"a": 1, "b": 1}),
+                    Finish("tool_calls"),
+                ],
+                [TextDelta("done"), Finish()],
+            ]
+        )
+        hook = RecordingNextTurnHook()
+        agent = Agent(
+            provider,
+            tools=[FunctionTool(_add_definition(), add)],
+            next_turn_hook=hook,
+        )
+
+        await agent.run("use a tool")
+
+        self.assertEqual(len(hook.calls), 1)
+        prepared_history, next_request_number = hook.calls[0]
+        self.assertEqual(next_request_number, 2)
+        self.assertEqual(
+            [message.role for message in prepared_history],
+            ["user", "assistant", "tool"],
+        )
+        self.assertEqual(provider.requests[1], prepared_history)
 
     async def test_invalid_arguments_are_returned_without_executing_tool(self) -> None:
         executed = False
