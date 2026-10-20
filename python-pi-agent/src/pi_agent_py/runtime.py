@@ -6,11 +6,16 @@ import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 
-from .compaction import build_summary_message, prepare_compaction
+from .compaction import (
+    CompactionPreparation,
+    build_summary_message,
+    prepare_compaction,
+)
 from .context import FullHistoryContextStrategy
 from .domain import (
     AgentEvent,
     AgentResult,
+    CompactionDecision,
     ContextPlan,
     EventChannel,
     EventKind,
@@ -29,6 +34,8 @@ from .errors import (
     AgentError,
     AgentLoopLimitError,
     CompactionError,
+    CompactionNotNeededError,
+    CompactionPolicyError,
     ConfigurationError,
     ContextPreparationError,
     ModelProtocolError,
@@ -38,6 +45,7 @@ from .errors import (
 from .events import NullEventSink
 from .ports import (
     ApprovalPolicy,
+    CompactionPolicy,
     CompactionStrategy,
     ContextStrategy,
     EventSink,
@@ -477,6 +485,14 @@ class _SessionWriter:
             (message,),
         )
 
+    async def compact(self, compaction: SessionCompaction) -> SessionSnapshot:
+        self._snapshot = await self._session_store.compact(
+            self._snapshot.session_id,
+            self._snapshot.version,
+            compaction,
+        )
+        return self._snapshot
+
 
 class AgentSession:
     """Loads one session, runs the agent loop, and persists new messages."""
@@ -489,17 +505,23 @@ class AgentSession:
         *,
         tools: Sequence[Tool] = (),
         approval_policy: ApprovalPolicy | None = None,
+        compaction_policy: CompactionPolicy | None = None,
         compaction_strategy: CompactionStrategy | None = None,
         context_strategy: ContextStrategy | None = None,
         event_sink: EventSink | None = None,
         system_prompt: str | None = None,
         max_model_requests: int = 8,
     ) -> None:
+        if compaction_policy is not None and compaction_strategy is None:
+            raise ConfigurationError(
+                "compaction_policy requires a compaction_strategy"
+            )
         self._session_id = session_id
         self._session_store = session_store
         self._provider = provider
         self._tools = tuple(tools)
         self._approval_policy = approval_policy
+        self._compaction_policy = compaction_policy
         self._compaction_strategy = compaction_strategy
         self._context_strategy = context_strategy
         self._event_sink = event_sink or NullEventSink()
@@ -520,6 +542,8 @@ class AgentSession:
                 await writer.commit(
                     Message(role="system", content=self._system_prompt)
                 )
+
+            await self._maybe_auto_compact(writer, prompt)
 
             agent = Agent(
                 self._provider,
@@ -552,68 +576,189 @@ class AgentSession:
             )
 
         async with self._run_lock:
-            started = False
             try:
                 snapshot = await self._session_store.load(self._session_id)
+                writer = _SessionWriter(self._session_store, snapshot)
                 preparation = prepare_compaction(
                     snapshot.messages,
                     keep_recent_turns=keep_recent_turns,
                 )
-                self._emit(
-                    "compaction_started",
-                    source_version=snapshot.version,
-                    source_message_count=preparation.source_message_count,
-                    summarized_message_count=len(
-                        preparation.messages_to_summarize
-                    ),
-                    kept_message_count=len(preparation.kept_messages),
-                )
-                started = True
-
-                summary = await self._compaction_strategy.summarize(
-                    preparation.messages_to_summarize
-                )
-                if not isinstance(summary, str):
-                    raise CompactionError(
-                        "compaction strategy must return summary text"
-                    )
-
-                compacted = await self._session_store.compact(
-                    self._session_id,
-                    snapshot.version,
-                    SessionCompaction(
-                        replace_start=preparation.replace_start,
-                        replaced_message_count=len(
-                            preparation.messages_to_summarize
-                        ),
-                        summary_message=build_summary_message(summary),
-                    ),
-                )
             except asyncio.CancelledError:
-                if started:
-                    self._emit("compaction_cancelled")
                 raise
             except AgentError as error:
                 self._emit(
                     "compaction_failed",
                     error=type(error).__name__,
+                    automatic=False,
                 )
                 raise
             except Exception as error:
-                wrapped = CompactionError("compaction strategy failed")
+                wrapped = CompactionError("compaction preparation failed")
                 self._emit(
                     "compaction_failed",
                     error=type(wrapped).__name__,
+                    automatic=False,
                 )
                 raise wrapped from error
 
-            self._emit(
-                "compaction_completed",
-                source_version=snapshot.version,
-                compacted_version=compacted.version,
-                compacted_message_count=len(compacted.messages),
+            return await self._execute_compaction(
+                writer,
+                preparation,
+                automatic=False,
             )
-            return compacted
+
+    async def _maybe_auto_compact(
+        self,
+        writer: _SessionWriter,
+        incoming_prompt: str,
+    ) -> None:
+        if self._compaction_policy is None:
+            return
+
+        candidate_messages = (
+            *writer.snapshot.messages,
+            Message(role="user", content=incoming_prompt),
+        )
+        try:
+            decision = self._compaction_policy.evaluate(candidate_messages)
+            if not isinstance(decision, CompactionDecision):
+                raise CompactionPolicyError(
+                    "compaction policy must return CompactionDecision"
+                )
+        except CompactionError as error:
+            self._emit(
+                "compaction_failed",
+                error=type(error).__name__,
+                automatic=True,
+                stage="policy",
+            )
+            raise
+        except Exception as error:
+            wrapped = CompactionPolicyError("compaction policy failed")
+            self._emit(
+                "compaction_failed",
+                error=type(wrapped).__name__,
+                automatic=True,
+                stage="policy",
+            )
+            raise wrapped from error
+
+        self._emit(
+            "compaction_evaluated",
+            automatic=True,
+            should_compact=decision.should_compact,
+            estimated_tokens=decision.estimated_tokens,
+            token_threshold=decision.token_threshold,
+            keep_recent_turns=decision.keep_recent_turns,
+            candidate_message_count=len(candidate_messages),
+        )
+        if not decision.should_compact:
+            return
+
+        try:
+            preparation = prepare_compaction(
+                writer.snapshot.messages,
+                keep_recent_turns=decision.keep_recent_turns,
+            )
+        except CompactionNotNeededError:
+            self._emit(
+                "compaction_skipped",
+                automatic=True,
+                reason="no_compactable_history",
+                source_version=writer.snapshot.version,
+            )
+            return
+        except AgentError as error:
+            self._emit(
+                "compaction_failed",
+                error=type(error).__name__,
+                automatic=True,
+                stage="preparation",
+            )
+            raise
+        except Exception as error:
+            wrapped = CompactionError("compaction preparation failed")
+            self._emit(
+                "compaction_failed",
+                error=type(wrapped).__name__,
+                automatic=True,
+                stage="preparation",
+            )
+            raise wrapped from error
+
+        await self._execute_compaction(
+            writer,
+            preparation,
+            automatic=True,
+        )
+
+    async def _execute_compaction(
+        self,
+        writer: _SessionWriter,
+        preparation: CompactionPreparation,
+        *,
+        automatic: bool,
+    ) -> SessionSnapshot:
+        strategy = self._compaction_strategy
+        if strategy is None:
+            raise ConfigurationError("compaction strategy is not configured")
+
+        source_version = writer.snapshot.version
+        self._emit(
+            "compaction_started",
+            automatic=automatic,
+            source_version=source_version,
+            source_message_count=preparation.source_message_count,
+            summarized_message_count=len(preparation.messages_to_summarize),
+            kept_message_count=len(preparation.kept_messages),
+        )
+        try:
+            summary = await strategy.summarize(
+                preparation.messages_to_summarize
+            )
+            if not isinstance(summary, str):
+                raise CompactionError(
+                    "compaction strategy must return summary text"
+                )
+
+            compacted = await writer.compact(
+                SessionCompaction(
+                    replace_start=preparation.replace_start,
+                    replaced_message_count=len(
+                        preparation.messages_to_summarize
+                    ),
+                    summary_message=build_summary_message(summary),
+                )
+            )
+        except asyncio.CancelledError:
+            self._emit("compaction_cancelled", automatic=automatic)
+            raise
+        except AgentError as error:
+            self._emit(
+                "compaction_failed",
+                error=type(error).__name__,
+                automatic=automatic,
+                stage="execution",
+            )
+            raise
+        except Exception as error:
+            wrapped = CompactionError("compaction strategy failed")
+            self._emit(
+                "compaction_failed",
+                error=type(wrapped).__name__,
+                automatic=automatic,
+                stage="execution",
+            )
+            raise wrapped from error
+
+        self._emit(
+            "compaction_completed",
+            automatic=automatic,
+            source_version=source_version,
+            compacted_version=compacted.version,
+            compacted_message_count=len(compacted.messages),
+        )
+        return compacted
 
     def _emit(self, kind: EventKind, **payload: object) -> None:
         self._event_sink.emit(

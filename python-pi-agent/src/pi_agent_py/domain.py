@@ -17,6 +17,8 @@ EventKind: TypeAlias = Literal[
     "run_started",
     "message_committed",
     "context_prepared",
+    "compaction_evaluated",
+    "compaction_skipped",
     "compaction_started",
     "compaction_completed",
     "compaction_failed",
@@ -145,6 +147,26 @@ class SessionCompaction:
             raise ValueError("compaction summary message must not be empty")
         if self.summary_message.tool_calls:
             raise ValueError("compaction summary message cannot contain tool calls")
+
+
+@dataclass(frozen=True, slots=True)
+class CompactionDecision:
+    """One observable policy decision made before an AgentSession run."""
+
+    should_compact: bool
+    estimated_tokens: int
+    token_threshold: int
+    keep_recent_turns: int
+
+    def __post_init__(self) -> None:
+        if type(self.should_compact) is not bool:
+            raise TypeError("should_compact must be a boolean")
+        if type(self.estimated_tokens) is not int or self.estimated_tokens < 0:
+            raise ValueError("estimated_tokens must be a non-negative integer")
+        if type(self.token_threshold) is not int or self.token_threshold <= 0:
+            raise ValueError("token_threshold must be a positive integer")
+        if type(self.keep_recent_turns) is not int or self.keep_recent_turns <= 0:
+            raise ValueError("keep_recent_turns must be a positive integer")
 
 
 @dataclass(frozen=True, slots=True)

@@ -70,6 +70,10 @@ class CompactionNotNeededError(CompactionError):
     """The session does not contain enough completed turns to compact."""
 
 
+class CompactionPolicyError(CompactionError):
+    """Automatic compaction policy evaluation failed."""
+
+
 class ToolValidationError(AgentError):
     """Tool arguments do not satisfy the declared input schema."""
 

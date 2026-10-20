@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from collections.abc import Sequence
 
 from pi_agent_py import (
     AgentSession,
     CompactionError,
+    ConfigurationError,
     FakeCompactionStrategy,
     FakeProvider,
     Finish,
@@ -14,11 +16,26 @@ from pi_agent_py import (
     Message,
     ProviderError,
     TextDelta,
+    TokenThresholdCompactionPolicy,
     WaitUntilCancelled,
 )
 
 
+class MessageCountEstimator:
+    def estimate(self, messages: Sequence[Message]) -> int:
+        return len(messages)
+
+
 class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
+    def test_auto_policy_requires_a_compaction_strategy(self) -> None:
+        with self.assertRaisesRegex(ConfigurationError, "requires"):
+            AgentSession(
+                "demo",
+                InMemorySessionStore(),
+                FakeProvider([]),
+                compaction_policy=TokenThresholdCompactionPolicy(10),
+            )
+
     async def test_loads_history_and_persists_each_run(self) -> None:
         provider = FakeProvider(
             [
@@ -125,6 +142,162 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "compaction_completed",
             [event.kind for event in events.events],
+        )
+
+    async def test_automatically_compacts_when_threshold_is_reached(self) -> None:
+        store = InMemorySessionStore()
+        await store.append(
+            "demo",
+            0,
+            [
+                Message(role="user", content="old question"),
+                Message(role="assistant", content="old answer"),
+                Message(role="user", content="recent question"),
+                Message(role="assistant", content="recent answer"),
+            ],
+        )
+        provider = FakeProvider([[TextDelta("new answer"), Finish()]])
+        strategy = FakeCompactionStrategy(["old topic summary"])
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            store,
+            provider,
+            compaction_policy=TokenThresholdCompactionPolicy(
+                5,
+                estimator=MessageCountEstimator(),
+            ),
+            compaction_strategy=strategy,
+            event_sink=events,
+        )
+
+        result = await session.run("new question")
+
+        self.assertEqual(
+            [message.content for message in provider.requests[0]],
+            [
+                "<conversation-summary>\nold topic summary\n"
+                "</conversation-summary>",
+                "recent question",
+                "recent answer",
+                "new question",
+            ],
+        )
+        self.assertEqual(result.messages[-1].content, "new answer")
+        self.assertEqual(
+            [event.kind for event in await store.read_events("demo")],
+            [
+                "message_committed",
+                "message_committed",
+                "message_committed",
+                "message_committed",
+                "context_compacted",
+                "message_committed",
+                "message_committed",
+            ],
+        )
+        self.assertEqual(
+            [event.kind for event in events.events[:3]],
+            [
+                "compaction_evaluated",
+                "compaction_started",
+                "compaction_completed",
+            ],
+        )
+
+    async def test_does_not_summarize_below_the_threshold(self) -> None:
+        provider = FakeProvider([[TextDelta("answer"), Finish()]])
+        strategy = FakeCompactionStrategy([])
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            InMemorySessionStore(),
+            provider,
+            compaction_policy=TokenThresholdCompactionPolicy(
+                10,
+                estimator=MessageCountEstimator(),
+            ),
+            compaction_strategy=strategy,
+            event_sink=events,
+        )
+
+        await session.run("question")
+
+        self.assertEqual(strategy.requests, [])
+        evaluated = events.events[0]
+        self.assertEqual(evaluated.kind, "compaction_evaluated")
+        self.assertFalse(evaluated.payload["should_compact"])
+
+    async def test_auto_compaction_failure_does_not_commit_new_prompt(
+        self,
+    ) -> None:
+        store = InMemorySessionStore()
+        original = await store.append(
+            "demo",
+            0,
+            [
+                Message(role="user", content="old"),
+                Message(role="assistant", content="answer"),
+                Message(role="user", content="recent"),
+            ],
+        )
+        provider = FakeProvider([])
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            store,
+            provider,
+            compaction_policy=TokenThresholdCompactionPolicy(
+                4,
+                estimator=MessageCountEstimator(),
+            ),
+            compaction_strategy=FakeCompactionStrategy(
+                [CompactionError("summary failed")]
+            ),
+            event_sink=events,
+        )
+
+        with self.assertRaises(CompactionError):
+            await session.run("new prompt")
+
+        self.assertEqual(await store.load("demo"), original)
+        self.assertEqual(provider.requests, [])
+        self.assertEqual(
+            [event.kind for event in events.events],
+            [
+                "compaction_evaluated",
+                "compaction_started",
+                "compaction_failed",
+            ],
+        )
+
+    async def test_skips_when_threshold_reaches_without_old_turns(self) -> None:
+        store = InMemorySessionStore()
+        await store.append(
+            "demo",
+            0,
+            [Message(role="user", content="only existing turn")],
+        )
+        strategy = FakeCompactionStrategy([])
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            store,
+            FakeProvider([[TextDelta("answer"), Finish()]]),
+            compaction_policy=TokenThresholdCompactionPolicy(
+                2,
+                estimator=MessageCountEstimator(),
+            ),
+            compaction_strategy=strategy,
+            event_sink=events,
+        )
+
+        await session.run("new prompt")
+
+        self.assertEqual(strategy.requests, [])
+        self.assertEqual(
+            [event.kind for event in events.events[:2]],
+            ["compaction_evaluated", "compaction_skipped"],
         )
 
     async def test_compaction_failure_does_not_append_an_event(self) -> None:

@@ -3,6 +3,7 @@
 from .compaction import (
     CompactionPreparation,
     ModelCompactionStrategy,
+    TokenThresholdCompactionPolicy,
     build_summary_message,
     prepare_compaction,
     serialize_conversation,
@@ -17,6 +18,7 @@ from .domain import (
     AgentEvent,
     AgentResult,
     ApprovalDecision,
+    CompactionDecision,
     ContextPlan,
     DurableSessionEvent,
     Finish,
@@ -37,6 +39,7 @@ from .errors import (
     AgentLoopLimitError,
     CompactionError,
     CompactionNotNeededError,
+    CompactionPolicyError,
     ConfigurationError,
     ContextBudgetExceededError,
     ContextPreparationError,
@@ -56,6 +59,7 @@ from .errors import (
 )
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
 from .ports import (
+    CompactionPolicy,
     CompactionStrategy,
     ContextStrategy,
     SessionStore,
@@ -91,7 +95,10 @@ __all__ = [
     "CallbackEventSink",
     "CharacterTokenEstimator",
     "CompactionError",
+    "CompactionDecision",
     "CompactionNotNeededError",
+    "CompactionPolicy",
+    "CompactionPolicyError",
     "CompactionPreparation",
     "CompactionStrategy",
     "ConfigurationError",
@@ -135,6 +142,7 @@ __all__ = [
     "ThinkingDelta",
     "TokenUsage",
     "TokenBudgetContextStrategy",
+    "TokenThresholdCompactionPolicy",
     "TokenEstimator",
     "ToolCall",
     "ToolDefinition",

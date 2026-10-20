@@ -19,6 +19,7 @@
 | `TokenEstimator` / `TokenBudgetContextStrategy` | `packages/coding-agent/src/core/compaction/compaction.ts` 的 `estimateTokens()` / `findCutPoint()` | 可替换估算 Provider + 策略 Consumer | 同样使用字符启发式；本项目按完整 user turn 裁剪，不允许 split turn |
 | `context_prepared` | compaction/context 生命周期事件 | capability evidence | 仅记录数量与预算元数据，不持久化提示词正文 |
 | `CompactionStrategy` / `ModelCompactionStrategy` | `compaction.ts` 的 `compact()` 与 summary generation | 可替换 Definition / Provider / Consumer | 使用独立 ModelProvider，不暴露工具；待增量摘要与质量 eval |
+| `CompactionPolicy` / `TokenThresholdCompactionPolicy` | Pi token overflow check / OpenAI `compact_threshold` | 触发 Definition + runtime Consumer + trace Evidence | run 前估算 persisted history + incoming prompt；同一工具循环内不重复检查 |
 | `SessionCompaction` / `context_compacted` | `CompactionEntry` 与 session context reconstruction | durable capability evidence | 保存前缀替换操作并由 replay 应用；当前不支持 split-turn 和文件跟踪 |
 | `SessionStore` / `SessionSnapshot` | `SessionManager` 与 session entries | Definition / Provider / Consumer / Evidence | 内存与单写者 JSONL Provider 均支持持久化 fork，待多进程事务 |
 | `prepare_session_append` / `prepare_session_compaction` / `fork_session_events` | session append / compaction / fork rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一套 replay、append、compact 与 fork 规则 |

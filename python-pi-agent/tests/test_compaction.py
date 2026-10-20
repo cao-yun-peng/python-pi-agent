@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from collections.abc import Sequence
 
 from pi_agent_py import (
     CompactionError,
@@ -11,11 +12,22 @@ from pi_agent_py import (
     Message,
     ModelCompactionStrategy,
     TextDelta,
+    TokenThresholdCompactionPolicy,
     ToolCall,
     WaitUntilCancelled,
     build_summary_message,
     prepare_compaction,
 )
+
+
+class MessageCountEstimator:
+    def estimate(self, messages: Sequence[Message]) -> int:
+        return len(messages)
+
+
+class InvalidEstimator:
+    def estimate(self, messages: Sequence[Message]) -> int:
+        return -1
 
 
 class CompactionPreparationTests(unittest.TestCase):
@@ -52,6 +64,38 @@ class CompactionPreparationTests(unittest.TestCase):
                 [Message(role="user", content="only turn")],
                 keep_recent_turns=1,
             )
+
+
+class TokenThresholdCompactionPolicyTests(unittest.TestCase):
+    def test_triggers_when_estimate_reaches_threshold(self) -> None:
+        policy = TokenThresholdCompactionPolicy(
+            2,
+            keep_recent_turns=1,
+            estimator=MessageCountEstimator(),
+        )
+
+        below = policy.evaluate([Message(role="user", content="one")])
+        reached = policy.evaluate(
+            [
+                Message(role="user", content="one"),
+                Message(role="assistant", content="two"),
+            ]
+        )
+
+        self.assertFalse(below.should_compact)
+        self.assertTrue(reached.should_compact)
+        self.assertEqual(reached.estimated_tokens, 2)
+        self.assertEqual(reached.token_threshold, 2)
+        self.assertEqual(reached.keep_recent_turns, 1)
+
+    def test_rejects_an_invalid_estimator_result(self) -> None:
+        policy = TokenThresholdCompactionPolicy(
+            10,
+            estimator=InvalidEstimator(),
+        )
+
+        with self.assertRaisesRegex(CompactionError, "non-negative integer"):
+            policy.evaluate([Message(role="user", content="hello")])
 
 
 class ModelCompactionStrategyTests(unittest.IsolatedAsyncioTestCase):

@@ -8,6 +8,7 @@ from typing import Protocol
 from .domain import (
     AgentEvent,
     ApprovalDecision,
+    CompactionDecision,
     ContextPlan,
     DurableSessionEvent,
     JSONObject,
@@ -62,6 +63,14 @@ class CompactionStrategy(Protocol):
 
     async def summarize(self, messages: Sequence[Message]) -> str:
         """Return non-empty summary text without mutating the messages."""
+        ...
+
+
+class CompactionPolicy(Protocol):
+    """Decides whether persisted history should be compacted before a run."""
+
+    def evaluate(self, messages: Sequence[Message]) -> CompactionDecision:
+        """Return an observable decision without mutating session history."""
         ...
 
 

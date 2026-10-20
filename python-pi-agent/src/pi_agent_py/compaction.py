@@ -7,10 +7,22 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .context import group_context_messages
-from .domain import Finish, Message, TextDelta, ThinkingDelta, TokenUsage, ToolCall
-from .errors import CompactionError, CompactionNotNeededError
-from .ports import ModelProvider
+from .context import CharacterTokenEstimator, group_context_messages
+from .domain import (
+    CompactionDecision,
+    Finish,
+    Message,
+    TextDelta,
+    ThinkingDelta,
+    TokenUsage,
+    ToolCall,
+)
+from .errors import (
+    CompactionError,
+    CompactionNotNeededError,
+    CompactionPolicyError,
+)
+from .ports import ModelProvider, TokenEstimator
 
 _TOOL_RESULT_MAX_CHARS = 2_000
 _SUMMARY_PREFIX = "<conversation-summary>"
@@ -31,6 +43,42 @@ class CompactionPreparation:
     kept_messages: tuple[Message, ...]
     replace_start: int
     source_message_count: int
+
+
+class TokenThresholdCompactionPolicy:
+    """Trigger compaction when estimated message tokens reach a threshold."""
+
+    def __init__(
+        self,
+        token_threshold: int,
+        *,
+        keep_recent_turns: int = 1,
+        estimator: TokenEstimator | None = None,
+    ) -> None:
+        if type(token_threshold) is not int or token_threshold <= 0:
+            raise ValueError("token_threshold must be a positive integer")
+        if type(keep_recent_turns) is not int or keep_recent_turns <= 0:
+            raise ValueError("keep_recent_turns must be a positive integer")
+        self._token_threshold = token_threshold
+        self._keep_recent_turns = keep_recent_turns
+        self._estimator = estimator or CharacterTokenEstimator()
+
+    def evaluate(self, messages: Sequence[Message]) -> CompactionDecision:
+        history = tuple(messages)
+        try:
+            estimated_tokens = self._estimator.estimate(history)
+        except Exception as error:
+            raise CompactionPolicyError("token estimator failed") from error
+        if type(estimated_tokens) is not int or estimated_tokens < 0:
+            raise CompactionPolicyError(
+                "token estimator must return a non-negative integer"
+            )
+        return CompactionDecision(
+            should_compact=estimated_tokens >= self._token_threshold,
+            estimated_tokens=estimated_tokens,
+            token_threshold=self._token_threshold,
+            keep_recent_turns=self._keep_recent_turns,
+        )
 
 
 def prepare_compaction(

@@ -2,7 +2,7 @@
 
 上一章的 `TokenBudgetContextStrategy` 只改变一次模型请求的投影：旧消息还在 `SessionSnapshot`，下一次仍要重新选择。本章实现真正的 compaction：把较早的完整 turn 总结成一条模型可见摘要，并把这次替换作为 durable event 持久化。进程重启后，replay 会得到同一个压缩结果。
 
-当前版本通过 `await AgentSession.compact()` 显式触发。自动阈值、精确 token 触发和摘要质量评测留在下一步，避免把“何时压缩”和“怎样安全压缩”同时塞进第一版。
+本章通过 `await AgentSession.compact()` 显式触发。第 11 章在不改变这里的摘要和持久化机制的前提下，加入 token threshold 自动触发。
 
 ## 1. 两种上下文缩减不是一回事
 
