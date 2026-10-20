@@ -48,6 +48,14 @@ class ContextStrategy(Protocol):
         ...
 
 
+class TokenEstimator(Protocol):
+    """Estimates model-context tokens for an ordered message sequence."""
+
+    def estimate(self, messages: Sequence[Message]) -> int:
+        """Return a deterministic, non-negative token estimate."""
+        ...
+
+
 class SessionStore(Protocol):
     """Loads, appends, and forks model-visible session history."""
 

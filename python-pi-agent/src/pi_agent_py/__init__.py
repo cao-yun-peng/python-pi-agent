@@ -1,6 +1,11 @@
 """Teaching-first building blocks for a modular Python agent harness."""
 
-from .context import FullHistoryContextStrategy
+from .context import (
+    CharacterTokenEstimator,
+    FullHistoryContextStrategy,
+    TokenBudgetContextStrategy,
+    group_context_messages,
+)
 from .domain import (
     AgentEvent,
     AgentResult,
@@ -23,6 +28,7 @@ from .errors import (
     AgentError,
     AgentLoopLimitError,
     ConfigurationError,
+    ContextBudgetExceededError,
     ContextPreparationError,
     ModelProtocolError,
     ProviderAuthenticationError,
@@ -39,7 +45,7 @@ from .errors import (
     ToolValidationError,
 )
 from .events import CallbackEventSink, InMemoryEventSink, NullEventSink
-from .ports import ContextStrategy, SessionStore
+from .ports import ContextStrategy, SessionStore, TokenEstimator
 from .runtime import Agent, AgentSession
 from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
@@ -66,7 +72,9 @@ __all__ = [
     "AgentSession",
     "ApprovalDecision",
     "CallbackEventSink",
+    "CharacterTokenEstimator",
     "ConfigurationError",
+    "ContextBudgetExceededError",
     "ContextPlan",
     "ContextPreparationError",
     "ContextStrategy",
@@ -101,6 +109,8 @@ __all__ = [
     "TextDelta",
     "ThinkingDelta",
     "TokenUsage",
+    "TokenBudgetContextStrategy",
+    "TokenEstimator",
     "ToolCall",
     "ToolDefinition",
     "ToolOutput",
@@ -109,6 +119,7 @@ __all__ = [
     "StaticApprovalPolicy",
     "validate_tool_arguments",
     "fork_session_events",
+    "group_context_messages",
     "prepare_session_append",
     "replay_session",
 ]

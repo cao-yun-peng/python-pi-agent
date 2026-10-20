@@ -17,7 +17,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - `domain.py` 只包含无 I/O 的值对象。
 - `ports.py` 定义核心运行时所需能力，不提供供应商实现。
 - `runtime.py` 消费端口并维护已提交消息。
-- `context.py` 提供默认的 `FullHistoryContextStrategy`，把完整历史投影为一次模型请求的 `ContextPlan`。
+- `context.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。
 - `runtime.AgentSession` 加载会话历史，并通过逐消息异步提交把 Agent loop 连接到 `SessionStore`。
 - `session_transitions.py` 集中实现 replay、append 与 fork 的校验和事件生成，不执行 I/O 或修改调用者状态。
 - `session.py` 提供 `InMemorySessionStore`，只负责内存事件容器。
@@ -36,6 +36,8 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 `AgentSession` 通过 `SessionStore.load()` 恢复历史，并在每条完整消息进入 Agent 内存和触发 `message_committed` 前先调用 `SessionStore.append()`。两个 Store 都调用 `prepare_session_append()` 获得不可变 `SessionAppendPlan`，其中包含待保存事件和保存后的 snapshot；Provider 只负责提交计划。序号断裂或混入其他 session 的事件会导致 `SessionReplayError`，避免从损坏日志静默恢复。
 
 每次模型请求前，runtime 把完整 committed history 交给 `ContextStrategy`，并只把返回的 `ContextPlan.messages` 发送给 `ModelProvider`。默认策略不省略消息。`context_prepared` capability event 暴露源消息数、选中数和省略数，但不复制消息正文。策略投影不会删除或改写 `Agent.messages` 与 durable log。
+
+预算策略通过可替换 `TokenEstimator` 计算投影大小。system 消息固定保留；从 user 到下一个 user 之前的 assistant tool call、tool result 与最终回答组成不可拆分 turn。策略保留连续的最近 turn，mandatory context 超预算时显式失败，不截断当前输入或工具链。
 
 `SessionStore.fork()` 从源日志的指定 version 创建一个新的目标 session。两个 Store 都调用 `fork_session_events()` 复制经过 replay 校验的历史前缀，拒绝覆盖已有目标，并允许源和目标在分叉后独立追加。当前事件模型没有 `session_created` 元数据，因此持久化 fork 必须至少包含一个事件。
 

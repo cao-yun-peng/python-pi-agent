@@ -2,7 +2,7 @@
 
 一个教学优先、模块化、可复用的 Python Agent Harness。我们从可以完全看懂的最小循环开始，逐步加入工具、会话、上下文压缩、权限、沙箱、插件、评测与多 Agent 协作。
 
-当前已经实现八条纵向切片：
+当前已经实现九条纵向切片：
 
 ```text
 用户输入 -> 消息历史 -> ModelProvider -> 流式事件 -> Assistant 消息 -> settled
@@ -13,6 +13,7 @@ SessionStore -> 加载历史 -> Agent Loop -> 逐消息提交 -> 下一轮恢复
 JSONL -> 严格反序列化 -> durable events -> replay -> 跨进程恢复
 历史前缀 -> SessionStore.fork -> 独立 durable log -> 分支继续追加
 完整历史 -> ContextStrategy -> ContextPlan -> 单次模型请求投影
+完整历史 -> turn 分组 -> token budget -> 最近完整上下文投影
 ```
 
 它同时提供脚本化 `FakeProvider` 和真实 `DeepSeekProvider`。默认测试仍然确定、离线且不会产生 API 费用。
@@ -31,6 +32,7 @@ JSONL -> 严格反序列化 -> durable events -> replay -> 跨进程恢复
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\06_jsonl_persistence.py --help
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\07_session_fork.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\08_context_strategy.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\09_token_budget_context.py
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：
@@ -58,6 +60,7 @@ $env:DEEPSEEK_API_KEY = "你的密钥"
 --- trace ---
 live    run_started
 durable message_committed
+capability context_prepared
 live    model_request_started
 live    text_delta
 live    text_delta
@@ -83,5 +86,6 @@ live    run_settled
 13. [教程：JSONL 持久化](tutorials/06-jsonl-persistence.md)
 14. [教程：持久化会话分叉](tutorials/07-session-fork.md)
 15. [教程：ContextStrategy 接缝](tutorials/08-context-strategy.md)
+16. [教程：Token Budget 与完整消息组](tutorials/09-token-budget-context.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。

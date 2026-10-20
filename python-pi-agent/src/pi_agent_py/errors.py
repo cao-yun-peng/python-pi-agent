@@ -50,6 +50,18 @@ class ContextPreparationError(AgentError):
     """A context strategy failed to prepare a valid model request."""
 
 
+class ContextBudgetExceededError(ContextPreparationError):
+    """Required context cannot fit within the configured token budget."""
+
+    def __init__(self, required_tokens: int, token_budget: int) -> None:
+        super().__init__(
+            "mandatory context requires "
+            f"{required_tokens} tokens but budget is {token_budget}"
+        )
+        self.required_tokens = required_tokens
+        self.token_budget = token_budget
+
+
 class ToolValidationError(AgentError):
     """Tool arguments do not satisfy the declared input schema."""
 
