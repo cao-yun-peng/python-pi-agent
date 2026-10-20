@@ -17,11 +17,13 @@ from .domain import (
     ToolCall,
 )
 from .errors import (
+    SessionConflictError,
     SessionReplayError,
     SessionStorageError,
     SessionValidationError,
 )
 from .session_transitions import (
+    fork_session_events,
     prepare_session_append,
     replay_session,
     validate_session_id,
@@ -87,6 +89,50 @@ class JsonlSessionStore:
             await self._append_lines(encoded_lines)
 
         return plan.snapshot
+
+    async def fork(
+        self,
+        source_session_id: str,
+        target_session_id: str,
+        at_version: int | None = None,
+    ) -> SessionSnapshot:
+        validate_session_id(source_session_id)
+        validate_session_id(target_session_id)
+        if source_session_id == target_session_id:
+            raise SessionValidationError(
+                "target_session_id must differ from the source session id"
+            )
+
+        async with self._lock:
+            all_events = await self._read_all_events()
+            source_events = tuple(
+                event
+                for event in all_events
+                if event.session_id == source_session_id
+            )
+            forked_events = fork_session_events(
+                source_events,
+                target_session_id,
+                at_version,
+            )
+            if any(
+                event.session_id == target_session_id
+                for event in all_events
+            ):
+                raise SessionConflictError(
+                    f"target session {target_session_id!r} already exists"
+                )
+            if not forked_events:
+                raise SessionValidationError(
+                    "a persisted fork must contain at least one event"
+                )
+
+            encoded_lines = tuple(
+                _encode_event(event) for event in forked_events
+            )
+            await self._append_lines(encoded_lines)
+
+        return replay_session(target_session_id, forked_events)
 
     async def _read_all_events(self) -> tuple[DurableSessionEvent, ...]:
         try:

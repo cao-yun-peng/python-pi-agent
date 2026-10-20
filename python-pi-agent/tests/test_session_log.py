@@ -289,6 +289,78 @@ class InMemorySessionEventLogTests(unittest.IsolatedAsyncioTestCase):
                 [Message(role="user", content="stale")],
             )
 
+    async def test_forks_and_then_allows_the_branches_to_diverge(self) -> None:
+        store = InMemorySessionStore()
+        await store.append(
+            "source",
+            0,
+            [
+                Message(role="user", content="first"),
+                Message(role="assistant", content="second"),
+                Message(role="user", content="third"),
+            ],
+        )
+
+        branch = await store.fork("source", "branch", at_version=2)
+        await store.append(
+            "source",
+            3,
+            [Message(role="assistant", content="source-only")],
+        )
+        await store.append(
+            "branch",
+            2,
+            [Message(role="assistant", content="branch-only")],
+        )
+
+        self.assertEqual(branch.version, 2)
+        self.assertEqual(
+            [message.content for message in (await store.load("source")).messages],
+            ["first", "second", "third", "source-only"],
+        )
+        self.assertEqual(
+            [message.content for message in (await store.load("branch")).messages],
+            ["first", "second", "branch-only"],
+        )
+
+    async def test_fork_rejects_an_existing_target(self) -> None:
+        store = InMemorySessionStore()
+        await store.append(
+            "source",
+            0,
+            [Message(role="user", content="source")],
+        )
+        await store.append(
+            "target",
+            0,
+            [Message(role="user", content="keep me")],
+        )
+
+        with self.assertRaisesRegex(SessionConflictError, "already exists"):
+            await store.fork("source", "target")
+
+        self.assertEqual(
+            (await store.load("target")).messages,
+            (Message(role="user", content="keep me"),),
+        )
+
+    async def test_fork_rejects_an_empty_persisted_branch(self) -> None:
+        store = InMemorySessionStore()
+        await store.append(
+            "source",
+            0,
+            [Message(role="user", content="first")],
+        )
+
+        with self.assertRaisesRegex(SessionValidationError, "at least one event"):
+            await store.fork("source", "branch", at_version=0)
+
+    async def test_fork_rejects_the_same_source_and_target_id(self) -> None:
+        store = InMemorySessionStore()
+
+        with self.assertRaisesRegex(SessionValidationError, "must differ"):
+            await store.fork("same", "same")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -95,6 +95,74 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
                     [Message(role="user", content="stale")],
                 )
 
+    async def test_fork_survives_reopen_and_diverges_from_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            store = JsonlSessionStore(path)
+            await store.append(
+                "source",
+                0,
+                [
+                    Message(role="user", content="first"),
+                    Message(role="assistant", content="second"),
+                    Message(role="user", content="third"),
+                ],
+            )
+
+            branch = await store.fork("source", "branch", at_version=2)
+            reopened = JsonlSessionStore(path)
+            await reopened.append(
+                "source",
+                3,
+                [Message(role="assistant", content="source-only")],
+            )
+            await reopened.append(
+                "branch",
+                2,
+                [Message(role="assistant", content="branch-only")],
+            )
+
+            self.assertEqual(branch.version, 2)
+            self.assertEqual(
+                [
+                    message.content
+                    for message in (await reopened.load("source")).messages
+                ],
+                ["first", "second", "third", "source-only"],
+            )
+            self.assertEqual(
+                [
+                    message.content
+                    for message in (await reopened.load("branch")).messages
+                ],
+                ["first", "second", "branch-only"],
+            )
+
+    async def test_fork_rejects_an_existing_target_without_overwriting_it(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            store = JsonlSessionStore(path)
+            await store.append(
+                "source",
+                0,
+                [Message(role="user", content="source")],
+            )
+            await store.append(
+                "target",
+                0,
+                [Message(role="user", content="keep me")],
+            )
+
+            with self.assertRaisesRegex(SessionConflictError, "already exists"):
+                await store.fork("source", "target")
+
+            self.assertEqual(
+                (await JsonlSessionStore(path).load("target")).messages,
+                (Message(role="user", content="keep me"),),
+            )
+
     async def test_rejects_malformed_log_and_maps_io_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.jsonl"

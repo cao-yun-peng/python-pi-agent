@@ -17,7 +17,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - `ports.py` 定义核心运行时所需能力，不提供供应商实现。
 - `runtime.py` 消费端口并维护已提交消息。
 - `runtime.AgentSession` 加载会话历史，并通过逐消息异步提交把 Agent loop 连接到 `SessionStore`。
-- `session_transitions.py` 集中实现 replay、append 校验、乐观版本检查和事件生成，不执行 I/O 或修改调用者状态。
+- `session_transitions.py` 集中实现 replay、append 与 fork 的校验和事件生成，不执行 I/O 或修改调用者状态。
 - `session.py` 提供 `InMemorySessionStore`，只负责内存事件容器。
 - `session_jsonl.py` 提供带格式版本、严格解码和刷盘语义的 `JsonlSessionStore`。
 - `events.py` 提供最小观察适配器。
@@ -33,7 +33,9 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 
 `AgentSession` 通过 `SessionStore.load()` 恢复历史，并在每条完整消息进入 Agent 内存和触发 `message_committed` 前先调用 `SessionStore.append()`。两个 Store 都调用 `prepare_session_append()` 获得不可变 `SessionAppendPlan`，其中包含待保存事件和保存后的 snapshot；Provider 只负责提交计划。序号断裂或混入其他 session 的事件会导致 `SessionReplayError`，避免从损坏日志静默恢复。
 
-`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。读取、反序列化和 replay 仍使用相同领域对象，因此 runtime 无需感知存储变化。当前实现通过实例内锁串行访问，并在追加后执行 `flush()` 与 `fsync()`；它支持进程重启后的恢复，但尚不支持多个进程同时写入同一文件。
+`SessionStore.fork()` 从源日志的指定 version 创建一个新的目标 session。两个 Store 都调用 `fork_session_events()` 复制经过 replay 校验的历史前缀，拒绝覆盖已有目标，并允许源和目标在分叉后独立追加。当前事件模型没有 `session_created` 元数据，因此持久化 fork 必须至少包含一个事件。
+
+`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。读取、反序列化和 replay 仍使用相同领域对象，因此 runtime 无需感知存储变化。append 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
 
 ## 依赖规则
 

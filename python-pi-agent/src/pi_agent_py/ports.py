@@ -40,7 +40,7 @@ class EventSink(Protocol):
 
 
 class SessionStore(Protocol):
-    """Loads and atomically appends model-visible session history."""
+    """Loads, appends, and forks model-visible session history."""
 
     async def load(self, session_id: str) -> SessionSnapshot:
         """Load an immutable snapshot of the current session state."""
@@ -60,6 +60,15 @@ class SessionStore(Protocol):
         messages: Sequence[Message],
     ) -> SessionSnapshot:
         """Append messages if the persisted version still matches."""
+        ...
+
+    async def fork(
+        self,
+        source_session_id: str,
+        target_session_id: str,
+        at_version: int | None = None,
+    ) -> SessionSnapshot:
+        """Persist a non-empty source prefix as a new target session."""
         ...
 
 
