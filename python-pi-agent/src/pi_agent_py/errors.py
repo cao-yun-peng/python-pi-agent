@@ -82,6 +82,26 @@ class ToolValidationError(AgentError):
         self.violations = violations
 
 
+class PluginError(AgentError):
+    """A plugin could not be loaded, executed, or released safely."""
+
+
+class PluginRegistrationError(PluginError):
+    """A plugin declared an invalid or conflicting capability."""
+
+
+class PluginLoadError(PluginError):
+    """A plugin factory failed before its registrations became visible."""
+
+
+class PluginExecutionError(PluginError):
+    """An awaited plugin interceptor failed or exceeded its timeout."""
+
+
+class PluginCleanupError(PluginError):
+    """One or more plugin cleanup callbacks failed during release."""
+
+
 class AgentLoopLimitError(AgentError):
     """The run exceeded its configured number of model requests."""
 

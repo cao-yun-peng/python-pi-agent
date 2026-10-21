@@ -18,9 +18,9 @@
 - 阶段 1、2、3 已完成：最小循环、DeepSeek Provider 和顺序工具调用已经形成可运行纵向切片。
 - 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、durable event log、replay、持久化 fork 和 replayable compaction event。分支元数据、多进程并发和数据库事务留给后续存储 Provider。
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。
-- 阶段 7 已提前完成一个最小基础：单个、有序、会被主循环 `await` 的 `NextTurnHook`。完整插件注册、多个 Hook 的排序、超时和卸载仍未开始。
+- 阶段 7 已完成第一条插件纵向切片：显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销和逆序 cleanup。观察订阅、session-aware durable hook、资源发现、runtime lease 与热重载仍未开始。
 
-## 当前学习节点：工具续轮前的 `NextTurnHook`
+## 已完成学习节点：工具续轮前的 `NextTurnHook`
 
 这个 Hook 服务于阶段 5 的自动压缩，但同时是进入阶段 7 前的第一份拦截型扩展样本。它刻意保持很小：Agent Loop 只提供安全时机，`AgentSession` 负责注入具体 compaction 行为。
 
@@ -58,6 +58,40 @@ assistant tool call 已提交
 3. 让自定义 Hook 返回一个非 `Message` 值，确认 runtime 抛出稳定的 `ContextPreparationError`。
 4. 在 compaction strategy 阻塞时取消 run，检查 durable log 中保留 user、assistant tool call 和 tool result，但没有 compaction event。
 
+## 当前学习节点：从单 Hook 到插件能力容器
+
+第 12 章把此前的单个 `NextTurnHook` 提升为可组合插件，但 Agent Loop 仍只看见原来的 `Tool` 和 `NextTurnHook` 端口：
+
+```text
+PluginFactory -> PluginAPI staging -> validate -> commit
+                                      |
+                                      v
+                              PluginCapabilities
+                               /              \
+                         tools                ordered hook chain
+                           |                         |
+                           +--------> Agent <--------+
+```
+
+建议按以下顺序阅读：
+
+1. `plugins.py::PluginAPI`：插件被允许做什么。
+2. `_StagedPluginAPI` 与 `PluginHost.load()`：为什么失败不会产生半注册状态。
+3. `PluginHost.snapshot()`：插件能力如何回到既有端口，而不是让 runtime 依赖插件容器。
+4. `_PluginNextTurnHook.prepare()`：priority、链式输入、超时、错误和取消语义。
+5. `PluginHost.unload()` / `close()`：能力撤销与资源释放为何是两个步骤。
+6. `tests/test_plugins.py`：用端到端、回滚、超时和取消证据验证契约。
+
+这一节点的掌握标准：
+
+- 能从零写一个 factory，注册工具、Hook 和资源 cleanup。
+- 能解释 staging/commit 与直接修改全局 registry 的差异。
+- 能预测多个 Hook 的执行顺序，并说明前一 Hook 的结果如何流入后一 Hook。
+- 能解释为什么拦截 Hook 要 fail-closed，而观察事件可以采用隔离错误策略。
+- 能指出当前 snapshot 生命周期限制，以及为什么任意 Hook 不能直接改写 durable session history。
+
 ## 下一步
 
-下一小步优先实现 compaction eval 的最小离线切片，用版本化 case 和 deterministic grader 验证摘要保留目标、约束、工具发现和下一步。随后再处理精确 tokenizer 与资源加载；不要在质量证据建立前继续增加更多自动压缩触发条件。阶段 7 的完整插件系统应在这些稳定核心之上单独设计注册、排序、超时、错误隔离和释放语义。
+插件方向的下一小步应设计 **session-aware context hook**：只变换单次 `ContextPlan`，不破坏 durable replay，并补充观察型订阅与拦截型 Hook 的独立错误策略。之后再考虑 runtime lease 和安全的热卸载，不应直接做目录自动扫描。
+
+上下文方向仍应实现 compaction eval 的最小离线切片，用版本化 case 和 deterministic grader 验证摘要保留目标、约束、工具发现和下一步；随后再处理精确 tokenizer 与资源加载。

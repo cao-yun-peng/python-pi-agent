@@ -7,6 +7,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
                ^           |
                |           ├── context.py implements ContextStrategy
                |           ├── compaction.py implements CompactionStrategy
+               |           ├── plugins.py assembles Tool / NextTurnHook
                |           └── tools.py provides policies and FunctionTool
                ├── session_transitions.py provides pure state transitions
                ├── session.py implements SessionStore
@@ -28,6 +29,7 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - `testing.py` 是确定性 Provider 实现，也是 Provider 契约的第一份证据。
 - `providers/deepseek.py` 隔离 DeepSeek 的 HTTP、认证、SSE 和错误格式。
 - `tools.py` 提供 `FunctionTool`、审批策略和可替换的 schema 校验边界。
+- `plugins.py` 提供显式、事务化的 `PluginHost`，把 Tool、Hook 与 cleanup 组合成不可变能力快照。
 
 ## 状态模型
 
@@ -47,6 +49,10 @@ durable compaction 可由 `AgentSession.compact()` 显式触发，也可在配�
 
 `JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。schema v2 加入 assistant thinking，schema v3 加入 message/compaction 互斥 payload；解码器仍可读取 v1/v2 消息日志。读取、反序列化和 replay 使用相同领域对象，因此 runtime 无需感知存储变化。append、compact 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
 
+插件系统采用显式 assembly，而不是目录扫描或 import 副作用。`PluginFactory` 通过受限 `PluginAPI` 注册工具、有序 `NextTurnHook` 和 cleanup；`PluginHost.load()` 先 staging，factory 与冲突校验全部成功后再原子发布。工具重名会拒绝整个插件。Hook 按 priority 与注册顺序串行组合，带独立超时，失败关闭并保留取消传播。卸载先撤销注册，再反向执行 cleanup。`PluginCapabilities` 是组装时快照，当前不支持运行中的热重载。
+
+插件 Hook 暂不直接接入 `AgentSession`。普通 `Agent` 可以消费快照中的 Hook；有 durable store 的会话若允许任意 Hook 改写 canonical history，会导致内存上下文与 replay 分叉。后续 session-aware 扩展只能修改请求投影，或产生可持久化的 session transition。
+
 ## 依赖规则
 
 - domain 不依赖 ports 或 runtime。
@@ -59,4 +65,6 @@ durable compaction 可由 `AgentSession.compact()` 显式触发，也可在配�
 - session_transitions 只依赖领域对象和稳定错误，不依赖存储 Provider。
 - session 与 session_jsonl 实现 ports 中的 `SessionStore`，ports 不依赖具体存储。
 - apps 负责显式组装，不通过 import 副作用注册。
+- PluginHost 只组合端口实现，Agent/runtime 不反向依赖插件容器。
+- 插件拦截 Hook 失败关闭；观察型 EventSink 仍不得改变控制流。
 - runtime 顺序执行工具；并行策略要等资源隔离与取消语义稳定后再加入。

@@ -15,7 +15,11 @@
 | tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交并可从 durable event replay |
 | `EventSink` | session subscribe / agent events | live events 与 durable session events 分离 | 当前没有异步事件队列 |
 | `AgentSession` | Pi `AgentSession` 的 prompt、状态与 compaction 编排 | Consumer 组合 Provider 与存储 capability | 已支持加载、逐消息提交、恢复、手动压缩和 run 前/工具续轮前自动触发，待 steer/queue |
-| `NextTurnHook` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | 已在完整 tool result batch 后刷新 canonical history；当前单 hook、无队列与模型路由 |
+| `NextTurnHook` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | Agent 保持单插槽，PluginHost 可在插槽外组合多个 Hook；仍无队列与模型路由 |
+| `PluginFactory` / `PluginAPI` | `ExtensionFactory` / `ExtensionAPI` | 显式 capability registration | 当前只注册 Tool、NextTurnHook 与 cleanup，不含 UI/命令/Provider/MCP |
+| `PluginHost` | extension loader + `ExtensionRunner` | Provider lifecycle + evidence | staging 后原子发布、冲突失败、逆序释放；不做目录发现与热重载 |
+| plugin hook chain | ExtensionRunner 的顺序 handler dispatch | ordered interceptor pipeline | 使用 priority + 注册顺序、逐 Hook 超时和 fail-closed；Pi 的许多 handler 会记录错误后继续 |
+| `Registration` | `pi.on()` 返回的 unsubscribe | reversible explicit side effect | Tool、Hook、cleanup 注册都返回幂等撤销句柄 |
 | `ContextPlan` / `ContextStrategy` | `packages/agent/src/agent-loop.ts` 的 `runLoop()` 在模型调用前执行 `transformContext` | Definition / Provider / Consumer capability seam | 已分离 durable history 与请求投影，当前默认仍发送完整历史 |
 | `TokenEstimator` / `TokenBudgetContextStrategy` | `packages/coding-agent/src/core/compaction/compaction.ts` 的 `estimateTokens()` / `findCutPoint()` | 可替换估算 Provider + 策略 Consumer | 同样使用字符启发式；本项目按完整 user turn 裁剪，不允许 split turn |
 | `context_prepared` | compaction/context 生命周期事件 | capability evidence | 仅记录数量与预算元数据，不持久化提示词正文 |

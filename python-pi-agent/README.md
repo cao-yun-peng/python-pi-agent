@@ -2,7 +2,7 @@
 
 一个教学优先、模块化、可复用的 Python Agent Harness。我们从可以完全看懂的最小循环开始，逐步加入工具、会话、上下文压缩、权限、沙箱、插件、评测与多 Agent 协作。
 
-当前已经实现十一条纵向切片：
+当前已经实现十二条纵向切片：
 
 ```text
 用户输入 -> 消息历史 -> ModelProvider -> 流式事件 -> Assistant 消息 -> settled
@@ -16,6 +16,7 @@ JSONL -> 严格反序列化 -> durable events -> replay -> 跨进程恢复
 完整历史 -> turn 分组 -> token budget -> 最近完整上下文投影
 旧完整 turns -> 摘要策略 -> context_compacted event -> replay -> 重启后恢复
 候选上下文 -> token threshold policy -> run 前/工具续轮前 durable compaction
+PluginFactory -> 原子注册 -> Tool / 有序 Hook -> Agent 组装 -> 逆序释放
 ```
 
 它同时提供脚本化 `FakeProvider` 和真实 `DeepSeekProvider`。默认测试仍然确定、离线且不会产生 API 费用。
@@ -37,6 +38,7 @@ JSONL -> 严格反序列化 -> durable events -> replay -> 跨进程恢复
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\09_token_budget_context.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\10_durable_compaction.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\11_automatic_compaction.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\12_plugin_system.py
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：
@@ -93,6 +95,7 @@ live    run_settled
 16. [教程：Token Budget 与完整消息组](tutorials/09-token-budget-context.md)
 17. [教程：Durable Compaction](tutorials/10-durable-compaction.md)
 18. [教程：Token Threshold 自动压缩与 NextTurnHook](tutorials/11-automatic-compaction.md)
-19. [Compaction 质量评测方案](docs/compaction-evaluation.md)
+19. [教程：显式、可释放的插件系统](tutorials/12-plugin-system.md)
+20. [Compaction 质量评测方案](docs/compaction-evaluation.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。
