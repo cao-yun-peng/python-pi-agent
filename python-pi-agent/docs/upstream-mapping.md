@@ -20,8 +20,8 @@
 | `RedactingEventSink` / `BufferedEventSink` | UI/session listener 的应用侧消费 | telemetry 数据最小化 + lifecycle | 默认隐藏模型可见内容后再进入有界队列；best-effort、显式关闭，不替代 durable log |
 | `AgentSession` | Pi `AgentSession` 的 prompt/steer/followUp/abort、状态与 compaction 编排 | Consumer 组合 Provider、存储与控制 capability | 已支持 FIFO dispatcher、durable steer/follow-up、claim lease、abort、settled/idle、恢复和压缩；JSONL 尚无跨进程文件锁 |
 | `NextTurnHook` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | Agent 保持单插槽，PluginHost 可在插槽外组合多个 Hook；仍无队列与模型路由 |
-| `PluginFactory` / `PluginAPI` | `ExtensionFactory` / `ExtensionAPI` | 显式 capability registration | 当前只注册 Tool、NextTurnHook 与 cleanup，不含 UI/命令/Provider/MCP |
-| `PluginHost` | extension loader + `ExtensionRunner` | Provider lifecycle + evidence | staging 后原子发布、冲突失败、逆序释放；不做目录发现与热重载 |
+| `PluginFactory` / `PluginAPI` | `ExtensionFactory` / `ExtensionAPI` | 显式 capability registration | 注册 Tool、NextTurnHook、SessionPluginFactory 与 cleanup；不含 UI/命令/MCP |
+| `PluginHost` / `PluginSessionLease` | extension loader + session-bound ExtensionRunner | Provider lifecycle + evidence | staging 后原子发布；每 Session 独立实例，请求 Hook 只改投影，后台 settled observer 隔离；不做目录发现与热重载 |
 | plugin hook chain | ExtensionRunner 的顺序 handler dispatch | ordered interceptor pipeline | 使用 priority + 注册顺序、逐 Hook 超时和 fail-closed；Pi 的许多 handler 会记录错误后继续 |
 | `Registration` | `pi.on()` 返回的 unsubscribe | reversible explicit side effect | Tool、Hook、cleanup 注册都返回幂等撤销句柄 |
 | `ContextPlan` / `ContextStrategy` | `packages/agent/src/agent-loop.ts` 的 `runLoop()` 在模型调用前执行 `transformContext` | Definition / Provider / Consumer capability seam | 已分离 durable history 与请求投影，当前默认仍发送完整历史 |

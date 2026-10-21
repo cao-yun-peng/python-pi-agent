@@ -6,21 +6,28 @@ from collections.abc import Sequence
 
 from pi_agent_py import (
     Agent,
+    AgentSession,
+    ContextPlan,
     FakeProvider,
     Finish,
     FunctionTool,
     InMemoryEventSink,
+    InMemorySessionStore,
     JSONObject,
     Message,
     PluginAPI,
     PluginExecutionError,
     PluginHost,
     PluginLoadError,
+    PluginRegistrationError,
+    ProviderRequestContext,
+    SessionPluginContext,
     TextDelta,
     ToolCall,
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
+    WaitUntilCancelled,
 )
 
 
@@ -39,7 +46,190 @@ class RecordingHook:
         return messages
 
 
+class RecordingSessionPlugin:
+    def __init__(
+        self,
+        session_id: str,
+        calls: list[str],
+    ) -> None:
+        self._session_id = session_id
+        self._calls = calls
+
+    async def before_provider_request(
+        self,
+        context: ProviderRequestContext,
+        plan: ContextPlan,
+    ) -> ContextPlan:
+        self._calls.append(
+            f"request:{self._session_id}:{context.session_id}:{context.request_number}"
+        )
+        return ContextPlan(
+            messages=(
+                Message(role="system", content=f"session:{self._session_id}"),
+                *plan.messages,
+            ),
+            source_message_count=plan.source_message_count,
+            omitted_message_count=plan.omitted_message_count,
+            token_budget=plan.token_budget,
+            estimated_tokens=plan.estimated_tokens,
+        )
+
+    async def on_run_settled(self, run_id: str) -> None:
+        self._calls.append(f"settled:{self._session_id}:{run_id}")
+
+    async def close(self) -> None:
+        self._calls.append(f"closed:{self._session_id}")
+
+
 class PluginTests(unittest.IsolatedAsyncioTestCase):
+    async def test_session_plugins_are_isolated_and_only_change_request_projection(
+        self,
+    ) -> None:
+        calls: list[str] = []
+        opened: list[str] = []
+        host = PluginHost()
+
+        def plugin(api: PluginAPI) -> None:
+            def open_session(context: SessionPluginContext) -> RecordingSessionPlugin:
+                opened.append(context.session_id)
+                return RecordingSessionPlugin(context.session_id, calls)
+
+            api.register_session_plugin(open_session)
+
+        await host.load("session-context", plugin)
+        first_store = InMemorySessionStore()
+        second_store = InMemorySessionStore()
+        first_provider = FakeProvider([[TextDelta("one"), Finish()]])
+        second_provider = FakeProvider([[TextDelta("two"), Finish()]])
+        first = AgentSession(
+            "first",
+            first_store,
+            first_provider,
+            plugin_host=host,
+        )
+        second = AgentSession(
+            "second",
+            second_store,
+            second_provider,
+            plugin_host=host,
+        )
+
+        await first.run("hello")
+        await second.run("world")
+        await first.close()
+        await second.close()
+
+        self.assertEqual(opened, ["first", "second"])
+        self.assertEqual(first_provider.requests[0][0].content, "session:first")
+        self.assertEqual(second_provider.requests[0][0].content, "session:second")
+        self.assertEqual(
+            [message.content for message in (await first_store.load("first")).messages],
+            ["hello", "one"],
+        )
+        self.assertIn("closed:first", calls)
+        self.assertIn("closed:second", calls)
+        self.assertTrue(any(call.startswith("settled:first:") for call in calls))
+
+    async def test_unload_rejects_an_active_session_lease(self) -> None:
+        host = PluginHost()
+
+        def plugin(api: PluginAPI) -> None:
+            api.register_session_plugin(
+                lambda context: RecordingSessionPlugin(context.session_id, [])
+            )
+
+        await host.load("leased", plugin)
+        lease = await host.open_session("demo")
+
+        with self.assertRaisesRegex(
+            PluginRegistrationError,
+            "active session leases",
+        ):
+            await host.unload("leased")
+
+        await lease.close()
+        await host.unload("leased")
+
+    async def test_session_request_hook_timeout_is_fail_closed(self) -> None:
+        class BlockingSessionPlugin(RecordingSessionPlugin):
+            async def before_provider_request(
+                self,
+                context: ProviderRequestContext,
+                plan: ContextPlan,
+            ) -> ContextPlan:
+                del context, plan
+                await asyncio.Event().wait()
+                raise AssertionError("unreachable")
+
+        host = PluginHost()
+
+        def plugin(api: PluginAPI) -> None:
+            api.register_session_plugin(
+                lambda context: BlockingSessionPlugin(context.session_id, []),
+                hook_timeout_seconds=0,
+            )
+
+        await host.load("blocking-session", plugin)
+        provider = FakeProvider([[TextDelta("unused"), Finish()]])
+        session = AgentSession(
+            "demo",
+            InMemorySessionStore(),
+            provider,
+            plugin_host=host,
+        )
+
+        with self.assertRaisesRegex(
+            PluginExecutionError,
+            "provider request hook",
+        ):
+            await session.run("hello")
+
+        self.assertEqual(provider.requests, [])
+        await session.close()
+
+    async def test_abort_then_close_releases_session_plugin(self) -> None:
+        calls: list[str] = []
+        host = PluginHost()
+
+        def plugin(api: PluginAPI) -> None:
+            api.register_session_plugin(
+                lambda context: RecordingSessionPlugin(context.session_id, calls)
+            )
+
+        await host.load("lifecycle", plugin)
+        provider = FakeProvider([[WaitUntilCancelled()]])
+        session = AgentSession(
+            "demo",
+            InMemorySessionStore(),
+            provider,
+            plugin_host=host,
+        )
+        task = asyncio.create_task(session.run("wait"))
+        await provider.blocked.wait()
+
+        await session.abort()
+        await session.close()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(calls.count("closed:demo"), 1)
+
+    async def test_host_close_releases_active_session_leases_first(self) -> None:
+        calls: list[str] = []
+        host = PluginHost()
+
+        def plugin(api: PluginAPI) -> None:
+            api.register_session_plugin(
+                lambda context: RecordingSessionPlugin(context.session_id, calls)
+            )
+
+        await host.load("session-owned", plugin)
+        await host.open_session("demo")
+
+        await host.close()
+
+        self.assertEqual(calls, ["closed:demo"])
+
     async def test_plugin_tools_and_hooks_form_an_explicit_runtime_snapshot(
         self,
     ) -> None:

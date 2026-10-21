@@ -62,6 +62,8 @@ EventKind: TypeAlias = Literal[
     "plugin_hook_finished",
     "plugin_hook_failed",
     "plugin_hook_cancelled",
+    "plugin_session_opened",
+    "plugin_session_closed",
     "run_completed",
     "run_failed",
     "run_cancelled",

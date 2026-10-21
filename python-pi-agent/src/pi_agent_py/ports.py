@@ -70,6 +70,18 @@ class NextTurnHook(Protocol):
         ...
 
 
+class ProviderRequestHook(Protocol):
+    """Transforms only the model-visible projection for one provider request."""
+
+    async def prepare(
+        self,
+        context: ProviderRequestContext,
+        plan: ContextPlan,
+    ) -> ContextPlan:
+        """Return a request projection without mutating canonical history."""
+        ...
+
+
 class TokenEstimator(Protocol):
     """Estimates model-context tokens for an ordered message sequence."""
 

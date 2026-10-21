@@ -18,7 +18,7 @@
 - 阶段 1、2、3 已完成：最小循环、DeepSeek Provider 和顺序工具调用已经形成可运行纵向切片。
 - 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v5、durable event log、replay、持久化 fork、compaction event，以及 steer/follow-up 的 enqueue/claim/deliver/cancel 恢复语义。多进程文件锁和数据库事务留给后续存储 Provider。
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。
-- 阶段 7 已完成第一条插件纵向切片：显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销和逆序 cleanup。观察订阅、session-aware durable hook、资源发现、runtime lease 与热重载仍未开始。
+- 阶段 7 已完成显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销、SessionPluginFactory/Lease、请求投影 Hook、后台 settled observer 和逆序 cleanup。资源发现、durable control port 与安全热重载仍未开始。
 - 阶段 8 已完成第一条安全执行纵向切片：ToolExecutionContext 贯穿审批、Sandbox 与工具，默认 effect gate 拒绝 read/write/external，支持工具 allowlist、参数快照隔离、超时、取消和可观察拒绝。真正的子进程/容器隔离、工作区文件策略和身份化授权仍未开始。
 - 阶段 9 已完成第一条安全观察纵向切片：Agent/Session/Plugin 统一隔离 EventSink 异常，日志事件可在入队前脱敏，慢 I/O 使用有界顺序 worker 并显式关闭。结构化 telemetry schema、指标聚合和 durable 审计 sink 仍未开始。
 - Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；普通推理与 compaction 不再只能靠 payload 猜测。下一步的多 Provider router、retry 和 session-aware 插件应复用该上下文。
@@ -126,7 +126,7 @@ runtime event
 
 控制队列已经用 queued/claimed/delivered/cancelled 事实、lease 和 replay 实现 durability。下一步应给 Provider 请求增加 session/run/turn/purpose 身份，再让 session-aware 插件复用同一控制端口；不要让插件直接写 deque 或 canonical history。
 
-插件方向的下一小步应设计 **session-aware context hook**：只变换单次 `ContextPlan`，不破坏 durable replay。之后再考虑 runtime lease 和安全的热卸载，不应直接做目录自动扫描。
+插件方向下一步若需要主动控制能力，应给 SessionPluginContext 注入受限 control port，并复用 durable enqueue/claim/deliver/cancel；不得暴露 AgentSession、Store 或内存 deque。之后再考虑资源发现与安全热重载，不应直接做目录自动扫描。
 
 可观测性方向下一步应先定义稳定 telemetry schema 和低基数指标，再决定是否需要强一致审计 sink。强一致审计不能伪装成 best-effort EventSink，而应成为独立 durable capability。
 

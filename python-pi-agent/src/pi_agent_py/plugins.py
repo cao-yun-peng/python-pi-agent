@@ -5,10 +5,17 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Awaitable, Callable, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Protocol
 
-from .domain import AgentEvent, EventKind, Message
+from .domain import (
+    AgentEvent,
+    ContextPlan,
+    EventKind,
+    Message,
+    ProviderRequestContext,
+)
 from .errors import (
     PluginCleanupError,
     PluginExecutionError,
@@ -19,6 +26,42 @@ from .events import EventSinkFailure, ensure_isolated_event_sink
 from .ports import EventSink, NextTurnHook, Tool
 
 CleanupCallback = Callable[[], Awaitable[None] | None]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionPluginContext:
+    """Identity available while creating one isolated plugin session."""
+
+    session_id: str
+
+    def __post_init__(self) -> None:
+        if not self.session_id.strip():
+            raise ValueError("session_id must not be empty")
+
+
+class SessionPlugin(Protocol):
+    """Per-session interceptor, observer, and resource lifecycle."""
+
+    async def before_provider_request(
+        self,
+        context: ProviderRequestContext,
+        plan: ContextPlan,
+    ) -> ContextPlan:
+        ...
+
+    async def on_run_settled(self, run_id: str) -> None:
+        ...
+
+    async def close(self) -> None:
+        ...
+
+
+class SessionPluginFactory(Protocol):
+    def __call__(
+        self,
+        context: SessionPluginContext,
+    ) -> Awaitable[SessionPlugin] | SessionPlugin:
+        ...
 
 
 class Registration:
@@ -68,6 +111,17 @@ class PluginAPI(Protocol):
         """Register resource cleanup, executed in reverse order."""
         ...
 
+    def register_session_plugin(
+        self,
+        factory: SessionPluginFactory,
+        *,
+        priority: int = 0,
+        open_timeout_seconds: float | None = None,
+        hook_timeout_seconds: float | None = None,
+    ) -> Registration:
+        """Stage a factory that creates isolated state for each session."""
+        ...
+
 
 class PluginFactory(Protocol):
     """Initializes one plugin through the restricted registration API."""
@@ -83,6 +137,7 @@ class PluginCapabilities:
     plugin_names: tuple[str, ...]
     tools: tuple[Tool, ...]
     next_turn_hook: NextTurnHook | None
+    session_plugin_names: tuple[str, ...]
 
 
 @dataclass(slots=True)
@@ -109,11 +164,23 @@ class _CleanupRegistration:
 
 
 @dataclass(slots=True)
+class _SessionFactoryRegistration:
+    plugin_name: str
+    factory: SessionPluginFactory
+    priority: int
+    open_timeout_seconds: float | None
+    hook_timeout_seconds: float | None
+    order: int
+    handle: Registration
+
+
+@dataclass(slots=True)
 class _PluginState:
     name: str
     tools: list[_ToolRegistration]
     hooks: list[_HookRegistration]
     cleanups: list[_CleanupRegistration]
+    session_factories: list[_SessionFactoryRegistration]
 
 
 class _StagedPluginAPI:
@@ -124,6 +191,7 @@ class _StagedPluginAPI:
         self.tools: list[_ToolRegistration] = []
         self.hooks: list[_HookRegistration] = []
         self.cleanups: list[_CleanupRegistration] = []
+        self.session_factories: list[_SessionFactoryRegistration] = []
 
     def register_tool(self, tool: Tool) -> Registration:
         name = tool.definition.name
@@ -170,6 +238,34 @@ class _StagedPluginAPI:
         self.cleanups.append(item)
         return handle
 
+    def register_session_plugin(
+        self,
+        factory: SessionPluginFactory,
+        *,
+        priority: int = 0,
+        open_timeout_seconds: float | None = None,
+        hook_timeout_seconds: float | None = None,
+    ) -> Registration:
+        for name, value in (
+            ("open_timeout_seconds", open_timeout_seconds),
+            ("hook_timeout_seconds", hook_timeout_seconds),
+        ):
+            if value is not None and value < 0:
+                raise PluginRegistrationError(f"{name} must not be negative")
+        handle = Registration(lambda: None)
+        item = _SessionFactoryRegistration(
+            plugin_name=self.plugin_name,
+            factory=factory,
+            priority=priority,
+            open_timeout_seconds=open_timeout_seconds,
+            hook_timeout_seconds=hook_timeout_seconds,
+            order=-1,
+            handle=handle,
+        )
+        handle._rebind(lambda: _remove_identity(self.session_factories, item))
+        self.session_factories.append(item)
+        return handle
+
 
 class PluginHandle:
     """Owns one loaded plugin and can release it exactly once."""
@@ -195,6 +291,151 @@ class PluginHandle:
         await self.close()
 
 
+@dataclass(frozen=True, slots=True)
+class _OpenedSessionPlugin:
+    registration: _SessionFactoryRegistration
+    plugin: SessionPlugin
+
+
+class PluginSessionLease:
+    """Owns per-session plugin instances and their request interceptor chain."""
+
+    def __init__(
+        self,
+        host: PluginHost,
+        session_id: str,
+        plugins: Sequence[_OpenedSessionPlugin],
+        event_sink: EventSink,
+    ) -> None:
+        self._host = host
+        self.session_id = session_id
+        self._plugins = tuple(plugins)
+        self._event_sink = event_sink
+        self._closed = False
+        self._observer_tasks: set[asyncio.Task[None]] = set()
+
+    @property
+    def plugin_names(self) -> tuple[str, ...]:
+        return tuple(item.registration.plugin_name for item in self._plugins)
+
+    async def prepare(
+        self,
+        context: ProviderRequestContext,
+        plan: ContextPlan,
+    ) -> ContextPlan:
+        if self._closed:
+            raise PluginExecutionError("plugin session lease is closed")
+        current = deepcopy(plan)
+        for item in self._plugins:
+            registration = item.registration
+            self._emit(
+                "plugin_hook_started",
+                plugin_name=registration.plugin_name,
+                hook="before_provider_request",
+                request_id=context.request_id,
+            )
+            try:
+                call = item.plugin.before_provider_request(
+                    context,
+                    deepcopy(current),
+                )
+                if registration.hook_timeout_seconds is None:
+                    prepared = await call
+                else:
+                    async with asyncio.timeout(
+                        registration.hook_timeout_seconds
+                    ):
+                        prepared = await call
+                if not isinstance(prepared, ContextPlan):
+                    raise TypeError("session plugin must return ContextPlan")
+                if prepared.source_message_count != plan.source_message_count:
+                    raise ValueError(
+                        "session plugin cannot change source_message_count"
+                    )
+            except asyncio.CancelledError:
+                self._emit(
+                    "plugin_hook_cancelled",
+                    plugin_name=registration.plugin_name,
+                    hook="before_provider_request",
+                    request_id=context.request_id,
+                )
+                raise
+            except Exception as error:
+                self._emit(
+                    "plugin_hook_failed",
+                    plugin_name=registration.plugin_name,
+                    hook="before_provider_request",
+                    request_id=context.request_id,
+                    error=type(error).__name__,
+                )
+                raise PluginExecutionError(
+                    "provider request hook from plugin "
+                    f'"{registration.plugin_name}" failed'
+                ) from error
+            current = prepared
+            self._emit(
+                "plugin_hook_finished",
+                plugin_name=registration.plugin_name,
+                hook="before_provider_request",
+                request_id=context.request_id,
+            )
+        return current
+
+    def notify_run_settled(self, run_id: str) -> None:
+        """Schedule a best-effort observer without blocking the dispatcher."""
+        if self._closed:
+            return
+        task = asyncio.create_task(
+            self._observe_run_settled(run_id),
+            name=f"plugin-settled:{self.session_id}:{run_id}",
+        )
+        self._observer_tasks.add(task)
+        task.add_done_callback(self._observer_tasks.discard)
+
+    async def _observe_run_settled(self, run_id: str) -> None:
+        for item in self._plugins:
+            try:
+                await item.plugin.on_run_settled(run_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                self._emit(
+                    "plugin_hook_failed",
+                    plugin_name=item.registration.plugin_name,
+                    hook="on_run_settled",
+                    run_id=run_id,
+                    error=type(error).__name__,
+                )
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._observer_tasks:
+            await asyncio.gather(
+                *tuple(self._observer_tasks),
+                return_exceptions=True,
+            )
+        errors = await _close_session_plugins(self._plugins)
+        await self._host._release_session(self)
+        if errors:
+            raise PluginCleanupError(
+                f"session plugin lease had {len(errors)} cleanup failure(s)"
+            ) from errors[0]
+
+    async def __aenter__(self) -> PluginSessionLease:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        del exc_info
+        await self.close()
+
+    def _emit(self, kind: EventKind, **payload: object) -> None:
+        self._event_sink.emit(
+            AgentEvent(kind=kind, channel="capability", payload=payload)
+        )
+
+
 class PluginHost:
     """Loads in-process plugin factories without import-time side effects."""
 
@@ -203,6 +444,8 @@ class PluginHost:
         self._plugins: dict[str, _PluginState] = {}
         self._tools: list[_ToolRegistration] = []
         self._hooks: list[_HookRegistration] = []
+        self._session_factories: list[_SessionFactoryRegistration] = []
+        self._session_leases: set[PluginSessionLease] = set()
         self._next_order = 0
         self._closed = False
         self._lock = asyncio.Lock()
@@ -256,6 +499,7 @@ class PluginHost:
                 tools=staged.tools,
                 hooks=staged.hooks,
                 cleanups=staged.cleanups,
+                session_factories=staged.session_factories,
             )
             for item in state.tools:
                 item.handle._rebind(lambda item=item: self._remove_tool(item))
@@ -265,6 +509,13 @@ class PluginHost:
                 self._next_order += 1
                 item.handle._rebind(lambda item=item: self._remove_hook(item))
                 self._hooks.append(item)
+            for item in state.session_factories:
+                item.order = self._next_order
+                self._next_order += 1
+                item.handle._rebind(
+                    lambda item=item: self._remove_session_factory(item)
+                )
+                self._session_factories.append(item)
             self._plugins[name] = state
             self._emit("plugin_loaded", plugin_name=name)
             return PluginHandle(self, name)
@@ -285,17 +536,83 @@ class PluginHost:
             next_turn_hook=(
                 _PluginNextTurnHook(hooks, self._event_sink) if hooks else None
             ),
+            session_plugin_names=tuple(
+                dict.fromkeys(
+                    item.plugin_name
+                    for item in self._session_factories
+                    if item.handle.active
+                )
+            ),
         )
+
+    async def open_session(self, session_id: str) -> PluginSessionLease:
+        """Create an isolated, stable plugin snapshot for one AgentSession."""
+        context = SessionPluginContext(session_id)
+        async with self._lock:
+            if self._closed:
+                raise PluginRegistrationError("plugin host is closed")
+            registrations = tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._session_factories
+                        if item.handle.active
+                    ),
+                    key=lambda item: (item.priority, item.order),
+                )
+            )
+            opened: list[_OpenedSessionPlugin] = []
+            try:
+                for item in registrations:
+                    call = item.factory(context)
+                    if inspect.isawaitable(call):
+                        if item.open_timeout_seconds is None:
+                            plugin = await call
+                        else:
+                            async with asyncio.timeout(item.open_timeout_seconds):
+                                plugin = await call
+                    else:
+                        plugin = call
+                    _validate_session_plugin(plugin)
+                    opened.append(_OpenedSessionPlugin(item, plugin))
+            except asyncio.CancelledError:
+                await _close_session_plugins(opened)
+                raise
+            except Exception as error:
+                await _close_session_plugins(opened)
+                raise PluginExecutionError(
+                    f"failed to open plugins for session {session_id!r}"
+                ) from error
+
+            lease = PluginSessionLease(
+                self,
+                session_id,
+                opened,
+                self._event_sink,
+            )
+            self._session_leases.add(lease)
+            self._emit(
+                "plugin_session_opened",
+                session_id=session_id,
+                plugin_names=lease.plugin_names,
+            )
+            return lease
 
     async def unload(self, name: str) -> None:
         """Detach one plugin first, then run every cleanup in reverse order."""
         async with self._lock:
+            if any(name in lease.plugin_names for lease in self._session_leases):
+                raise PluginRegistrationError(
+                    f'plugin "{name}" still has active session leases'
+                )
             state = self._plugins.pop(name, None)
             if state is None:
                 return
             for item in state.tools:
                 item.handle.unregister()
             for item in state.hooks:
+                item.handle.unregister()
+            for item in state.session_factories:
                 item.handle.unregister()
 
         cleanup_errors = await _run_cleanups(state.cleanups)
@@ -315,9 +632,15 @@ class PluginHost:
             if self._closed:
                 return
             self._closed = True
+            leases = tuple(self._session_leases)
             names = tuple(reversed(tuple(self._plugins)))
 
         errors: list[Exception] = []
+        for lease in leases:
+            try:
+                await lease.close()
+            except PluginCleanupError as error:
+                errors.append(error)
         for name in names:
             try:
                 await self.unload(name)
@@ -351,6 +674,21 @@ class PluginHost:
 
     def _remove_hook(self, item: _HookRegistration) -> None:
         _remove_identity(self._hooks, item)
+
+    def _remove_session_factory(
+        self,
+        item: _SessionFactoryRegistration,
+    ) -> None:
+        _remove_identity(self._session_factories, item)
+
+    async def _release_session(self, lease: PluginSessionLease) -> None:
+        async with self._lock:
+            self._session_leases.discard(lease)
+        self._emit(
+            "plugin_session_closed",
+            session_id=lease.session_id,
+            plugin_names=lease.plugin_names,
+        )
 
     def _emit(self, kind: EventKind, **payload: object) -> None:
         self._event_sink.emit(
@@ -440,6 +778,32 @@ async def _run_cleanups(
             result = item.callback()
             if inspect.isawaitable(result):
                 await result
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            errors.append(error)
+    return errors
+
+
+def _validate_session_plugin(plugin: object) -> None:
+    for method_name in (
+        "before_provider_request",
+        "on_run_settled",
+        "close",
+    ):
+        if not callable(getattr(plugin, method_name, None)):
+            raise TypeError(
+                f"session plugin is missing callable {method_name}()"
+            )
+
+
+async def _close_session_plugins(
+    plugins: Sequence[_OpenedSessionPlugin],
+) -> list[Exception]:
+    errors: list[Exception] = []
+    for item in reversed(plugins):
+        try:
+            await item.plugin.close()
         except asyncio.CancelledError:
             raise
         except Exception as error:

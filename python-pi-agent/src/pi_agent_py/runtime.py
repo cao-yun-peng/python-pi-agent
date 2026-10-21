@@ -62,6 +62,7 @@ from .errors import (
     ToolValidationError,
 )
 from .events import EventSinkFailure, ensure_isolated_event_sink
+from .plugins import PluginHost, PluginSessionLease
 from .ports import (
     ApprovalPolicy,
     CompactionPolicy,
@@ -70,6 +71,7 @@ from .ports import (
     EventSink,
     ModelProvider,
     NextTurnHook,
+    ProviderRequestHook,
     Sandbox,
     SessionStore,
     Tool,
@@ -127,6 +129,7 @@ class Agent:
             | None
         ) = None,
         next_turn_hook: NextTurnHook | None = None,
+        provider_request_hook: ProviderRequestHook | None = None,
         steering_receiver: (
             Callable[[bool], Awaitable[tuple[_SteeringInstruction, ...]]] | None
         ) = None,
@@ -165,6 +168,7 @@ class Agent:
         self._message_committer = message_committer
         self._steering_committer = steering_committer
         self._next_turn_hook = next_turn_hook
+        self._provider_request_hook = provider_request_hook
         self._steering_receiver = steering_receiver
         self._session_id = session_id
         self._active_run_id: str | None = None
@@ -343,7 +347,6 @@ class Agent:
         )
 
     async def _request_model(self, request_number: int) -> _ModelTurn:
-        context = await self._prepare_context(request_number)
         if self._active_run_id is None or self._active_turn_id is None:
             raise RuntimeError("provider request requires an active run and turn")
         request_context = ProviderRequestContext(
@@ -354,6 +357,10 @@ class Agent:
             session_id=self._session_id,
             run_id=self._active_run_id,
             turn_id=self._active_turn_id,
+        )
+        context = await self._prepare_context(
+            request_number,
+            request_context,
         )
         self._emit(
             "model_request_started",
@@ -438,7 +445,11 @@ class Agent:
             usage=usage,
         )
 
-    async def _prepare_context(self, request_number: int) -> ContextPlan:
+    async def _prepare_context(
+        self,
+        request_number: int,
+        request_context: ProviderRequestContext,
+    ) -> ContextPlan:
         history = self.messages
         try:
             context = await self._context_strategy.prepare(history)
@@ -457,6 +468,26 @@ class Agent:
             raise ContextPreparationError(
                 "context plan source_message_count does not match history"
             )
+        hook = self._provider_request_hook
+        if hook is not None:
+            try:
+                context = await hook.prepare(request_context, context)
+            except asyncio.CancelledError:
+                raise
+            except AgentError:
+                raise
+            except Exception as error:
+                raise ContextPreparationError(
+                    "provider request hook failed"
+                ) from error
+            if not isinstance(context, ContextPlan):
+                raise ContextPreparationError(
+                    "provider request hook must return ContextPlan"
+                )
+            if context.source_message_count != len(history):
+                raise ContextPreparationError(
+                    "provider request hook cannot change source_message_count"
+                )
 
         self._emit(
             "context_prepared",
@@ -934,6 +965,7 @@ class AgentSession:
         event_sink: EventSink | None = None,
         system_prompt: str | None = None,
         max_model_requests: int = 8,
+        plugin_host: PluginHost | None = None,
         control_claim_lease_seconds: float = 30.0,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -955,6 +987,8 @@ class AgentSession:
         self._event_sink = ensure_isolated_event_sink(event_sink)
         self._system_prompt = system_prompt
         self._max_model_requests = max_model_requests
+        self._plugin_host = plugin_host
+        self._plugin_lease: PluginSessionLease | None = None
         self._control_claim_lease_seconds = control_claim_lease_seconds
         self._clock = clock
         self._owner_id = uuid4().hex
@@ -973,6 +1007,7 @@ class AgentSession:
         self._idle_event = asyncio.Event()
         self._idle_event.set()
         self._restored = False
+        self._closed = False
 
     @property
     def event_sink_failures(self) -> tuple[EventSinkFailure, ...]:
@@ -1104,6 +1139,8 @@ class AgentSession:
 
     async def restore(self) -> None:
         """Restore pending durable controls once and resume eligible follow-ups."""
+        if self._closed:
+            raise SessionControlError("agent session is closed")
         if self._restored:
             return
         async with self._restore_lock:
@@ -1111,34 +1148,65 @@ class AgentSession:
                 return
             async with self._durable_lock:
                 snapshot = await self._session_store.load(self._session_id)
-            loop = asyncio.get_running_loop()
-            for pending in snapshot.pending_controls:
-                control = pending.control
-                if control.delivery == "steer":
-                    await self._cancel_control(
-                        control.control_id,
-                        run_id=control.run_id,
-                        reason="target_run_not_active_after_restore",
-                    )
-                    continue
-                if (
-                    pending.claim is not None
-                    and pending.claim.lease_expires_at > self._clock()
-                ):
-                    continue
-                queued = _QueuedSessionRun(
-                    run_id=control.run_id,
-                    prompt=control.prompt,
-                    delivery="follow_up",
-                    future=loop.create_future(),
-                    control_id=control.control_id,
+            plugin_lease = None
+            if self._plugin_host is not None:
+                plugin_lease = await self._plugin_host.open_session(
+                    self._session_id
                 )
-                queued.future.add_done_callback(_consume_background_result)
-                self._queued_runs.append(queued)
+            loop = asyncio.get_running_loop()
+            try:
+                for pending in snapshot.pending_controls:
+                    control = pending.control
+                    if control.delivery == "steer":
+                        await self._cancel_control(
+                            control.control_id,
+                            run_id=control.run_id,
+                            reason="target_run_not_active_after_restore",
+                        )
+                        continue
+                    if (
+                        pending.claim is not None
+                        and pending.claim.lease_expires_at > self._clock()
+                    ):
+                        continue
+                    queued = _QueuedSessionRun(
+                        run_id=control.run_id,
+                        prompt=control.prompt,
+                        delivery="follow_up",
+                        future=loop.create_future(),
+                        control_id=control.control_id,
+                    )
+                    queued.future.add_done_callback(_consume_background_result)
+                    self._queued_runs.append(queued)
+            except BaseException:
+                self._queued_runs.clear()
+                if plugin_lease is not None:
+                    await plugin_lease.close()
+                raise
+            self._plugin_lease = plugin_lease
             self._restored = True
             if self._queued_runs:
                 self._idle_event.clear()
                 self._start_dispatcher_locked()
+
+    async def close(self) -> None:
+        """Stop work and release all per-session plugin resources once."""
+        if self._closed:
+            return
+        await self.abort()
+        self._closed = True
+        lease = self._plugin_lease
+        self._plugin_lease = None
+        if lease is not None:
+            await lease.close()
+
+    async def __aenter__(self) -> AgentSession:
+        await self.restore()
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        del exc_info
+        await self.close()
 
     async def _enqueue_run(
         self,
@@ -1221,6 +1289,8 @@ class AgentSession:
                 if not queued.future.done():
                     queued.future.set_result(result)
             finally:
+                if self._plugin_lease is not None:
+                    self._plugin_lease.notify_run_settled(queued.run_id)
                 async with self._control_lock:
                     if self._active_run is queued:
                         while self._steering:
@@ -1451,6 +1521,7 @@ class AgentSession:
                 sandbox=self._sandbox,
                 context_strategy=self._context_strategy,
                 event_sink=self._event_sink,
+                provider_request_hook=self._plugin_lease,
                 initial_messages=writer.snapshot.messages,
                 message_committer=writer.commit,
                 steering_committer=writer.deliver_control,
@@ -1486,6 +1557,8 @@ class AgentSession:
         keep_recent_turns: int = 1,
     ) -> SessionSnapshot:
         """Summarize old complete turns and durably append the replacement."""
+        if self._closed:
+            raise SessionControlError("agent session is closed")
         if self._compaction_strategy is None:
             raise ConfigurationError(
                 "AgentSession.compact requires a compaction_strategy"

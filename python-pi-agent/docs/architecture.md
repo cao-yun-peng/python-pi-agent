@@ -64,9 +64,9 @@ durable compaction 可由 `AgentSession.compact()` 显式触发，也可在配�
 
 steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写 `control_enqueued`，dispatcher 写带 lease 的 `control_claimed`，安全边界用一个携带 user message 的 `control_delivered` 同时完成消息提交与消费；abort 或失效目标写 `control_cancelled`。Replay 由这些事实重建 `SessionSnapshot.pending_controls`。steer 绑定原 run，重启后没有活动目标就取消；follow-up 预留独立 run ID，未 claim 或 lease 已过期时由 `AgentSession.restore()` 恢复。该语义保证 durable history 中同一 control 只投递一次，但不把外部工具副作用宣传为 exactly-once。
 
-插件系统采用显式 assembly，而不是目录扫描或 import 副作用。`PluginFactory` 通过受限 `PluginAPI` 注册工具、有序 `NextTurnHook` 和 cleanup；`PluginHost.load()` 先 staging，factory 与冲突校验全部成功后再原子发布。工具重名会拒绝整个插件。Hook 按 priority 与注册顺序串行组合，带独立超时，失败关闭并保留取消传播。卸载先撤销注册，再反向执行 cleanup。`PluginCapabilities` 是组装时快照，当前不支持运行中的热重载。
+插件系统采用显式 assembly，而不是目录扫描或 import 副作用。`PluginFactory` 通过受限 `PluginAPI` 注册工具、有序 `NextTurnHook`、session plugin factory 和 cleanup；`PluginHost.load()` 先 staging，factory 与冲突校验全部成功后再原子发布。工具重名会拒绝整个插件。Hook 按 priority 与注册顺序串行组合，带独立超时，失败关闭并保留取消传播。卸载先撤销注册，再反向执行 cleanup。`PluginCapabilities` 是组装时快照，当前不支持运行中的热重载。
 
-插件 Hook 暂不直接接入 `AgentSession`。普通 `Agent` 可以消费快照中的 Hook；有 durable store 的会话若允许任意 Hook 改写 canonical history，会导致内存上下文与 replay 分叉。后续 session-aware 扩展只能修改请求投影，或产生可持久化的 session transition。
+`AgentSession` 第一次 restore 时通过 `PluginHost.open_session()` 获得固定的 `PluginSessionLease`。每个 factory 只接收 session ID，并为每个 Session 返回独立实例。请求 interceptor 接收 `ProviderRequestContext + ContextPlan`，只能返回新的请求投影，不能改 `source_message_count`、访问 Store 或修改 canonical history。run-settled observer 作为隔离后台任务执行，lease close 会等待观察任务并逆序释放实例。有活动 lease 时 host 拒绝单独 unload；host close 先关闭 lease。插件若未来需要发送 steer/follow-up，必须通过复用 durable control transition 的受限端口实现。
 
 观察与拦截使用不同错误语义。`Agent`、`AgentSession` 和 `PluginHost` 自动把应用的 `EventSink` 包进 `IsolatedEventSink`；sink 异常只产生有界 `EventSinkFailure`，不改变模型、工具、持久化或插件控制流，也不会覆盖原始错误。失败诊断不保存异常消息，避免把密钥或用户数据从异常文本二次写入日志。正常同步 sink 仍保持立即、有序投递，已有 UI 和测试不需要异步化。
 

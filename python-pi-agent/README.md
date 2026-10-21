@@ -47,6 +47,7 @@ AgentSession -> dispatcher -> steer / follow-up / abort -> settled / idle
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\14_tool_execution_security.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\15_durable_event_provenance.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\16_session_control.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\19_session_aware_plugin.py
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：
@@ -108,6 +109,7 @@ live    run_settled
 21. [教程：ToolExecutionContext、审批与 Sandbox](tutorials/14-tool-execution-security.md)
 22. [教程：Durable Event 的 Run、Turn 与 Provenance](tutorials/15-durable-event-provenance.md)
 23. [教程：AgentSession 控制状态机](tutorials/16-agent-session-control.md)
-24. [Compaction 质量评测方案](docs/compaction-evaluation.md)
+24. [教程：Session-aware 插件与生命周期租约](tutorials/19-session-aware-plugins.md)
+25. [Compaction 质量评测方案](docs/compaction-evaluation.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。
