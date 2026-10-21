@@ -1,5 +1,7 @@
 # ADR 0002: Sequential Tool Loop with Explicit Approval
 
+> 执行 context 与 Sandbox 边界由 ADR 0014 补充；本 ADR 的顺序执行决定仍然有效。
+
 ## Status
 
 Accepted

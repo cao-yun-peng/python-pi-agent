@@ -16,9 +16,11 @@
 ## 当前进度
 
 - 阶段 1、2、3 已完成：最小循环、DeepSeek Provider 和顺序工具调用已经形成可运行纵向切片。
-- 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、durable event log、replay、持久化 fork 和 replayable compaction event。分支元数据、多进程并发和数据库事务留给后续存储 Provider。
+- 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v4、durable event log、replay、带来源链接的持久化 fork 和 replayable compaction event；并完成 abort、steer、follow-up、settled/idle 控制状态机。durable 控制队列、多进程并发和数据库事务留给后续存储 Provider。
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。
 - 阶段 7 已完成第一条插件纵向切片：显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销和逆序 cleanup。观察订阅、session-aware durable hook、资源发现、runtime lease 与热重载仍未开始。
+- 阶段 8 已完成第一条安全执行纵向切片：ToolExecutionContext 贯穿审批、Sandbox 与工具，默认 effect gate 拒绝 read/write/external，支持工具 allowlist、参数快照隔离、超时、取消和可观察拒绝。真正的子进程/容器隔离、工作区文件策略和身份化授权仍未开始。
+- 阶段 9 已完成第一条安全观察纵向切片：Agent/Session/Plugin 统一隔离 EventSink 异常，日志事件可在入队前脱敏，慢 I/O 使用有界顺序 worker 并显式关闭。结构化 telemetry schema、指标聚合和 durable 审计 sink 仍未开始。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 
@@ -90,8 +92,43 @@ PluginFactory -> PluginAPI staging -> validate -> commit
 - 能解释为什么拦截 Hook 要 fail-closed，而观察事件可以采用隔离错误策略。
 - 能指出当前 snapshot 生命周期限制，以及为什么任意 Hook 不能直接改写 durable session history。
 
+## 当前学习节点：隔离观察者与安全日志
+
+第 13 章把 `EventSink` 的“不得改变执行结果”从注释变成运行时契约：
+
+```text
+runtime event
+  -> automatic IsolatedEventSink
+  -> explicit RedactingEventSink
+  -> optional BufferedEventSink
+  -> logger / telemetry exporter
+```
+
+建议按以下顺序阅读：
+
+1. `ports.py::EventSink`：确认它是 observer，而不是 interceptor。
+2. `events.py::IsolatedEventSink`：观察故障如何变成无敏感文本的 bounded diagnostics。
+3. `events.py::redact_event`：确认复制、事件字段策略与嵌套 secret key 规则。
+4. `events.py::BufferedEventSink`：理解有界队列、顺序 worker、drop 和 close 语义。
+5. `runtime.py` / `plugins.py` 的 constructor：确认三个消费方建立同一隔离边界。
+6. `tests/test_events.py`：用成功、原始失败、脱敏、下游错误和关闭路径核对契约。
+
+这一节点的掌握标准：
+
+- 能解释为什么 sink 的 `run_settled` 异常不能覆盖 Provider 错误。
+- 能解释为什么日志要先脱敏再入队，以及原始 UI 事件为何不应被全局裁剪。
+- 能区分 `event_sink_failures` 与 `buffered.failures` 的失败阶段。
+- 能说明 queue full 时允许 drop 的前提：恢复事实已经进入 `SessionStore`。
+- 能证明 `NextTurnHook` 仍然 fail-closed，不受观察者隔离策略影响。
+
 ## 下一步
 
-插件方向的下一小步应设计 **session-aware context hook**：只变换单次 `ContextPlan`，不破坏 durable replay，并补充观察型订阅与拦截型 Hook 的独立错误策略。之后再考虑 runtime lease 和安全的热卸载，不应直接做目录自动扫描。
+会话方向的下一步不应直接扩展多 Agent，而应先决定控制队列是否需要跨进程 durability；若需要，必须引入 queued/claimed/consumed/cancelled 事实、lease 和幂等恢复，不能把当前内存 deque 直接序列化。
+
+插件方向的下一小步应设计 **session-aware context hook**：只变换单次 `ContextPlan`，不破坏 durable replay。之后再考虑 runtime lease 和安全的热卸载，不应直接做目录自动扫描。
+
+可观测性方向下一步应先定义稳定 telemetry schema 和低基数指标，再决定是否需要强一致审计 sink。强一致审计不能伪装成 best-effort EventSink，而应成为独立 durable capability。
+
+安全执行方向下一步应实现一个真正隔离的 workspace Sandbox provider：明确进程边界、路径规范化、环境变量 allowlist、网络策略、资源上限和终止协议。不能仅凭 `side_effects` 声明信任未知插件代码。
 
 上下文方向仍应实现 compaction eval 的最小离线切片，用版本化 case 和 deterministic grader 验证摘要保留目标、约束、工具发现和下一步；随后再处理精确 tokenizer 与资源加载。

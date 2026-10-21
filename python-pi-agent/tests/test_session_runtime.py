@@ -17,11 +17,14 @@ from pi_agent_py import (
     JSONObject,
     Message,
     ProviderError,
+    SessionValidationError,
     TextDelta,
     TokenThresholdCompactionPolicy,
     ToolCall,
     ToolDefinition,
+    ToolExecutionContext,
     ToolOutput,
+    InProcessSandbox,
     WaitUntilCancelled,
 )
 
@@ -115,6 +118,120 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             [(message.role, message.content) for message in snapshot.messages],
             [("user", "remember this")],
         )
+
+    async def test_recovers_only_missing_tool_results_before_next_prompt(
+        self,
+    ) -> None:
+        second_call_started = asyncio.Event()
+        call_count = 0
+
+        async def sometimes_blocks(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            self.assertEqual(context.session_id, "demo")
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return ToolOutput(content=f"completed {arguments['value']}")
+            second_call_started.set()
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+        definition = ToolDefinition(
+            name="step",
+            description="Complete the first call and block the second.",
+            input_schema={
+                "type": "object",
+                "properties": {"value": {"type": "integer"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+            side_effects="external",
+        )
+        provider = FakeProvider(
+            [
+                [
+                    ToolCall("call-1", "step", {"value": 1}),
+                    ToolCall("call-2", "step", {"value": 2}),
+                    Finish("tool_calls"),
+                ],
+                [TextDelta("Recovered safely."), Finish()],
+            ]
+        )
+        store = InMemorySessionStore()
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            store,
+            provider,
+            tools=[FunctionTool(definition, sometimes_blocks)],
+            sandbox=InProcessSandbox(),
+            event_sink=events,
+        )
+
+        interrupted = asyncio.create_task(session.run("run both steps"))
+        await second_call_started.wait()
+        interrupted.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await interrupted
+
+        interrupted_snapshot = await store.load("demo")
+        self.assertEqual(
+            [message.role for message in interrupted_snapshot.messages],
+            ["user", "assistant", "tool"],
+        )
+        self.assertEqual(interrupted_snapshot.messages[-1].tool_call_id, "call-1")
+
+        result = await session.run("continue without retrying")
+
+        recovered = result.messages[3]
+        self.assertEqual(
+            [message.role for message in provider.requests[1]],
+            ["user", "assistant", "tool", "tool", "user"],
+        )
+        self.assertEqual(recovered.tool_call_id, "call-2")
+        self.assertTrue(recovered.is_error)
+        self.assertEqual(
+            recovered.structured_content,
+            {
+                "status": "interrupted",
+                "outcome": "unknown",
+                "recovered": True,
+            },
+        )
+        self.assertIn("outcome is unknown", recovered.content)
+        recovered_events = [
+            event for event in events.events if event.kind == "tool_call_recovered"
+        ]
+        self.assertEqual(len(recovered_events), 1)
+        self.assertEqual(recovered_events[0].payload["tool_call_id"], "call-2")
+
+    async def test_rejects_non_terminal_unresolved_tool_calls(self) -> None:
+        store = InMemorySessionStore()
+        await store.append(
+            "corrupt",
+            0,
+            [
+                Message(role="user", content="start"),
+                Message(
+                    role="assistant",
+                    content="",
+                    tool_calls=(ToolCall("call-1", "write", {}),),
+                ),
+                Message(role="user", content="appended too early"),
+            ],
+        )
+        provider = FakeProvider([])
+        session = AgentSession("corrupt", store, provider)
+
+        with self.assertRaisesRegex(
+            SessionValidationError,
+            "must remain at the session tail",
+        ):
+            await session.run("do not hide the damage")
+
+        self.assertEqual(provider.requests, [])
 
     async def test_compacts_history_before_the_next_run(self) -> None:
         store = InMemorySessionStore()
@@ -225,8 +342,11 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_compacts_after_tool_results_before_the_next_model_request(
         self,
     ) -> None:
-        async def large_result(arguments: JSONObject) -> ToolOutput:
-            del arguments
+        async def large_result(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del arguments, context
             return ToolOutput(content="large tool result")
 
         store = InMemorySessionStore()
@@ -305,8 +425,11 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_in_loop_compaction_failure_preserves_committed_tool_result(
         self,
     ) -> None:
-        async def large_result(arguments: JSONObject) -> ToolOutput:
-            del arguments
+        async def large_result(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del arguments, context
             return ToolOutput(content="large tool result")
 
         store = InMemorySessionStore()
@@ -365,8 +488,11 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_in_loop_compaction_cancellation_preserves_tool_result(
         self,
     ) -> None:
-        async def large_result(arguments: JSONObject) -> ToolOutput:
-            del arguments
+        async def large_result(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del arguments, context
             return ToolOutput(content="large tool result")
 
         store = InMemorySessionStore()

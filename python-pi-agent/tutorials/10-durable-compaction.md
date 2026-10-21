@@ -67,7 +67,7 @@ compaction_completed
 
 ## 5. JSONL schema v3 与兼容性
 
-schema v3 给事件增加 `compaction` 字段：消息事件的该字段为 `null`，压缩事件的 `message` 字段为 `null`。严格互斥能尽早发现损坏或歧义日志。解码器仍读取 v1 和 v2 消息事件；新写入统一使用 v3。
+schema v3 给事件增加 `compaction` 字段：消息事件的该字段为 `null`，压缩事件的 `message` 字段为 `null`。严格互斥能尽早发现损坏或歧义日志。当前新写入已升级到 schema v4，额外包含 event/run/turn/provenance；解码器仍读取 v1-v3 事件。
 
 `JsonlSessionStore` 关闭并重新创建后会读取所有事件，再交给同一个 `replay_session()`。因此内存 Store 与 JSONL Store 不各自实现一套压缩规则。
 

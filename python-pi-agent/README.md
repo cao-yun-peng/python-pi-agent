@@ -2,7 +2,7 @@
 
 一个教学优先、模块化、可复用的 Python Agent Harness。我们从可以完全看懂的最小循环开始，逐步加入工具、会话、上下文压缩、权限、沙箱、插件、评测与多 Agent 协作。
 
-当前已经实现十二条纵向切片：
+当前已经实现十六条纵向切片：
 
 ```text
 用户输入 -> 消息历史 -> ModelProvider -> 流式事件 -> Assistant 消息 -> settled
@@ -17,6 +17,10 @@ JSONL -> 严格反序列化 -> durable events -> replay -> 跨进程恢复
 旧完整 turns -> 摘要策略 -> context_compacted event -> replay -> 重启后恢复
 候选上下文 -> token threshold policy -> run 前/工具续轮前 durable compaction
 PluginFactory -> 原子注册 -> Tool / 有序 Hook -> Agent 组装 -> 逆序释放
+EventSink -> 异常隔离 -> 日志脱敏 -> 有界后台投递 -> 显式关闭
+ToolCall -> ToolExecutionContext -> ApprovalPolicy -> Sandbox -> ToolOutput
+DurableSessionEvent -> event/run/turn identity -> provenance -> schema v4 replay
+AgentSession -> dispatcher -> steer / follow-up / abort -> settled / idle
 ```
 
 它同时提供脚本化 `FakeProvider` 和真实 `DeepSeekProvider`。默认测试仍然确定、离线且不会产生 API 费用。
@@ -39,6 +43,10 @@ PluginFactory -> 原子注册 -> Tool / 有序 Hook -> Agent 组装 -> 逆序释
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\10_durable_compaction.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\11_automatic_compaction.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\12_plugin_system.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\13_safe_event_logging.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\14_tool_execution_security.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\15_durable_event_provenance.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\16_session_control.py
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：
@@ -96,6 +104,10 @@ live    run_settled
 17. [教程：Durable Compaction](tutorials/10-durable-compaction.md)
 18. [教程：Token Threshold 自动压缩与 NextTurnHook](tutorials/11-automatic-compaction.md)
 19. [教程：显式、可释放的插件系统](tutorials/12-plugin-system.md)
-20. [Compaction 质量评测方案](docs/compaction-evaluation.md)
+20. [教程：隔离 EventSink 与安全日志](tutorials/13-safe-event-observation.md)
+21. [教程：ToolExecutionContext、审批与 Sandbox](tutorials/14-tool-execution-security.md)
+22. [教程：Durable Event 的 Run、Turn 与 Provenance](tutorials/15-durable-event-provenance.md)
+23. [教程：AgentSession 控制状态机](tutorials/16-agent-session-control.md)
+24. [Compaction 质量评测方案](docs/compaction-evaluation.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。

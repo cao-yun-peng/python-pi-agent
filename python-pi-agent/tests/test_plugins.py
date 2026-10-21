@@ -19,6 +19,7 @@ from pi_agent_py import (
     TextDelta,
     ToolCall,
     ToolDefinition,
+    ToolExecutionContext,
     ToolOutput,
 )
 
@@ -259,7 +260,11 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
 
 
 def _add_tool() -> FunctionTool:
-    async def add(arguments: JSONObject) -> ToolOutput:
+    async def add(
+        arguments: JSONObject,
+        context: ToolExecutionContext,
+    ) -> ToolOutput:
+        del context
         left = arguments["a"]
         right = arguments["b"]
         assert isinstance(left, int) and not isinstance(left, bool)

@@ -14,10 +14,12 @@ from .domain import (
     JSONObject,
     Message,
     ModelStreamEvent,
+    SessionEventContext,
     SessionSnapshot,
     SessionCompaction,
     ToolCall,
     ToolDefinition,
+    ToolExecutionContext,
     ToolOutput,
 )
 
@@ -35,10 +37,10 @@ class ModelProvider(Protocol):
 
 
 class EventSink(Protocol):
-    """Accepts ordered runtime events without performing blocking I/O."""
+    """Accepts ordered observer events without changing runtime decisions."""
 
     def emit(self, event: AgentEvent) -> None:
-        """Record or enqueue an event and return immediately."""
+        """Record or enqueue an event quickly; runtime isolates raised errors."""
         ...
 
 
@@ -106,6 +108,8 @@ class SessionStore(Protocol):
         session_id: str,
         expected_version: int,
         messages: Sequence[Message],
+        *,
+        event_context: SessionEventContext | None = None,
     ) -> SessionSnapshot:
         """Append messages if the persisted version still matches."""
         ...
@@ -115,6 +119,8 @@ class SessionStore(Protocol):
         session_id: str,
         expected_version: int,
         compaction: SessionCompaction,
+        *,
+        event_context: SessionEventContext | None = None,
     ) -> SessionSnapshot:
         """Atomically append a compaction event at the expected version."""
         ...
@@ -137,8 +143,25 @@ class Tool(Protocol):
         """Return model-facing schema and runtime safety metadata."""
         ...
 
-    async def execute(self, arguments: JSONObject) -> ToolOutput:
-        """Execute validated arguments in the current asyncio task."""
+    async def execute(
+        self,
+        arguments: JSONObject,
+        context: ToolExecutionContext,
+    ) -> ToolOutput:
+        """Execute validated arguments with a frozen invocation snapshot."""
+        ...
+
+
+class Sandbox(Protocol):
+    """Owns the final dispatch boundary for every validated tool call."""
+
+    async def execute(
+        self,
+        tool: Tool,
+        arguments: JSONObject,
+        context: ToolExecutionContext,
+    ) -> ToolOutput:
+        """Enforce execution policy and invoke the tool or raise SandboxError."""
         ...
 
 
@@ -147,8 +170,7 @@ class ApprovalPolicy(Protocol):
 
     async def review(
         self,
-        call: ToolCall,
-        definition: ToolDefinition,
+        context: ToolExecutionContext,
     ) -> ApprovalDecision:
-        """Approve or deny one validated tool call."""
+        """Approve or deny one validated invocation using its full context."""
         ...

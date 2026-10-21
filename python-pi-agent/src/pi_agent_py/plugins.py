@@ -15,7 +15,7 @@ from .errors import (
     PluginLoadError,
     PluginRegistrationError,
 )
-from .events import NullEventSink
+from .events import EventSinkFailure, ensure_isolated_event_sink
 from .ports import EventSink, NextTurnHook, Tool
 
 CleanupCallback = Callable[[], Awaitable[None] | None]
@@ -199,13 +199,18 @@ class PluginHost:
     """Loads in-process plugin factories without import-time side effects."""
 
     def __init__(self, *, event_sink: EventSink | None = None) -> None:
-        self._event_sink = event_sink or NullEventSink()
+        self._event_sink = ensure_isolated_event_sink(event_sink)
         self._plugins: dict[str, _PluginState] = {}
         self._tools: list[_ToolRegistration] = []
         self._hooks: list[_HookRegistration] = []
         self._next_order = 0
         self._closed = False
         self._lock = asyncio.Lock()
+
+    @property
+    def event_sink_failures(self) -> tuple[EventSinkFailure, ...]:
+        """Return observer failures that were isolated from plugin execution."""
+        return self._event_sink.failures
 
     def has_plugin(self, name: str) -> bool:
         """Return whether a named plugin is currently active."""

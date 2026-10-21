@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .domain import DurableSessionEvent, Message, SessionCompaction, SessionSnapshot
+from .domain import (
+    DurableSessionEvent,
+    Message,
+    SessionCompaction,
+    SessionEventContext,
+    SessionSnapshot,
+)
 from .errors import SessionConflictError, SessionValidationError
 from .session_transitions import (
     fork_session_events,
@@ -36,6 +42,8 @@ class InMemorySessionStore:
         session_id: str,
         expected_version: int,
         messages: Sequence[Message],
+        *,
+        event_context: SessionEventContext | None = None,
     ) -> SessionSnapshot:
         current_events = self._events_by_session.get(session_id, [])
         plan = prepare_session_append(
@@ -43,6 +51,7 @@ class InMemorySessionStore:
             current_events,
             expected_version,
             messages,
+            event_context=event_context,
         )
         updated_events = [*current_events, *plan.new_events]
         self._events_by_session[session_id] = updated_events
@@ -54,6 +63,8 @@ class InMemorySessionStore:
         session_id: str,
         expected_version: int,
         compaction: SessionCompaction,
+        *,
+        event_context: SessionEventContext | None = None,
     ) -> SessionSnapshot:
         current_events = self._events_by_session.get(session_id, [])
         plan = prepare_session_compaction(
@@ -61,6 +72,7 @@ class InMemorySessionStore:
             current_events,
             expected_version,
             compaction,
+            event_context=event_context,
         )
         self._events_by_session[session_id] = [*current_events, plan.event]
         return plan.snapshot

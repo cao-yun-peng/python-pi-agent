@@ -17,6 +17,7 @@ from pi_agent_py import (
     TokenThresholdCompactionPolicy,
     ToolCall,
     ToolDefinition,
+    ToolExecutionContext,
     ToolOutput,
 )
 
@@ -55,8 +56,11 @@ async def main() -> None:
         ]
     )
 
-    async def load_notes(arguments: JSONObject) -> ToolOutput:
-        del arguments
+    async def load_notes(
+        arguments: JSONObject,
+        context: ToolExecutionContext,
+    ) -> ToolOutput:
+        del arguments, context
         return ToolOutput(content="A large model-visible tool result.")
 
     tool = FunctionTool(

@@ -9,8 +9,11 @@ ModelProvider
   -> ToolCall(id, name, arguments)
   -> 查找 Tool
   -> JSON Schema 校验
+  -> ToolExecutionContext 审批快照
   -> ApprovalPolicy 审批
-  -> Tool.execute()
+  -> ToolExecutionContext 执行快照
+  -> Sandbox.execute()
+  -> Tool.execute(arguments, context)
   -> ToolOutput
   -> commit tool message
   -> prepare_next_turn Hook
@@ -29,7 +32,7 @@ $env:PYTHONPATH = (Resolve-Path .\python-pi-agent\src).Path
 
 1. **Definition**：`ToolDefinition` 声明名称、描述、输入 schema、副作用、审批、重试、回放和超时语义。
 2. **Provider**：`FunctionTool` 把 async Python 函数适配成工具。
-3. **Consumer**：`Agent` 校验、审批、执行并提交结果。
+3. **Consumer**：`Agent` 校验、建立 context、审批、经 Sandbox 执行并提交结果。
 4. **Lifecycle**：工具在 Agent 构造时显式注入，执行任务跟随 run 的取消和超时作用域。
 5. **Evidence**：`tests/test_tool_runtime.py` 覆盖成功、拒绝、无效参数、超时、取消与未知工具。
 
@@ -64,9 +67,11 @@ tool       call-1 -> 5
 
 ## 审批是独立策略，不属于工具 UI
 
-`ApprovalPolicy` 只返回批准或拒绝，不负责终端、网页或数据库交互。CLI 可以实现交互式询问，Web 服务可以接审批工作流，企业环境可以根据身份与资源策略自动判断。
+`ApprovalPolicy` 接收完整 `ToolExecutionContext`，只返回批准或拒绝，不负责执行工具。CLI 可以实现交互式询问，Web 服务可以接审批工作流，企业环境可以根据 session、身份与资源策略自动判断。
 
 当工具标记 `requires_approval=True` 且应用没有配置策略时，`DenyByDefaultApprovalPolicy` 必然拒绝。安全默认值不能依赖调用者“记得配置”。
+
+审批通过后仍必须经过 `Sandbox`。默认 sandbox 只允许 `side_effects="none"`；read、write 和 external 工具需要应用显式配置允许范围。详见第 14 章。
 
 ## 为什么多数工具错误要回填模型
 
@@ -91,7 +96,7 @@ OpenAI-compatible SSE 会把一个函数的 JSON 参数拆成多个 `arguments` 
 - 多工具并行和每工具 execution mode
 - 工具执行中的增量进度事件
 - 完整 JSON Schema 标准支持
-- 文件、Shell 与网络沙箱
+- OS/容器级文件、Shell 与网络沙箱（当前只有可替换端口与声明式 effect gate）
 - 身份化 RBAC / ABAC 审批
 - durable event store 与崩溃恢复
 - retry-safe 与 replay-safe 的自动恢复策略

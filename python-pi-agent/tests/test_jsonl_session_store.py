@@ -8,10 +8,12 @@ from pathlib import Path
 
 from pi_agent_py import (
     AgentSession,
+    EventProvenance,
     FakeProvider,
     Finish,
     JsonlSessionStore,
     Message,
+    SessionEventContext,
     SessionCompaction,
     SessionConflictError,
     SessionReplayError,
@@ -54,9 +56,35 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             ]
             self.assertEqual(
                 [record["schema_version"] for record in records],
-                [3, 3],
+                [4, 4],
             )
             self.assertEqual([record["sequence"] for record in records], [1, 2])
+
+    async def test_round_trips_run_turn_and_provenance_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            store = JsonlSessionStore(path)
+            context = SessionEventContext(
+                run_id="run-1",
+                turn_id="run-1:turn:1",
+                provenance=EventProvenance(
+                    source="user",
+                    actor_id="user",
+                ),
+            )
+
+            await store.append(
+                "demo",
+                0,
+                [Message(role="user", content="hello")],
+                event_context=context,
+            )
+
+            event = (await JsonlSessionStore(path).read_events("demo"))[0]
+            self.assertEqual(event.event_id, "demo:1")
+            self.assertEqual(event.run_id, "run-1")
+            self.assertEqual(event.turn_id, "run-1:turn:1")
+            self.assertEqual(event.provenance, context.provenance)
 
     async def test_reads_legacy_v1_message_without_thinking(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -82,11 +110,14 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             )
 
             snapshot = await JsonlSessionStore(path).load("legacy")
+            event = (await JsonlSessionStore(path).read_events("legacy"))[0]
 
             self.assertEqual(
                 snapshot.messages,
                 (Message(role="assistant", content="旧消息"),),
             )
+            self.assertEqual(event.event_id, "legacy:1")
+            self.assertEqual(event.provenance.source, "legacy")
 
     async def test_reads_legacy_v2_message_with_thinking(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -124,6 +155,36 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 ),
             )
+
+    async def test_reads_legacy_v3_event_with_compaction_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            record = {
+                "schema_version": 3,
+                "session_id": "legacy-v3",
+                "sequence": 1,
+                "kind": "message_committed",
+                "message": {
+                    "role": "user",
+                    "content": "旧 v3 消息",
+                    "thinking": "",
+                    "tool_calls": [],
+                    "tool_call_id": None,
+                    "tool_name": None,
+                    "is_error": False,
+                    "structured_content": None,
+                },
+                "compaction": None,
+            }
+            path.write_text(
+                json.dumps(record, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            event = (await JsonlSessionStore(path).read_events("legacy-v3"))[0]
+
+            self.assertEqual(event.event_id, "legacy-v3:1")
+            self.assertEqual(event.provenance.source, "legacy")
 
     async def test_compaction_survives_reopen_and_keeps_original_events(
         self,
@@ -313,6 +374,48 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
                 snapshot.messages,
                 (Message(role="user", content="请保存这句话"),),
             )
+
+    async def test_reopens_and_recovers_a_trailing_tool_call(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            store = JsonlSessionStore(path)
+            await store.append(
+                "interrupted",
+                0,
+                [
+                    Message(role="user", content="call the service"),
+                    Message(
+                        role="assistant",
+                        content="",
+                        tool_calls=(
+                            ToolCall("call-restart", "external_write", {}),
+                        ),
+                    ),
+                ],
+            )
+
+            provider = FakeProvider([[TextDelta("Recovery observed."), Finish()]])
+            session = AgentSession(
+                "interrupted",
+                JsonlSessionStore(path),
+                provider,
+            )
+            result = await session.run("continue after restart")
+
+            recovered = result.messages[2]
+            self.assertEqual(recovered.role, "tool")
+            self.assertEqual(recovered.tool_call_id, "call-restart")
+            self.assertTrue(recovered.is_error)
+            self.assertEqual(
+                recovered.structured_content,
+                {
+                    "status": "interrupted",
+                    "outcome": "unknown",
+                    "recovered": True,
+                },
+            )
+            reopened = await JsonlSessionStore(path).load("interrupted")
+            self.assertEqual(reopened.messages, result.messages)
 
 
 if __name__ == "__main__":

@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 
 from .domain import (
     ApprovalDecision,
     JSONObject,
     JSONValue,
-    ToolCall,
     ToolDefinition,
+    ToolExecutionContext,
     ToolOutput,
+    ToolSideEffects,
 )
-from .errors import ToolValidationError
+from .errors import SandboxViolationError, ToolValidationError
+from .ports import Tool
 
-ToolHandler = Callable[[JSONObject], Awaitable[ToolOutput]]
+ToolHandler = Callable[
+    [JSONObject, ToolExecutionContext],
+    Awaitable[ToolOutput],
+]
 
 
 class FunctionTool:
@@ -28,8 +33,12 @@ class FunctionTool:
     def definition(self) -> ToolDefinition:
         return self._definition
 
-    async def execute(self, arguments: JSONObject) -> ToolOutput:
-        return await self._handler(arguments)
+    async def execute(
+        self,
+        arguments: JSONObject,
+        context: ToolExecutionContext,
+    ) -> ToolOutput:
+        return await self._handler(arguments, context)
 
 
 class DenyByDefaultApprovalPolicy:
@@ -37,10 +46,9 @@ class DenyByDefaultApprovalPolicy:
 
     async def review(
         self,
-        call: ToolCall,
-        definition: ToolDefinition,
+        context: ToolExecutionContext,
     ) -> ApprovalDecision:
-        del call, definition
+        del context
         return ApprovalDecision(
             approved=False,
             reason="No approval policy was configured for this protected tool.",
@@ -52,15 +60,78 @@ class StaticApprovalPolicy:
 
     def __init__(self, approved: bool, *, reason: str | None = None) -> None:
         self._decision = ApprovalDecision(approved=approved, reason=reason)
-        self.requests: list[tuple[ToolCall, ToolDefinition]] = []
+        self.requests: list[ToolExecutionContext] = []
 
     async def review(
         self,
-        call: ToolCall,
-        definition: ToolDefinition,
+        context: ToolExecutionContext,
     ) -> ApprovalDecision:
-        self.requests.append((call, definition))
+        self.requests.append(context)
         return self._decision
+
+
+class DeclaredSideEffectSandbox:
+    """In-process dispatcher gated by declared effect and optional tool allowlists.
+
+    This is a policy boundary, not operating-system isolation. Replace the
+    Sandbox port with a process, container, or remote executor for hostile code.
+    """
+
+    def __init__(
+        self,
+        *,
+        allowed_side_effects: Iterable[ToolSideEffects] = ("none",),
+        allowed_tools: Iterable[str] | None = None,
+    ) -> None:
+        effects = frozenset(allowed_side_effects)
+        valid_effects = {"none", "read", "write", "external"}
+        if not effects:
+            raise ValueError("allowed_side_effects must not be empty")
+        if not effects <= valid_effects:
+            raise ValueError("allowed_side_effects contains an unknown effect")
+        tools = None if allowed_tools is None else frozenset(allowed_tools)
+        if tools is not None and any(
+            not isinstance(name, str) or not name.strip() for name in tools
+        ):
+            raise ValueError("allowed_tools must contain only non-empty names")
+        self._allowed_side_effects = effects
+        self._allowed_tools = tools
+
+    async def execute(
+        self,
+        tool: Tool,
+        arguments: JSONObject,
+        context: ToolExecutionContext,
+    ) -> ToolOutput:
+        definition = context.definition
+        if definition.requires_approval and (
+            context.approval is None or not context.approval.approved
+        ):
+            raise SandboxViolationError(
+                f'tool "{definition.name}" requires an approved decision'
+            )
+        if definition.side_effects not in self._allowed_side_effects:
+            raise SandboxViolationError(
+                f'tool "{definition.name}" declares disallowed '
+                f'effect "{definition.side_effects}"'
+            )
+        if (
+            self._allowed_tools is not None
+            and definition.name not in self._allowed_tools
+        ):
+            raise SandboxViolationError(
+                f'tool "{definition.name}" is not in the sandbox allowlist'
+            )
+        return await tool.execute(arguments, context)
+
+
+class InProcessSandbox(DeclaredSideEffectSandbox):
+    """Explicitly permissive in-process dispatcher for trusted tools."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            allowed_side_effects=("none", "read", "write", "external")
+        )
 
 
 def validate_tool_arguments(

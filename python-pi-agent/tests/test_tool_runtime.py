@@ -7,6 +7,8 @@ from collections.abc import Sequence
 from pi_agent_py import (
     Agent,
     AgentLoopLimitError,
+    ApprovalDecision,
+    DeclaredSideEffectSandbox,
     FakeProvider,
     Finish,
     FunctionTool,
@@ -18,6 +20,7 @@ from pi_agent_py import (
     TokenUsage,
     ToolCall,
     ToolDefinition,
+    ToolExecutionContext,
     ToolOutput,
 )
 
@@ -42,9 +45,14 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self,
     ) -> None:
         executions: list[dict[str, object]] = []
+        execution_contexts: list[ToolExecutionContext] = []
 
-        async def add(arguments: JSONObject) -> ToolOutput:
+        async def add(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
             executions.append(arguments)
+            execution_contexts.append(context)
             left = arguments["a"]
             right = arguments["b"]
             assert isinstance(left, int) and not isinstance(left, bool)
@@ -77,6 +85,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             tools=[tool],
             approval_policy=policy,
             event_sink=events,
+            session_id="session-1",
         )
 
         result = await agent.run("计算 2 + 3")
@@ -96,6 +105,13 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_message.structured_content, {"value": 5})
         self.assertFalse(tool_message.is_error)
         self.assertEqual(len(policy.requests), 1)
+        approval_context = policy.requests[0]
+        self.assertEqual(approval_context.session_id, "session-1")
+        self.assertEqual(approval_context.request_number, 1)
+        self.assertEqual(approval_context.call_index, 1)
+        self.assertIsNone(approval_context.approval)
+        self.assertEqual(execution_contexts[0].call, approval_context.call)
+        self.assertTrue(execution_contexts[0].approval.approved)
         self.assertEqual(
             [
                 event.kind
@@ -114,8 +130,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_next_turn_hook_runs_after_tool_result_commit(self) -> None:
-        async def add(arguments: JSONObject) -> ToolOutput:
-            del arguments
+        async def add(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del arguments, context
             return ToolOutput(content="2")
 
         provider = FakeProvider(
@@ -148,7 +167,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_arguments_are_returned_without_executing_tool(self) -> None:
         executed = False
 
-        async def must_not_run(arguments: JSONObject) -> ToolOutput:
+        async def must_not_run(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del context
             nonlocal executed
             executed = True
             return ToolOutput(content=str(arguments))
@@ -178,7 +201,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_denied_approval_becomes_model_visible_tool_error(self) -> None:
         executed = False
 
-        async def must_not_run(arguments: JSONObject) -> ToolOutput:
+        async def must_not_run(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del context
             nonlocal executed
             executed = True
             return ToolOutput(content=str(arguments))
@@ -204,8 +231,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("denied", result.messages[2].content)
 
     async def test_zero_timeout_is_deterministic_and_returns_tool_error(self) -> None:
-        async def never_finishes(arguments: JSONObject) -> ToolOutput:
-            del arguments
+        async def never_finishes(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del arguments, context
             await asyncio.Event().wait()
             raise AssertionError("unreachable")
 
@@ -246,8 +276,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancellation_propagates_into_running_tool(self) -> None:
         started = asyncio.Event()
 
-        async def blocking_tool(arguments: JSONObject) -> ToolOutput:
-            del arguments
+        async def blocking_tool(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del arguments, context
             started.set()
             await asyncio.Event().wait()
             raise AssertionError("unreachable")
@@ -296,8 +329,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("not available", result.messages[2].content)
 
     async def test_model_request_limit_stops_infinite_tool_loop(self) -> None:
-        async def add(arguments: JSONObject) -> ToolOutput:
-            del arguments
+        async def add(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del arguments, context
             return ToolOutput(content="2")
 
         provider = FakeProvider(
@@ -318,6 +354,187 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             [event.kind for event in events.events[-2:]],
             ["run_failed", "run_settled"],
         )
+
+    async def test_default_sandbox_denies_declared_read_effect(self) -> None:
+        executed = False
+
+        async def read_data(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            nonlocal executed
+            del arguments, context
+            executed = True
+            return ToolOutput(content="private data")
+
+        definition = ToolDefinition(
+            name="read_data",
+            description="Read protected data.",
+            input_schema={"type": "object", "properties": {}},
+            side_effects="read",
+        )
+        provider = FakeProvider(
+            [
+                [ToolCall("call-read", "read_data", {}), Finish("tool_calls")],
+                [TextDelta("read was blocked"), Finish()],
+            ]
+        )
+        events = InMemoryEventSink()
+        agent = Agent(
+            provider,
+            tools=[FunctionTool(definition, read_data)],
+            event_sink=events,
+        )
+
+        result = await agent.run("read data")
+
+        self.assertFalse(executed)
+        self.assertTrue(result.messages[2].is_error)
+        self.assertIn("blocked by the sandbox", result.messages[2].content)
+        denied = [
+            event for event in events.events if event.kind == "tool_sandbox_denied"
+        ]
+        self.assertEqual(len(denied), 1)
+        self.assertEqual(denied[0].payload["side_effects"], "read")
+        finished = [
+            event
+            for event in events.events
+            if event.kind == "tool_execution_finished"
+        ]
+        self.assertEqual(finished[0].payload["outcome"], "sandbox_denied")
+
+    async def test_configured_sandbox_allows_only_declared_scope(self) -> None:
+        contexts: list[ToolExecutionContext] = []
+
+        async def read_data(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            arguments["handler_mutation"] = True
+            contexts.append(context)
+            return ToolOutput(content="allowed data")
+
+        definition = ToolDefinition(
+            name="read_data",
+            description="Read approved data.",
+            input_schema={"type": "object", "properties": {}},
+            side_effects="read",
+        )
+        provider = FakeProvider(
+            [
+                [ToolCall("call-read", "read_data", {}), Finish("tool_calls")],
+                [TextDelta("done"), Finish()],
+            ]
+        )
+        sandbox = DeclaredSideEffectSandbox(
+            allowed_side_effects=("none", "read"),
+            allowed_tools=("read_data",),
+        )
+        agent = Agent(
+            provider,
+            tools=[FunctionTool(definition, read_data)],
+            sandbox=sandbox,
+        )
+
+        result = await agent.run("read data")
+
+        self.assertEqual(result.messages[2].content, "allowed data")
+        self.assertEqual(contexts[0].call.id, "call-read")
+        self.assertEqual(contexts[0].definition.side_effects, "read")
+        self.assertNotIn(
+            "handler_mutation",
+            result.messages[1].tool_calls[0].arguments,
+        )
+
+    async def test_approval_snapshot_cannot_replace_execution_arguments(self) -> None:
+        executed_arguments: list[JSONObject] = []
+
+        class MutatingApprovalPolicy:
+            async def review(
+                self,
+                context: ToolExecutionContext,
+            ) -> ApprovalDecision:
+                context.call.arguments["a"] = 999
+                return ApprovalDecision(True, "approved original request")
+
+        async def add(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            executed_arguments.append(dict(arguments))
+            self.assertEqual(context.call.arguments["a"], 1)
+            return ToolOutput(content="2")
+
+        provider = FakeProvider(
+            [
+                [ToolCall("call-safe", "add", {"a": 1, "b": 1}), Finish("tool_calls")],
+                [TextDelta("done"), Finish()],
+            ]
+        )
+        agent = Agent(
+            provider,
+            tools=[FunctionTool(_add_definition(requires_approval=True), add)],
+            approval_policy=MutatingApprovalPolicy(),
+        )
+
+        result = await agent.run("add")
+
+        self.assertEqual(executed_arguments, [{"a": 1, "b": 1}])
+        self.assertEqual(
+            result.messages[1].tool_calls[0].arguments,
+            {"a": 1, "b": 1},
+        )
+
+    async def test_approval_policy_failure_is_closed_and_observable(self) -> None:
+        executed = False
+
+        class ExplodingApprovalPolicy:
+            async def review(
+                self,
+                context: ToolExecutionContext,
+            ) -> ApprovalDecision:
+                del context
+                raise RuntimeError("approval backend unavailable")
+
+        async def must_not_run(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            nonlocal executed
+            del arguments, context
+            executed = True
+            return ToolOutput(content="unexpected")
+
+        provider = FakeProvider(
+            [
+                [ToolCall("call-denied", "add", {"a": 1, "b": 1}), Finish("tool_calls")],
+                [TextDelta("denied"), Finish()],
+            ]
+        )
+        events = InMemoryEventSink()
+        agent = Agent(
+            provider,
+            tools=[
+                FunctionTool(
+                    _add_definition(requires_approval=True),
+                    must_not_run,
+                )
+            ],
+            approval_policy=ExplodingApprovalPolicy(),
+            event_sink=events,
+        )
+
+        result = await agent.run("add")
+
+        self.assertFalse(executed)
+        self.assertTrue(result.messages[2].is_error)
+        decisions = [
+            event
+            for event in events.events
+            if event.kind == "tool_approval_decided"
+        ]
+        self.assertEqual(decisions[0].payload["approved"], False)
+        self.assertEqual(decisions[0].payload["policy_error"], "RuntimeError")
 
 
 def _add_definition(*, requires_approval: bool = False) -> ToolDefinition:

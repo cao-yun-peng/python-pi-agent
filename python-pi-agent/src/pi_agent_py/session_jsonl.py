@@ -9,11 +9,14 @@ from typing import cast
 
 from .domain import (
     DurableSessionEvent,
+    EventProvenance,
+    EventSource,
     JSONObject,
     JSONValue,
     Message,
     Role,
     SessionCompaction,
+    SessionEventContext,
     SessionSnapshot,
     ToolCall,
 )
@@ -31,8 +34,8 @@ from .session_transitions import (
     validate_session_id,
 )
 
-_SCHEMA_VERSION = 3
-_SUPPORTED_SCHEMA_VERSIONS = {1, 2, 3}
+_SCHEMA_VERSION = 4
+_SUPPORTED_SCHEMA_VERSIONS = {1, 2, 3, 4}
 _LEGACY_EVENT_KEYS = {
     "schema_version",
     "session_id",
@@ -41,6 +44,13 @@ _LEGACY_EVENT_KEYS = {
     "message",
 }
 _EVENT_KEYS_V3 = {*_LEGACY_EVENT_KEYS, "compaction"}
+_EVENT_KEYS_V4 = {
+    *_EVENT_KEYS_V3,
+    "event_id",
+    "run_id",
+    "turn_id",
+    "provenance",
+}
 _MESSAGE_KEYS_V1 = {
     "role",
     "content",
@@ -56,6 +66,12 @@ _COMPACTION_KEYS = {
     "replace_start",
     "replaced_message_count",
     "summary_message",
+}
+_PROVENANCE_KEYS = {
+    "source",
+    "actor_id",
+    "cause_event_id",
+    "copied_from_event_id",
 }
 _ROLES = {"system", "user", "assistant", "tool"}
 
@@ -87,6 +103,8 @@ class JsonlSessionStore:
         session_id: str,
         expected_version: int,
         messages: Sequence[Message],
+        *,
+        event_context: SessionEventContext | None = None,
     ) -> SessionSnapshot:
         async with self._lock:
             all_events = await self._read_all_events()
@@ -98,6 +116,7 @@ class JsonlSessionStore:
                 session_events,
                 expected_version,
                 messages,
+                event_context=event_context,
             )
             encoded_lines = tuple(
                 _encode_event(event) for event in plan.new_events
@@ -111,6 +130,8 @@ class JsonlSessionStore:
         session_id: str,
         expected_version: int,
         compaction: SessionCompaction,
+        *,
+        event_context: SessionEventContext | None = None,
     ) -> SessionSnapshot:
         async with self._lock:
             all_events = await self._read_all_events()
@@ -122,6 +143,7 @@ class JsonlSessionStore:
                 session_events,
                 expected_version,
                 compaction,
+                event_context=event_context,
             )
             await self._append_lines((_encode_event(plan.event),))
 
@@ -206,6 +228,15 @@ def _encode_event(event: DurableSessionEvent) -> str:
         "session_id": event.session_id,
         "sequence": event.sequence,
         "kind": event.kind,
+        "event_id": event.event_id,
+        "run_id": event.run_id,
+        "turn_id": event.turn_id,
+        "provenance": {
+            "source": event.provenance.source,
+            "actor_id": event.provenance.actor_id,
+            "cause_event_id": event.provenance.cause_event_id,
+            "copied_from_event_id": event.provenance.copied_from_event_id,
+        },
         "message": message,
         "compaction": compaction,
     }
@@ -240,15 +271,31 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
             raise ValueError(f"unsupported schema_version: {schema_version}")
 
         expected_event_keys = (
-            _EVENT_KEYS_V3 if schema_version == 3 else _LEGACY_EVENT_KEYS
+            _EVENT_KEYS_V4
+            if schema_version == 4
+            else _EVENT_KEYS_V3
+            if schema_version == 3
+            else _LEGACY_EVENT_KEYS
         )
         _require_exact_keys(record, expected_event_keys, "event")
 
         session_id = _require_string(record["session_id"], "session_id")
         sequence = _require_int(record["sequence"], "sequence")
         kind = _require_string(record["kind"], "kind")
+        if schema_version == 4:
+            event_id = _require_string(record["event_id"], "event_id")
+            run_id = _require_optional_string(record["run_id"], "run_id")
+            turn_id = _require_optional_string(record["turn_id"], "turn_id")
+            provenance = _decode_provenance(
+                _require_object(record["provenance"], "provenance")
+            )
+        else:
+            event_id = f"{session_id}:{sequence}"
+            run_id = None
+            turn_id = None
+            provenance = EventProvenance(source="legacy")
         if kind == "message_committed":
-            if schema_version == 3 and record["compaction"] is not None:
+            if schema_version >= 3 and record["compaction"] is not None:
                 raise ValueError(
                     "message_committed event compaction must be null"
                 )
@@ -259,8 +306,12 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
                 sequence=sequence,
                 kind="message_committed",
                 message=message,
+                event_id=event_id,
+                run_id=run_id,
+                turn_id=turn_id,
+                provenance=provenance,
             )
-        if kind == "context_compacted" and schema_version == 3:
+        if kind == "context_compacted" and schema_version >= 3:
             if record["message"] is not None:
                 raise ValueError("context_compacted event message must be null")
             compaction_record = _require_object(
@@ -272,6 +323,10 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
                 sequence=sequence,
                 kind="context_compacted",
                 compaction=_decode_compaction(compaction_record),
+                event_id=event_id,
+                run_id=run_id,
+                turn_id=turn_id,
+                provenance=provenance,
             )
         raise ValueError(f"unsupported event kind: {kind}")
     except (KeyError, TypeError, ValueError) as error:
@@ -358,6 +413,35 @@ def _decode_compaction(record: Mapping[str, object]) -> SessionCompaction:
             "compaction.replaced_message_count",
         ),
         summary_message=_decode_message(summary_record, 3),
+    )
+
+
+def _decode_provenance(record: Mapping[str, object]) -> EventProvenance:
+    _require_exact_keys(record, _PROVENANCE_KEYS, "provenance")
+    source = _require_string(record["source"], "provenance.source")
+    if source not in {
+        "user",
+        "model",
+        "tool",
+        "runtime",
+        "plugin",
+        "recovery",
+        "compaction",
+        "legacy",
+    }:
+        raise ValueError(f"unsupported provenance source: {source}")
+    return EventProvenance(
+        source=cast(EventSource, source),
+        actor_id=_require_optional_string(
+            record["actor_id"], "provenance.actor_id"
+        ),
+        cause_event_id=_require_optional_string(
+            record["cause_event_id"], "provenance.cause_event_id"
+        ),
+        copied_from_event_id=_require_optional_string(
+            record["copied_from_event_id"],
+            "provenance.copied_from_event_id",
+        ),
     )
 
 

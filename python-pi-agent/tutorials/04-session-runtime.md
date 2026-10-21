@@ -125,6 +125,30 @@ not stored: assistant message
 
 取消遵循相同原则：已完成提交的消息保留，尚未形成完整消息的流式增量不进入 durable history。这为后续的“重试最后一条未回答用户消息”提供真实状态。
 
+工具调用还需要额外处理。assistant tool-call message 会在工具开始前提交，因此取消可能留下：
+
+```text
+user
+assistant(tool call A, tool call B)
+tool result A
+<cancelled before result B was committed>
+```
+
+如果直接追加下一条 user message，Provider 会看到不完整的工具协议。`AgentSession` 因此在下一次 `run()` 或 `compact()` 前调用纯函数 `find_unresolved_tool_calls()` 校验历史。它只修复位于会话尾部的未决批次：已经存在的结果保持不变，每个缺失结果追加一个持久化错误 tool message，内容明确说明外部副作用结果是 `unknown`，不能假定失败或自动重试。恢复后才提交新的用户输入。
+
+```text
+load snapshot
+→ validate tool call/result batches
+→ append recovered error result B
+→ emit tool_call_recovered
+→ append new user message
+→ call provider
+```
+
+如果未决调用后已经出现了新的 user/assistant 消息，append-only store 已经无法把结果插回正确位置。此时系统抛出 `SessionValidationError`，要求显式修复日志，而不是静默制造顺序错误。
+
+当前恢复只能确认“没有 durable result”，不能确认外部工具是否已经产生副作用。这正是恢复结果使用 `outcome=unknown` 的原因。后续加入 durable `tool_execution_started`、幂等键和 `retry_safe` 策略后，才能进一步区分“从未开始”和“可能已经执行”。
+
 ## 7. 与 Pi 和 DeepSeek Harness 的映射
 
 - `AgentSession` 对应 Pi 中 session 对 Agent loop 和消息状态的编排职责；截至本章尚未加入 queue、steer、fork 和 compaction，后续章节会逐步补齐其中一部分。

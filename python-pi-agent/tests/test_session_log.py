@@ -4,11 +4,13 @@ import unittest
 
 from pi_agent_py import (
     DurableSessionEvent,
+    EventProvenance,
     InMemorySessionStore,
     Message,
     SessionAppendPlan,
     SessionCompaction,
     SessionCompactionPlan,
+    SessionEventContext,
     SessionConflictError,
     SessionReplayError,
     SessionValidationError,
@@ -103,6 +105,31 @@ class SessionAppendTransitionTests(unittest.TestCase):
             [message.content for message in plan.snapshot.messages],
             ["hello", "hi"],
         )
+
+    def test_assigns_stable_event_identity_and_causal_metadata(self) -> None:
+        context = SessionEventContext(
+            run_id="run-7",
+            turn_id="run-7:turn:2",
+            provenance=EventProvenance(
+                source="model",
+                actor_id="FakeProvider",
+                cause_event_id="demo:1",
+            ),
+        )
+
+        plan = prepare_session_append(
+            "demo",
+            (),
+            expected_version=0,
+            messages=[Message(role="assistant", content="answer")],
+            event_context=context,
+        )
+
+        event = plan.new_events[0]
+        self.assertEqual(event.event_id, "demo:1")
+        self.assertEqual(event.run_id, "run-7")
+        self.assertEqual(event.turn_id, "run-7:turn:2")
+        self.assertEqual(event.provenance, context.provenance)
 
     def test_rejects_stale_version_before_creating_events(self) -> None:
         current_events = (
@@ -234,6 +261,14 @@ class SessionForkTransitionTests(unittest.TestCase):
             ["branch", "branch"],
         )
         self.assertEqual([event.sequence for event in forked_events], [1, 2])
+        self.assertEqual(
+            [event.event_id for event in forked_events],
+            ["branch:1", "branch:2"],
+        )
+        self.assertEqual(
+            [event.provenance.copied_from_event_id for event in forked_events],
+            ["source:1", "source:2"],
+        )
         self.assertEqual(
             [event.message.content for event in forked_events],
             ["first", "second"],

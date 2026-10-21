@@ -6,9 +6,12 @@ from dataclasses import dataclass
 
 from .domain import (
     DurableSessionEvent,
+    EventProvenance,
     Message,
     SessionCompaction,
+    SessionEventContext,
     SessionSnapshot,
+    ToolCall,
 )
 from .errors import (
     SessionConflictError,
@@ -31,6 +34,73 @@ class SessionCompactionPlan:
 
     event: DurableSessionEvent
     snapshot: SessionSnapshot
+
+
+def find_unresolved_tool_calls(
+    messages: Sequence[Message],
+) -> tuple[ToolCall, ...]:
+    """Return unresolved calls from the only recoverable position: the tail.
+
+    A persisted assistant tool-call message may be followed by only some of its
+    tool results when a run is cancelled or the process exits. That trailing
+    batch can be repaired before another model-visible message is appended.
+    Missing results earlier in the transcript cannot be repaired in place by an
+    append-only store, so those histories are rejected instead of silently
+    producing an invalid provider transcript.
+    """
+
+    pending_by_id: dict[str, ToolCall] = {}
+    pending_order: tuple[ToolCall, ...] = ()
+
+    for index, message in enumerate(messages):
+        if pending_by_id:
+            if message.role != "tool":
+                missing = ", ".join(
+                    call.id
+                    for call in pending_order
+                    if call.id in pending_by_id
+                )
+                raise SessionValidationError(
+                    "unresolved tool calls must remain at the session tail "
+                    f"before message {index}: {missing}"
+                )
+
+            call = pending_by_id.get(message.tool_call_id or "")
+            if call is None:
+                raise SessionValidationError(
+                    "tool result does not match the active tool-call batch: "
+                    f"{message.tool_call_id!r}"
+                )
+            if message.tool_name != call.name:
+                raise SessionValidationError(
+                    f"tool result name {message.tool_name!r} does not match "
+                    f"tool call {call.id!r} name {call.name!r}"
+                )
+            del pending_by_id[call.id]
+            continue
+
+        if message.role == "tool":
+            raise SessionValidationError(
+                "tool result has no active assistant tool-call batch: "
+                f"{message.tool_call_id!r}"
+            )
+
+        if message.tool_calls:
+            seen_ids: set[str] = set()
+            duplicate_ids: set[str] = set()
+            for call in message.tool_calls:
+                if call.id in seen_ids:
+                    duplicate_ids.add(call.id)
+                seen_ids.add(call.id)
+            if duplicate_ids:
+                raise SessionValidationError(
+                    "assistant tool-call batch contains duplicate ids: "
+                    + ", ".join(sorted(duplicate_ids))
+                )
+            pending_order = message.tool_calls
+            pending_by_id = {call.id: call for call in pending_order}
+
+    return tuple(call for call in pending_order if call.id in pending_by_id)
 
 
 def replay_session(
@@ -83,6 +153,8 @@ def prepare_session_append(
     current_events: Sequence[DurableSessionEvent],
     expected_version: int,
     messages: Sequence[Message],
+    *,
+    event_context: SessionEventContext | None = None,
 ) -> SessionAppendPlan:
     """Calculate new events and state without performing storage I/O."""
     validate_session_id(session_id)
@@ -95,12 +167,16 @@ def prepare_session_append(
             f"but current version is {current_snapshot.version}"
         )
 
+    context = event_context or SessionEventContext()
     new_events = tuple(
         DurableSessionEvent(
             session_id=session_id,
             sequence=current_snapshot.version + offset,
             kind="message_committed",
             message=message,
+            run_id=context.run_id,
+            turn_id=context.turn_id,
+            provenance=deepcopy(context.provenance),
         )
         for offset, message in enumerate(new_messages, start=1)
     )
@@ -116,6 +192,8 @@ def prepare_session_compaction(
     current_events: Sequence[DurableSessionEvent],
     expected_version: int,
     compaction: SessionCompaction,
+    *,
+    event_context: SessionEventContext | None = None,
 ) -> SessionCompactionPlan:
     """Calculate a durable compaction event without performing storage I/O."""
     validate_session_id(session_id)
@@ -127,11 +205,17 @@ def prepare_session_compaction(
         )
 
     _validate_compaction_range(current_snapshot.messages, compaction)
+    context = event_context or SessionEventContext(
+        provenance=EventProvenance(source="compaction")
+    )
     event = DurableSessionEvent(
         session_id=session_id,
         sequence=current_snapshot.version + 1,
         kind="context_compacted",
         compaction=compaction,
+        run_id=context.run_id,
+        turn_id=context.turn_id,
+        provenance=deepcopy(context.provenance),
     )
     snapshot = replay_session(session_id, (*current_events, event))
     return SessionCompactionPlan(event=event, snapshot=snapshot)
@@ -169,6 +253,14 @@ def fork_session_events(
             kind=event.kind,
             message=deepcopy(event.message),
             compaction=deepcopy(event.compaction),
+            run_id=event.run_id,
+            turn_id=event.turn_id,
+            provenance=EventProvenance(
+                source=event.provenance.source,
+                actor_id=event.provenance.actor_id,
+                cause_event_id=event.provenance.cause_event_id,
+                copied_from_event_id=event.event_id,
+            ),
         )
         for event in normalized_events[:fork_version]
     )

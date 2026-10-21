@@ -7,6 +7,7 @@ import httpx
 
 from pi_agent_py import (
     Agent,
+    DeclaredSideEffectSandbox,
     ConfigurationError,
     Finish,
     FunctionTool,
@@ -19,6 +20,7 @@ from pi_agent_py import (
     ProviderResponseError,
     ToolCall,
     ToolDefinition,
+    ToolExecutionContext,
     ToolOutput,
 )
 from pi_agent_py.providers import DeepSeekConfig, DeepSeekProvider
@@ -203,7 +205,11 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
                 content=body.encode(),
             )
 
-        async def weather(arguments: JSONObject) -> ToolOutput:
+        async def weather(
+            arguments: JSONObject,
+            context: ToolExecutionContext,
+        ) -> ToolOutput:
+            del context
             self.assertEqual(arguments, {"city": "深圳"})
             return ToolOutput(content="晴")
 
@@ -225,7 +231,13 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
             DeepSeekConfig(api_key="test-key", thinking="enabled"),
             client=client,
         )
-        agent = Agent(provider, tools=[FunctionTool(definition, weather)])
+        agent = Agent(
+            provider,
+            tools=[FunctionTool(definition, weather)],
+            sandbox=DeclaredSideEffectSandbox(
+                allowed_side_effects=("none", "read")
+            ),
+        )
 
         result = await agent.run("深圳天气如何？")
 

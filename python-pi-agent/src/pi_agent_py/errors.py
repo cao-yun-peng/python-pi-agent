@@ -82,6 +82,14 @@ class ToolValidationError(AgentError):
         self.violations = violations
 
 
+class SandboxError(AgentError):
+    """A sandbox could not safely dispatch a tool invocation."""
+
+
+class SandboxViolationError(SandboxError):
+    """A sandbox policy denied the requested tool invocation."""
+
+
 class PluginError(AgentError):
     """A plugin could not be loaded, executed, or released safely."""
 
@@ -112,6 +120,10 @@ class SessionConflictError(AgentError):
 
 class SessionValidationError(AgentError):
     """Session input does not satisfy the storage contract."""
+
+
+class SessionControlError(AgentError):
+    """A control command is invalid for the current session state."""
 
 
 class SessionReplayError(AgentError):

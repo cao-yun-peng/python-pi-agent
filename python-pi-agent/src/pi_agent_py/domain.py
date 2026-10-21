@@ -13,6 +13,17 @@ FinishReason: TypeAlias = Literal["stop", "length", "tool_calls"]
 ToolSideEffects: TypeAlias = Literal["none", "read", "write", "external"]
 EventChannel: TypeAlias = Literal["durable", "live", "capability"]
 SessionEventKind: TypeAlias = Literal["message_committed", "context_compacted"]
+EventSource: TypeAlias = Literal[
+    "user",
+    "model",
+    "tool",
+    "runtime",
+    "plugin",
+    "recovery",
+    "compaction",
+    "legacy",
+]
+SessionState: TypeAlias = Literal["idle", "running", "aborting", "settled"]
 EventKind: TypeAlias = Literal[
     "run_started",
     "message_committed",
@@ -33,7 +44,9 @@ EventKind: TypeAlias = Literal[
     "tool_approval_requested",
     "tool_approval_decided",
     "tool_execution_started",
+    "tool_sandbox_denied",
     "tool_execution_finished",
+    "tool_call_recovered",
     "plugin_loaded",
     "plugin_unloaded",
     "plugin_hook_started",
@@ -101,6 +114,34 @@ class ApprovalDecision:
 
     approved: bool
     reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.approved) is not bool:
+            raise TypeError("approved must be a boolean")
+        if self.reason is not None and not isinstance(self.reason, str):
+            raise TypeError("approval reason must be a string or None")
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExecutionContext:
+    """Frozen snapshot of identity and policy state for one tool invocation."""
+
+    call: ToolCall
+    definition: ToolDefinition
+    request_number: int
+    call_index: int
+    session_id: str | None = None
+    approval: ApprovalDecision | None = None
+
+    def __post_init__(self) -> None:
+        if self.call.name != self.definition.name:
+            raise ValueError("tool call and definition names must match")
+        if self.request_number <= 0:
+            raise ValueError("request_number must be greater than zero")
+        if self.call_index <= 0:
+            raise ValueError("call_index must be greater than zero")
+        if self.session_id is not None and not self.session_id.strip():
+            raise ValueError("session_id must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +217,57 @@ class CompactionDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class EventProvenance:
+    """Origin and causal linkage for one durable session fact."""
+
+    source: EventSource
+    actor_id: str | None = None
+    cause_event_id: str | None = None
+    copied_from_event_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.source not in {
+            "user",
+            "model",
+            "tool",
+            "runtime",
+            "plugin",
+            "recovery",
+            "compaction",
+            "legacy",
+        }:
+            raise ValueError(f"unsupported event provenance source: {self.source}")
+        for name, value in (
+            ("actor_id", self.actor_id),
+            ("cause_event_id", self.cause_event_id),
+            ("copied_from_event_id", self.copied_from_event_id),
+        ):
+            if value is not None and not value.strip():
+                raise ValueError(f"{name} must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SessionEventContext:
+    """Metadata shared by durable facts created by one runtime action."""
+
+    run_id: str | None = None
+    turn_id: str | None = None
+    provenance: EventProvenance = field(
+        default_factory=lambda: EventProvenance(source="runtime")
+    )
+
+    def __post_init__(self) -> None:
+        if self.run_id is not None and not self.run_id.strip():
+            raise ValueError("run_id must not be empty")
+        if self.turn_id is not None and not self.turn_id.strip():
+            raise ValueError("turn_id must not be empty")
+        if self.turn_id is not None and self.run_id is None:
+            raise ValueError("turn_id requires run_id")
+        if not isinstance(self.provenance, EventProvenance):
+            raise TypeError("provenance must be EventProvenance")
+
+
+@dataclass(frozen=True, slots=True)
 class DurableSessionEvent:
     """One ordered fact in a replayable session log."""
 
@@ -184,12 +276,31 @@ class DurableSessionEvent:
     kind: SessionEventKind
     message: Message | None = None
     compaction: SessionCompaction | None = None
+    event_id: str | None = None
+    run_id: str | None = None
+    turn_id: str | None = None
+    provenance: EventProvenance = field(
+        default_factory=lambda: EventProvenance(source="legacy")
+    )
 
     def __post_init__(self) -> None:
         if not self.session_id.strip():
             raise ValueError("session event id must not be empty")
         if self.sequence <= 0:
             raise ValueError("session event sequence must be greater than zero")
+        if self.event_id is None:
+            object.__setattr__(
+                self,
+                "event_id",
+                session_event_id(self.session_id, self.sequence),
+            )
+        elif not self.event_id.strip():
+            raise ValueError("event_id must not be empty")
+        SessionEventContext(
+            run_id=self.run_id,
+            turn_id=self.turn_id,
+            provenance=self.provenance,
+        )
         if self.kind == "message_committed":
             if self.message is None or self.compaction is not None:
                 raise ValueError(
@@ -202,6 +313,11 @@ class DurableSessionEvent:
                 )
         else:
             raise ValueError(f"unsupported session event kind: {self.kind}")
+
+
+def session_event_id(session_id: str, sequence: int) -> str:
+    """Return the stable identity assigned to one append-only session fact."""
+    return f"{session_id}:{sequence}"
 
 
 @dataclass(frozen=True, slots=True)
