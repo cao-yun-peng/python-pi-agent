@@ -12,6 +12,7 @@ from .domain import (
     CompactionDecision,
     Finish,
     Message,
+    ProviderRequestContext,
     TextDelta,
     ThinkingDelta,
     TokenUsage,
@@ -139,7 +140,12 @@ class ModelCompactionStrategy:
         self._provider = provider
         self._system_prompt = system_prompt
 
-    async def summarize(self, messages: Sequence[Message]) -> str:
+    async def summarize(
+        self,
+        messages: Sequence[Message],
+        *,
+        context: ProviderRequestContext,
+    ) -> str:
         normalized = tuple(messages)
         if not normalized:
             raise CompactionError("messages_to_summarize must not be empty")
@@ -151,7 +157,11 @@ class ModelCompactionStrategy:
         chunks: list[str] = []
         finish: Finish | None = None
         try:
-            async for event in self._provider.stream(request, ()):
+            async for event in self._provider.stream(
+                request,
+                (),
+                context=context,
+            ):
                 if isinstance(event, TextDelta):
                     if finish is not None:
                         raise CompactionError("summary text arrived after finish")

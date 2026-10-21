@@ -13,6 +13,7 @@ from pi_agent_py import (
     InMemorySessionStore,
     JSONObject,
     Message,
+    ProviderRequestContext,
     QueuedControl,
     SessionControlError,
     TextDelta,
@@ -35,8 +36,10 @@ class GatedProvider:
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition] = (),
+        *,
+        context: ProviderRequestContext,
     ) -> AsyncIterator[ModelStreamEvent]:
-        del tools
+        del tools, context
         self.requests.append(tuple(messages))
         if len(self.requests) == 1:
             self.started.set()

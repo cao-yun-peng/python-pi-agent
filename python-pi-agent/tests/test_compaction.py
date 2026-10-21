@@ -11,6 +11,7 @@ from pi_agent_py import (
     Finish,
     Message,
     ModelCompactionStrategy,
+    ProviderRequestContext,
     TextDelta,
     TokenThresholdCompactionPolicy,
     ToolCall,
@@ -106,11 +107,13 @@ class ModelCompactionStrategyTests(unittest.IsolatedAsyncioTestCase):
         strategy = ModelCompactionStrategy(provider)
 
         summary = await strategy.summarize(
-            [Message(role="user", content="Teach me replay.")]
+            [Message(role="user", content="Teach me replay.")],
+            context=_compaction_context(),
         )
 
         self.assertEqual(summary, "Goal: learn durable replay.")
         self.assertEqual(provider.requested_tools, [()])
+        self.assertEqual(provider.request_contexts[0].purpose, "compaction")
         self.assertIn("[User]\nTeach me replay.", provider.requests[0][1].content)
 
     async def test_rejects_tool_calls_from_summary_provider(self) -> None:
@@ -121,13 +124,17 @@ class ModelCompactionStrategyTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with self.assertRaisesRegex(CompactionError, "must not call tools"):
-            await strategy.summarize([Message(role="user", content="old")])
+            await strategy.summarize(
+                [Message(role="user", content="old")],
+                context=_compaction_context(),
+            )
 
     async def test_propagates_cancellation(self) -> None:
         provider = FakeProvider([[WaitUntilCancelled()]])
         task = asyncio.create_task(
             ModelCompactionStrategy(provider).summarize(
-                [Message(role="user", content="old")]
+                [Message(role="user", content="old")],
+                context=_compaction_context(),
             )
         )
         await provider.blocked.wait()
@@ -145,6 +152,15 @@ class ModelCompactionStrategyTests(unittest.IsolatedAsyncioTestCase):
             "<conversation-summary>\nThe user chose JSONL.\n"
             "</conversation-summary>",
         )
+
+
+def _compaction_context() -> ProviderRequestContext:
+    return ProviderRequestContext(
+        request_id="compaction-request",
+        attempt_id="compaction-attempt",
+        purpose="compaction",
+        request_number=1,
+    )
 
 
 if __name__ == "__main__":

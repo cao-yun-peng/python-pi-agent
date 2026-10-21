@@ -28,6 +28,12 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.message, Message(role="assistant", content="你好"))
         self.assertEqual(provider.requests[0][-1], Message(role="user", content="打个招呼"))
+        request_context = provider.request_contexts[0]
+        self.assertEqual(request_context.purpose, "agent_turn")
+        self.assertEqual(request_context.request_number, 1)
+        self.assertIsNone(request_context.session_id)
+        self.assertTrue(request_context.run_id)
+        self.assertTrue((request_context.turn_id or "").endswith(":turn:1"))
         self.assertEqual(
             [event.kind for event in events.events],
             [

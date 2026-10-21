@@ -8,7 +8,12 @@ from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from .domain import Message, ModelStreamEvent, ToolDefinition
+from .domain import (
+    Message,
+    ModelStreamEvent,
+    ProviderRequestContext,
+    ToolDefinition,
+)
 from .errors import CompactionError, ProviderError
 
 
@@ -28,15 +33,19 @@ class FakeProvider:
         self._responses = deque(tuple(response) for response in responses)
         self.requests: list[tuple[Message, ...]] = []
         self.requested_tools: list[tuple[ToolDefinition, ...]] = []
+        self.request_contexts: list[ProviderRequestContext] = []
         self.blocked = asyncio.Event()
 
     async def stream(
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition] = (),
+        *,
+        context: ProviderRequestContext,
     ) -> AsyncIterator[ModelStreamEvent]:
         self.requests.append(tuple(messages))
         self.requested_tools.append(tuple(tools))
+        self.request_contexts.append(context)
         if not self._responses:
             raise ProviderError("fake provider has no scripted response left")
 
@@ -56,10 +65,17 @@ class FakeCompactionStrategy:
     def __init__(self, responses: Iterable[FakeCompactionStep]) -> None:
         self._responses = deque(responses)
         self.requests: list[tuple[Message, ...]] = []
+        self.request_contexts: list[ProviderRequestContext] = []
         self.blocked = asyncio.Event()
 
-    async def summarize(self, messages: Sequence[Message]) -> str:
+    async def summarize(
+        self,
+        messages: Sequence[Message],
+        *,
+        context: ProviderRequestContext,
+    ) -> str:
         self.requests.append(tuple(messages))
+        self.request_contexts.append(context)
         if not self._responses:
             raise CompactionError(
                 "fake compaction strategy has no scripted response left"

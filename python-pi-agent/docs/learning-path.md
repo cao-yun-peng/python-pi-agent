@@ -21,6 +21,7 @@
 - 阶段 7 已完成第一条插件纵向切片：显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销和逆序 cleanup。观察订阅、session-aware durable hook、资源发现、runtime lease 与热重载仍未开始。
 - 阶段 8 已完成第一条安全执行纵向切片：ToolExecutionContext 贯穿审批、Sandbox 与工具，默认 effect gate 拒绝 read/write/external，支持工具 allowlist、参数快照隔离、超时、取消和可观察拒绝。真正的子进程/容器隔离、工作区文件策略和身份化授权仍未开始。
 - 阶段 9 已完成第一条安全观察纵向切片：Agent/Session/Plugin 统一隔离 EventSink 异常，日志事件可在入队前脱敏，慢 I/O 使用有界顺序 worker 并显式关闭。结构化 telemetry schema、指标聚合和 durable 审计 sink 仍未开始。
+- Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；普通推理与 compaction 不再只能靠 payload 猜测。下一步的多 Provider router、retry 和 session-aware 插件应复用该上下文。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 

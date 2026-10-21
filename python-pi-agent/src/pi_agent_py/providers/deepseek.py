@@ -21,6 +21,7 @@ from ..domain import (
     JSONObject,
     Message,
     ModelStreamEvent,
+    ProviderRequestContext,
     TextDelta,
     ThinkingDelta,
     TokenUsage,
@@ -133,8 +134,11 @@ class DeepSeekProvider:
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition] = (),
+        *,
+        context: ProviderRequestContext,
     ) -> AsyncIterator[ModelStreamEvent]:
         """Send model-visible history and yield normalized stream events."""
+        del context
         if self._closed:
             raise ProviderError("DeepSeek provider is closed")
         if not messages:

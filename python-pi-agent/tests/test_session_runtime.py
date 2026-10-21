@@ -83,6 +83,13 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             ["system", "user", "assistant", "user", "assistant"],
         )
         self.assertEqual(provider.requests[1], second.messages[:-1])
+        self.assertEqual(provider.request_contexts[0].session_id, "demo")
+        self.assertEqual(provider.request_contexts[0].request_number, 1)
+        self.assertEqual(provider.request_contexts[1].session_id, "demo")
+        self.assertNotEqual(
+            provider.request_contexts[0].run_id,
+            provider.request_contexts[1].run_id,
+        )
 
     async def test_provider_failure_keeps_committed_user_message(self) -> None:
         store = InMemorySessionStore()
@@ -272,6 +279,9 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(strategy.requests[0][0].content, "old question")
+        self.assertEqual(strategy.request_contexts[0].purpose, "compaction")
+        self.assertEqual(strategy.request_contexts[0].session_id, "demo")
+        self.assertIsNone(strategy.request_contexts[0].run_id)
         self.assertEqual(provider.requests[0], result.messages[:-1])
         self.assertIn(
             "compaction_completed",
@@ -318,6 +328,11 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(result.messages[-1].content, "new answer")
+        self.assertEqual(strategy.request_contexts[0].purpose, "compaction")
+        self.assertEqual(
+            strategy.request_contexts[0].run_id,
+            provider.request_contexts[0].run_id,
+        )
         self.assertEqual(
             [event.kind for event in await store.read_events("demo")],
             [

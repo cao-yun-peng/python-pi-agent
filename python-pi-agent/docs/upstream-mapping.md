@@ -7,7 +7,8 @@
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
 | `Agent.run()` | `packages/agent/src/agent-loop.ts` 的 agent/tool loop | Runtime 消费已注册能力 | 已有顺序工具循环，尚无并行 batch |
-| `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 已有 DeepSeek Chat Completions，待多供应商 |
+| `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 每次调用显式携带 ProviderRequestContext；已有 DeepSeek Chat Completions，待多供应商 router |
+| `ProviderRequestContext` | coding-agent provider hooks 的 session/model 调用上下文 | invocation-scoped identity seam | 强类型 request/attempt/purpose/session/run/turn，不含凭据或 payload；待 retry/fallback 消费 attempt |
 | `DeepSeekProvider` | `pi-ai` provider adapter / stream function | Provider + Lifecycle + Evidence | 可聚合流式 tool call 并回传 thinking reasoning，尚无 retry 与通用 signature 兼容层 |
 | `Message.thinking` | assistant `ThinkingContent` / `thinkingSignature` | model-visible provider continuity state | 已持久化并供 DeepSeek tool turn 重放；尚无独立内容块、签名和跨模型转换 |
 | `ToolDefinition` / `Tool` | `AgentTool`、参数 schema 与 execute context | Capability Definition / Provider / Consumer | 使用教学型 JSON Schema 子集；handler 接收隔离快照 context |

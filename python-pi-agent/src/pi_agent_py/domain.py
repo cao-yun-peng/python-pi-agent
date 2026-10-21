@@ -10,6 +10,7 @@ JSONValue: TypeAlias = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"
 JSONObject: TypeAlias = dict[str, JSONValue]
 Role: TypeAlias = Literal["system", "user", "assistant", "tool"]
 FinishReason: TypeAlias = Literal["stop", "length", "tool_calls"]
+ProviderRequestPurpose: TypeAlias = Literal["agent_turn", "compaction"]
 ToolSideEffects: TypeAlias = Literal["none", "read", "write", "external"]
 EventChannel: TypeAlias = Literal["durable", "live", "capability"]
 ControlDeliveryKind: TypeAlias = Literal["steer", "follow_up"]
@@ -150,6 +151,51 @@ class ToolExecutionContext:
             raise ValueError("call_index must be greater than zero")
         if self.session_id is not None and not self.session_id.strip():
             raise ValueError("session_id must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRequestContext:
+    """Immutable identity envelope for one logical model-provider request."""
+
+    request_id: str
+    attempt_id: str
+    purpose: ProviderRequestPurpose
+    request_number: int
+    attempt: int = 1
+    session_id: str | None = None
+    run_id: str | None = None
+    turn_id: str | None = None
+    parent_request_id: str | None = None
+    cause_event_id: str | None = None
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("request_id", self.request_id),
+            ("attempt_id", self.attempt_id),
+        ):
+            if not value.strip():
+                raise ValueError(f"{name} must not be empty")
+        if self.request_number <= 0:
+            raise ValueError("request_number must be greater than zero")
+        if self.attempt <= 0:
+            raise ValueError("attempt must be greater than zero")
+        if self.purpose not in {"agent_turn", "compaction"}:
+            raise ValueError(f"unsupported provider request purpose: {self.purpose}")
+        for name, value in (
+            ("session_id", self.session_id),
+            ("run_id", self.run_id),
+            ("turn_id", self.turn_id),
+            ("parent_request_id", self.parent_request_id),
+            ("cause_event_id", self.cause_event_id),
+        ):
+            if value is not None and not value.strip():
+                raise ValueError(f"{name} must not be empty")
+        if self.turn_id is not None and self.run_id is None:
+            raise ValueError("turn_id requires run_id")
+        if self.purpose == "agent_turn" and (
+            self.run_id is None or self.turn_id is None
+        ):
+            raise ValueError("agent_turn requests require run_id and turn_id")
 
 
 @dataclass(frozen=True, slots=True)

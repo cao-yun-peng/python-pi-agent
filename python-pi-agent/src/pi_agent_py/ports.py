@@ -15,6 +15,7 @@ from .domain import (
     JSONObject,
     Message,
     ModelStreamEvent,
+    ProviderRequestContext,
     SessionEventContext,
     SessionEventKind,
     SessionSnapshot,
@@ -33,6 +34,8 @@ class ModelProvider(Protocol):
         self,
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition] = (),
+        *,
+        context: ProviderRequestContext,
     ) -> AsyncIterator[ModelStreamEvent]:
         """Stream one assistant response for the supplied model-visible history."""
         ...
@@ -78,7 +81,12 @@ class TokenEstimator(Protocol):
 class CompactionStrategy(Protocol):
     """Summarizes a validated prefix selected for durable compaction."""
 
-    async def summarize(self, messages: Sequence[Message]) -> str:
+    async def summarize(
+        self,
+        messages: Sequence[Message],
+        *,
+        context: ProviderRequestContext,
+    ) -> str:
         """Return non-empty summary text without mutating the messages."""
         ...
 

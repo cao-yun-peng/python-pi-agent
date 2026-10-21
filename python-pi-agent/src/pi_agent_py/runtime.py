@@ -31,6 +31,7 @@ from .domain import (
     EventProvenance,
     Finish,
     Message,
+    ProviderRequestContext,
     QueuedControl,
     SessionCompaction,
     SessionEventContext,
@@ -343,10 +344,25 @@ class Agent:
 
     async def _request_model(self, request_number: int) -> _ModelTurn:
         context = await self._prepare_context(request_number)
+        if self._active_run_id is None or self._active_turn_id is None:
+            raise RuntimeError("provider request requires an active run and turn")
+        request_context = ProviderRequestContext(
+            request_id=uuid4().hex,
+            attempt_id=uuid4().hex,
+            purpose="agent_turn",
+            request_number=request_number,
+            session_id=self._session_id,
+            run_id=self._active_run_id,
+            turn_id=self._active_turn_id,
+        )
         self._emit(
             "model_request_started",
             "live",
             request_number=request_number,
+            request_id=request_context.request_id,
+            attempt_id=request_context.attempt_id,
+            purpose=request_context.purpose,
+            attempt=request_context.attempt,
         )
         partial_text: list[str] = []
         partial_thinking: list[str] = []
@@ -358,6 +374,7 @@ class Agent:
         async for event in self._provider.stream(
             context.messages,
             self._tool_definitions,
+            context=request_context,
         ):
             if isinstance(event, ThinkingDelta):
                 _require_unfinished(finish, "thinking")
@@ -876,6 +893,7 @@ class _SessionNextTurnHook:
             )
         await self._prepare(
             self._writer,
+            request_number=next_request_number,
             event_context=SessionEventContext(
                 run_id=self._run_id,
                 turn_id=_turn_id(self._run_id, next_request_number),
@@ -1397,6 +1415,7 @@ class AgentSession:
             await self._maybe_auto_compact(
                 writer,
                 pending_messages=(Message(role="user", content=prompt),),
+                request_number=1,
                 event_context=SessionEventContext(
                     run_id=run_id,
                     turn_id=_turn_id(run_id, 1),
@@ -1520,6 +1539,7 @@ class AgentSession:
                 writer,
                 preparation,
                 automatic=False,
+                request_number=1,
                 event_context=SessionEventContext(
                     provenance=EventProvenance(
                         source="compaction",
@@ -1615,6 +1635,7 @@ class AgentSession:
         writer: _SessionWriter,
         pending_messages: Sequence[Message] = (),
         *,
+        request_number: int = 1,
         event_context: SessionEventContext | None = None,
     ) -> None:
         if self._compaction_policy is None:
@@ -1695,6 +1716,7 @@ class AgentSession:
             writer,
             preparation,
             automatic=True,
+            request_number=request_number,
             event_context=event_context
             or SessionEventContext(
                 provenance=EventProvenance(
@@ -1710,6 +1732,7 @@ class AgentSession:
         preparation: CompactionPreparation,
         *,
         automatic: bool,
+        request_number: int,
         event_context: SessionEventContext,
     ) -> SessionSnapshot:
         strategy = self._compaction_strategy
@@ -1727,7 +1750,16 @@ class AgentSession:
         )
         try:
             summary = await strategy.summarize(
-                preparation.messages_to_summarize
+                preparation.messages_to_summarize,
+                context=ProviderRequestContext(
+                    request_id=uuid4().hex,
+                    attempt_id=uuid4().hex,
+                    purpose="compaction",
+                    request_number=request_number,
+                    session_id=self._session_id,
+                    run_id=event_context.run_id,
+                    turn_id=event_context.turn_id,
+                ),
             )
             if not isinstance(summary, str):
                 raise CompactionError(

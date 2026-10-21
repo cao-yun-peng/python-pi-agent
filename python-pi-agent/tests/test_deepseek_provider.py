@@ -17,6 +17,7 @@ from pi_agent_py import (
     ProviderAuthenticationError,
     ProviderError,
     ProviderRateLimitError,
+    ProviderRequestContext,
     ProviderResponseError,
     ToolCall,
     ToolDefinition,
@@ -343,7 +344,22 @@ async def _collect(
     messages: list[Message],
     tools: list[ToolDefinition] | None = None,
 ) -> list[object]:
-    return [event async for event in provider.stream(messages, tools or [])]
+    context = ProviderRequestContext(
+        request_id="request-test",
+        attempt_id="attempt-test",
+        purpose="agent_turn",
+        request_number=1,
+        run_id="run-test",
+        turn_id="run-test:turn:1",
+    )
+    return [
+        event
+        async for event in provider.stream(
+            messages,
+            tools or [],
+            context=context,
+        )
+    ]
 
 
 if __name__ == "__main__":

@@ -48,6 +48,8 @@ runtime 只通过 `Sandbox.execute()` 调度工具，不再直接调用 `Tool.ex
 
 `AgentSession` 通过 `SessionStore.load()` 恢复历史，并在每条完整消息进入 Agent 内存和触发 `message_committed` 前先调用 `SessionStore.append()`。两个 Store 都调用 `prepare_session_append()` 获得不可变 `SessionAppendPlan`，其中包含待保存事件和保存后的 snapshot；Provider 只负责提交计划。序号断裂或混入其他 session 的事件会导致 `SessionReplayError`，避免从损坏日志静默恢复。`SessionSnapshot.version` 始终表示已应用 durable event 数量，不等于压缩后消息数量。
 
+每次模型调用都显式携带不可变 `ProviderRequestContext`。普通请求以 `purpose="agent_turn"` 关联 session/run/turn/request number；压缩请求使用 `purpose="compaction"`，没有活动 run 的手动压缩允许 run/turn 为空。`request_id` 表示逻辑请求，`attempt_id` 表示物理尝试，后续 retry/fallback 通过递增 attempt 复用该契约。Context 不携带凭据、header 或 prompt 副本；messages/tools 仍是独立参数。
+
 `AgentSession` 的控制面使用显式 FIFO dispatcher，而不是把并发请求隐式阻塞在互斥锁上。公开状态为 idle/running/aborting/settled；`run()` 等待自己的排队任务，`follow_up()` 返回新 run ID 并在前序 run settled 后执行，`wait_until_idle()` 等待活动任务和 follow-up 队列都清空。`steer()` 只在活动 run 的接收窗口开放时成功，在当前模型/工具 turn 的安全边界提交为 user message后继续同一 run。最终 turn 检查空队列与关闭接收窗口共用控制锁，保证成功入队的 steer 不会因结束竞态丢失。`abort()` 默认取消活动任务、清理 steer/follow-up 并等待 idle；已提交 durable facts 不回滚。
 
 每次模型请求前，runtime 把完整 committed history 交给 `ContextStrategy`，并只把返回的 `ContextPlan.messages` 发送给 `ModelProvider`。默认策略不省略消息。`context_prepared` capability event 暴露源消息数、选中数和省略数，但不复制消息正文。策略投影不会删除或改写 `Agent.messages` 与 durable log。
