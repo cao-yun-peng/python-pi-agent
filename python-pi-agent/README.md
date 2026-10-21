@@ -47,6 +47,8 @@ AgentSession -> dispatcher -> steer / follow-up / abort -> settled / idle
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\14_tool_execution_security.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\15_durable_event_provenance.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\16_session_control.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\17_durable_controls.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\18_provider_request_context.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\19_session_aware_plugin.py
 ```
 
@@ -109,7 +111,9 @@ live    run_settled
 21. [教程：ToolExecutionContext、审批与 Sandbox](tutorials/14-tool-execution-security.md)
 22. [教程：Durable Event 的 Run、Turn 与 Provenance](tutorials/15-durable-event-provenance.md)
 23. [教程：AgentSession 控制状态机](tutorials/16-agent-session-control.md)
-24. [教程：Session-aware 插件与生命周期租约](tutorials/19-session-aware-plugins.md)
-25. [Compaction 质量评测方案](docs/compaction-evaluation.md)
+24. [教程：Steer 与 Follow-up 的持久化恢复](tutorials/17-durable-session-controls.md)
+25. [教程：ProviderRequestContext](tutorials/18-provider-request-context.md)
+26. [教程：Session-aware 插件与生命周期租约](tutorials/19-session-aware-plugins.md)
+27. [Compaction 质量评测方案](docs/compaction-evaluation.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。
