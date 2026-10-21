@@ -9,12 +9,14 @@ from .domain import (
     AgentEvent,
     ApprovalDecision,
     CompactionDecision,
+    ControlTransition,
     ContextPlan,
     DurableSessionEvent,
     JSONObject,
     Message,
     ModelStreamEvent,
     SessionEventContext,
+    SessionEventKind,
     SessionSnapshot,
     SessionCompaction,
     ToolCall,
@@ -123,6 +125,18 @@ class SessionStore(Protocol):
         event_context: SessionEventContext | None = None,
     ) -> SessionSnapshot:
         """Atomically append a compaction event at the expected version."""
+        ...
+
+    async def record_control(
+        self,
+        session_id: str,
+        expected_version: int,
+        kind: SessionEventKind,
+        control: ControlTransition,
+        *,
+        event_context: SessionEventContext | None = None,
+    ) -> SessionSnapshot:
+        """Atomically append one validated control-plane transition."""
         ...
 
     async def fork(

@@ -3,10 +3,13 @@ from __future__ import annotations
 import unittest
 
 from pi_agent_py import (
+    ControlClaim,
+    ControlDelivery,
     DurableSessionEvent,
     EventProvenance,
     InMemorySessionStore,
     Message,
+    QueuedControl,
     SessionAppendPlan,
     SessionCompaction,
     SessionCompactionPlan,
@@ -18,11 +21,50 @@ from pi_agent_py import (
     fork_session_events,
     prepare_session_append,
     prepare_session_compaction,
+    prepare_session_control,
     replay_session,
 )
 
 
 class SessionReplayTests(unittest.TestCase):
+    def test_control_delivery_atomically_commits_and_consumes_message(self) -> None:
+        queued = prepare_session_control(
+            "demo",
+            (),
+            0,
+            "control_enqueued",
+            QueuedControl(
+                control_id="control-1",
+                delivery="follow_up",
+                prompt="continue",
+                run_id="run-2",
+                cause_run_id="run-1",
+            ),
+        ).event
+        claim = prepare_session_control(
+            "demo",
+            (queued,),
+            1,
+            "control_claimed",
+            ControlClaim("control-1", "claim-1", "worker-1", 10.0),
+        ).event
+        delivery = prepare_session_control(
+            "demo",
+            (queued, claim),
+            2,
+            "control_delivered",
+            ControlDelivery(
+                "control-1",
+                "claim-1",
+                Message(role="user", content="continue"),
+            ),
+        ).event
+
+        snapshot = replay_session("demo", (queued, claim, delivery))
+
+        self.assertEqual(snapshot.pending_controls, ())
+        self.assertEqual(snapshot.messages, (Message(role="user", content="continue"),))
+
     def test_replays_ordered_message_events(self) -> None:
         events = (
             DurableSessionEvent(

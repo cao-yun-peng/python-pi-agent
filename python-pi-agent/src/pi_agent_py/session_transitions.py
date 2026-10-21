@@ -5,11 +5,18 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 from .domain import (
+    ControlCancellation,
+    ControlClaim,
+    ControlDelivery,
+    ControlTransition,
     DurableSessionEvent,
     EventProvenance,
     Message,
+    PendingControl,
+    QueuedControl,
     SessionCompaction,
     SessionEventContext,
+    SessionEventKind,
     SessionSnapshot,
     ToolCall,
 )
@@ -31,6 +38,14 @@ class SessionAppendPlan:
 @dataclass(frozen=True, slots=True)
 class SessionCompactionPlan:
     """The immutable result of calculating one valid compaction append."""
+
+    event: DurableSessionEvent
+    snapshot: SessionSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class SessionControlPlan:
+    """One validated control transition and its replayed projection."""
 
     event: DurableSessionEvent
     snapshot: SessionSnapshot
@@ -111,6 +126,7 @@ def replay_session(
     validate_session_id(session_id)
 
     messages: list[Message] = []
+    pending: dict[str, PendingControl] = {}
     expected_sequence = 1
 
     for event in events:
@@ -137,6 +153,54 @@ def replay_session(
                     "context_compacted event is missing its compaction payload"
                 )
             _apply_replayed_compaction(messages, event.compaction)
+        elif event.kind == "control_enqueued":
+            if not isinstance(event.control, QueuedControl):
+                raise SessionReplayError(
+                    "control_enqueued event is missing its queued control"
+                )
+            if event.control.control_id in pending:
+                raise SessionReplayError(
+                    f"duplicate pending control: {event.control.control_id}"
+                )
+            pending[event.control.control_id] = PendingControl(event.control)
+        elif event.kind == "control_claimed":
+            if not isinstance(event.control, ControlClaim):
+                raise SessionReplayError(
+                    "control_claimed event is missing its claim"
+                )
+            current = pending.get(event.control.control_id)
+            if current is None:
+                raise SessionReplayError(
+                    f"claim references unknown control: {event.control.control_id}"
+                )
+            pending[event.control.control_id] = PendingControl(
+                current.control,
+                event.control,
+            )
+        elif event.kind == "control_delivered":
+            if not isinstance(event.control, ControlDelivery):
+                raise SessionReplayError(
+                    "control_delivered event is missing its delivery"
+                )
+            current = pending.get(event.control.control_id)
+            if current is None or current.claim is None:
+                raise SessionReplayError(
+                    f"delivery references unclaimed control: {event.control.control_id}"
+                )
+            if current.claim.claim_id != event.control.claim_id:
+                raise SessionReplayError("control delivery claim_id does not match")
+            messages.append(event.control.message)
+            del pending[event.control.control_id]
+        elif event.kind == "control_cancelled":
+            if not isinstance(event.control, ControlCancellation):
+                raise SessionReplayError(
+                    "control_cancelled event is missing its cancellation"
+                )
+            if event.control.control_id not in pending:
+                raise SessionReplayError(
+                    f"cancellation references unknown control: {event.control.control_id}"
+                )
+            del pending[event.control.control_id]
         else:
             raise SessionReplayError(f"unsupported event kind: {event.kind}")
         expected_sequence += 1
@@ -145,7 +209,49 @@ def replay_session(
         session_id=session_id,
         version=expected_sequence - 1,
         messages=tuple(messages),
+        pending_controls=tuple(pending.values()),
     )
+
+
+def prepare_session_control(
+    session_id: str,
+    current_events: Sequence[DurableSessionEvent],
+    expected_version: int,
+    kind: SessionEventKind,
+    control: ControlTransition,
+    *,
+    event_context: SessionEventContext | None = None,
+) -> SessionControlPlan:
+    """Validate and append one typed durable control transition."""
+    validate_session_id(session_id)
+    current_snapshot = replay_session(session_id, current_events)
+    if current_snapshot.version != expected_version:
+        raise SessionConflictError(
+            f"expected version {expected_version}, "
+            f"but current version is {current_snapshot.version}"
+        )
+    expected_kind = {
+        QueuedControl: "control_enqueued",
+        ControlClaim: "control_claimed",
+        ControlDelivery: "control_delivered",
+        ControlCancellation: "control_cancelled",
+    }.get(type(control))
+    if expected_kind != kind:
+        raise SessionValidationError(
+            f"control payload {type(control).__name__} does not match {kind!r}"
+        )
+    context = event_context or SessionEventContext()
+    event = DurableSessionEvent(
+        session_id=session_id,
+        sequence=current_snapshot.version + 1,
+        kind=kind,
+        control=deepcopy(control),
+        run_id=context.run_id,
+        turn_id=context.turn_id,
+        provenance=deepcopy(context.provenance),
+    )
+    snapshot = replay_session(session_id, (*current_events, event))
+    return SessionControlPlan(event=event, snapshot=snapshot)
 
 
 def prepare_session_append(
@@ -253,6 +359,7 @@ def fork_session_events(
             kind=event.kind,
             message=deepcopy(event.message),
             compaction=deepcopy(event.compaction),
+            control=deepcopy(event.control),
             run_id=event.run_id,
             turn_id=event.turn_id,
             provenance=EventProvenance(
@@ -340,3 +447,5 @@ def _validate_fork_version(
             f"at_version {fork_version} exceeds source version {source_version}"
         )
     return fork_version
+    PendingControl,
+    QueuedControl,

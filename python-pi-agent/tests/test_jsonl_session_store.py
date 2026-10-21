@@ -13,6 +13,7 @@ from pi_agent_py import (
     Finish,
     JsonlSessionStore,
     Message,
+    QueuedControl,
     SessionEventContext,
     SessionCompaction,
     SessionConflictError,
@@ -25,6 +26,38 @@ from pi_agent_py import (
 
 
 class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reopens_and_dispatches_a_durable_follow_up(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.jsonl"
+            store = JsonlSessionStore(path)
+            await store.record_control(
+                "demo",
+                0,
+                "control_enqueued",
+                QueuedControl(
+                    control_id="control-1",
+                    delivery="follow_up",
+                    prompt="resume me",
+                    run_id="run-2",
+                    cause_run_id="run-1",
+                ),
+            )
+
+            reopened = JsonlSessionStore(path)
+            session = AgentSession(
+                "demo",
+                reopened,
+                FakeProvider([[TextDelta("resumed"), Finish()]]),
+            )
+            await session.wait_until_idle()
+
+            snapshot = await reopened.load("demo")
+            self.assertEqual(snapshot.pending_controls, ())
+            self.assertEqual(
+                [message.content for message in snapshot.messages],
+                ["resume me", "resumed"],
+            )
+
     async def test_round_trips_complete_message_data(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.jsonl"
@@ -56,7 +89,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             ]
             self.assertEqual(
                 [record["schema_version"] for record in records],
-                [4, 4],
+                [5, 5],
             )
             self.assertEqual([record["sequence"] for record in records], [1, 2])
 

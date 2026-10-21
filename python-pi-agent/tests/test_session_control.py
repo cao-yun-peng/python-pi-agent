@@ -13,6 +13,7 @@ from pi_agent_py import (
     InMemorySessionStore,
     JSONObject,
     Message,
+    QueuedControl,
     SessionControlError,
     TextDelta,
     ToolCall,
@@ -99,6 +100,15 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
             [message.content for message in provider.requests[1]],
             ["first", "first answer", "second"],
         )
+        events = await store.read_events("demo")
+        self.assertEqual(
+            [
+                event.kind
+                for event in events
+                if event.control is not None
+            ],
+            ["control_enqueued", "control_claimed", "control_delivered"],
+        )
 
     async def test_steer_is_committed_at_the_next_safe_turn_boundary(self) -> None:
         tool_started = asyncio.Event()
@@ -157,8 +167,8 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
         steered = next(
             event
             for event in events
-            if event.message is not None
-            and event.message.content == "change direction"
+            if event.kind == "control_delivered"
+            and event.control is not None
         )
         self.assertEqual(steered.provenance.source, "user")
         self.assertEqual(steered.provenance.actor_id, "steer")
@@ -177,7 +187,8 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_abort_drops_queued_follow_ups_by_default(self) -> None:
         provider = FakeProvider([[WaitUntilCancelled()]])
-        session = AgentSession("demo", InMemorySessionStore(), provider)
+        store = InMemorySessionStore()
+        session = AgentSession("demo", store, provider)
         task = asyncio.create_task(session.run("active"))
         await provider.blocked.wait()
         await session.follow_up("queued")
@@ -189,6 +200,59 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.pending_follow_up_count, 0)
         self.assertTrue(session.is_idle)
         self.assertEqual(len(provider.requests), 1)
+
+        events = await store.read_events("demo")
+        self.assertIn("control_cancelled", [event.kind for event in events])
+
+    async def test_restores_a_durable_follow_up_after_reopen(self) -> None:
+        store = InMemorySessionStore()
+        await store.record_control(
+            "demo",
+            0,
+            "control_enqueued",
+            QueuedControl(
+                control_id="control-1",
+                delivery="follow_up",
+                prompt="restored",
+                run_id="run-restored",
+            ),
+        )
+        provider = FakeProvider([[TextDelta("done"), Finish()]])
+        session = AgentSession("demo", store, provider)
+
+        await session.wait_until_idle()
+
+        self.assertEqual(
+            [message.content for message in (await store.load("demo")).messages],
+            ["restored", "done"],
+        )
+        self.assertEqual((await store.load("demo")).pending_controls, ())
+
+    async def test_restore_cancels_steer_for_a_non_active_target(self) -> None:
+        store = InMemorySessionStore()
+        await store.record_control(
+            "demo",
+            0,
+            "control_enqueued",
+            QueuedControl(
+                control_id="steer-1",
+                delivery="steer",
+                prompt="too late",
+                run_id="run-old",
+                target_run_id="run-old",
+                cause_run_id="run-old",
+            ),
+        )
+        session = AgentSession("demo", store, FakeProvider([]))
+
+        await session.restore()
+
+        snapshot = await store.load("demo")
+        self.assertEqual(snapshot.pending_controls, ())
+        self.assertEqual(
+            (await store.read_events("demo"))[-1].kind,
+            "control_cancelled",
+        )
 
     async def test_abort_cancels_manual_compaction_and_restores_idle(self) -> None:
         store = InMemorySessionStore()

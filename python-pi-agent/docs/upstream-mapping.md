@@ -17,7 +17,7 @@
 | tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交并可从 durable event replay；重启时会保守补齐尾部未决调用，副作用结果标记为 unknown |
 | `EventSink` / `IsolatedEventSink` | `Agent.subscribe()` / `AgentSession.subscribe()` | live events 与 durable session events 分离 | Pi core Agent 会 await listener；本项目把 EventSink 限定为观察者并自动隔离异常，拦截行为留给 Hook |
 | `RedactingEventSink` / `BufferedEventSink` | UI/session listener 的应用侧消费 | telemetry 数据最小化 + lifecycle | 默认隐藏模型可见内容后再进入有界队列；best-effort、显式关闭，不替代 durable log |
-| `AgentSession` | Pi `AgentSession` 的 prompt/steer/followUp/abort、状态与 compaction 编排 | Consumer 组合 Provider、存储与控制 capability | 已支持 FIFO dispatcher、steer、follow-up、abort、settled/idle、恢复和压缩；控制队列暂不跨进程持久化 |
+| `AgentSession` | Pi `AgentSession` 的 prompt/steer/followUp/abort、状态与 compaction 编排 | Consumer 组合 Provider、存储与控制 capability | 已支持 FIFO dispatcher、durable steer/follow-up、claim lease、abort、settled/idle、恢复和压缩；JSONL 尚无跨进程文件锁 |
 | `NextTurnHook` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | Agent 保持单插槽，PluginHost 可在插槽外组合多个 Hook；仍无队列与模型路由 |
 | `PluginFactory` / `PluginAPI` | `ExtensionFactory` / `ExtensionAPI` | 显式 capability registration | 当前只注册 Tool、NextTurnHook 与 cleanup，不含 UI/命令/Provider/MCP |
 | `PluginHost` | extension loader + `ExtensionRunner` | Provider lifecycle + evidence | staging 后原子发布、冲突失败、逆序释放；不做目录发现与热重载 |
@@ -31,7 +31,7 @@
 | `SessionCompaction` / `context_compacted` | `CompactionEntry` 与 session context reconstruction | durable capability evidence | 保存前缀替换操作并由 replay 应用；当前不支持 split-turn 和文件跟踪 |
 | `SessionStore` / `SessionSnapshot` | `SessionManager` 与 session entries | Definition / Provider / Consumer / Evidence | 内存与单写者 JSONL Provider 均支持持久化 fork 和尾部未决工具调用恢复，待 durable tool-started 事实与多进程事务 |
 | `prepare_session_append` / `prepare_session_compaction` / `fork_session_events` | session append / compaction / fork rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一套 replay、append、compact 与 fork 规则 |
-| `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | schema v4 支持压缩、event/run/turn/provenance、严格格式、刷盘和 v1-v3 兼容读取，尚无跨进程文件锁与迁移工具 |
+| `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | schema v5 支持压缩、控制 transition、event/run/turn/provenance、严格格式、刷盘和 v1-v4 兼容读取，尚无跨进程文件锁与迁移工具 |
 | `DurableSessionEvent` | session entries + run/turn lifecycle correlation | append-only facts + replayable projection | 每个事实有稳定 event ID、run/turn 和来源；fork 通过 copied_from_event_id 保留来源 |
 | committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 文本、tool call、tool result 与 assistant thinking 已能回放；损坏序号会被拒绝 |
 | `run_settled` / `AgentSession.wait_until_idle()` | Pi `agent_settled` / `waitForIdle()` | per-run lifecycle + session control barrier | 明确区分单 run settled 与无活动/无 follow-up 的 session idle |

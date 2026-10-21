@@ -16,7 +16,7 @@
 ## 当前进度
 
 - 阶段 1、2、3 已完成：最小循环、DeepSeek Provider 和顺序工具调用已经形成可运行纵向切片。
-- 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v4、durable event log、replay、带来源链接的持久化 fork 和 replayable compaction event；并完成 abort、steer、follow-up、settled/idle 控制状态机。durable 控制队列、多进程并发和数据库事务留给后续存储 Provider。
+- 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v5、durable event log、replay、持久化 fork、compaction event，以及 steer/follow-up 的 enqueue/claim/deliver/cancel 恢复语义。多进程文件锁和数据库事务留给后续存储 Provider。
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。
 - 阶段 7 已完成第一条插件纵向切片：显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销和逆序 cleanup。观察订阅、session-aware durable hook、资源发现、runtime lease 与热重载仍未开始。
 - 阶段 8 已完成第一条安全执行纵向切片：ToolExecutionContext 贯穿审批、Sandbox 与工具，默认 effect gate 拒绝 read/write/external，支持工具 allowlist、参数快照隔离、超时、取消和可观察拒绝。真正的子进程/容器隔离、工作区文件策略和身份化授权仍未开始。
@@ -123,7 +123,7 @@ runtime event
 
 ## 下一步
 
-会话方向的下一步不应直接扩展多 Agent，而应先决定控制队列是否需要跨进程 durability；若需要，必须引入 queued/claimed/consumed/cancelled 事实、lease 和幂等恢复，不能把当前内存 deque 直接序列化。
+控制队列已经用 queued/claimed/delivered/cancelled 事实、lease 和 replay 实现 durability。下一步应给 Provider 请求增加 session/run/turn/purpose 身份，再让 session-aware 插件复用同一控制端口；不要让插件直接写 deque 或 canonical history。
 
 插件方向的下一小步应设计 **session-aware context hook**：只变换单次 `ContextPlan`，不破坏 durable replay。之后再考虑 runtime lease 和安全的热卸载，不应直接做目录自动扫描。
 

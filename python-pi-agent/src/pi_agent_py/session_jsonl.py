@@ -8,15 +8,22 @@ from pathlib import Path
 from typing import cast
 
 from .domain import (
+    ControlCancellation,
+    ControlClaim,
+    ControlDelivery,
+    ControlDeliveryKind,
+    ControlTransition,
     DurableSessionEvent,
     EventProvenance,
     EventSource,
     JSONObject,
     JSONValue,
     Message,
+    QueuedControl,
     Role,
     SessionCompaction,
     SessionEventContext,
+    SessionEventKind,
     SessionSnapshot,
     ToolCall,
 )
@@ -30,12 +37,13 @@ from .session_transitions import (
     fork_session_events,
     prepare_session_append,
     prepare_session_compaction,
+    prepare_session_control,
     replay_session,
     validate_session_id,
 )
 
-_SCHEMA_VERSION = 4
-_SUPPORTED_SCHEMA_VERSIONS = {1, 2, 3, 4}
+_SCHEMA_VERSION = 5
+_SUPPORTED_SCHEMA_VERSIONS = {1, 2, 3, 4, 5}
 _LEGACY_EVENT_KEYS = {
     "schema_version",
     "session_id",
@@ -51,6 +59,7 @@ _EVENT_KEYS_V4 = {
     "turn_id",
     "provenance",
 }
+_EVENT_KEYS_V5 = {*_EVENT_KEYS_V4, "control"}
 _MESSAGE_KEYS_V1 = {
     "role",
     "content",
@@ -72,6 +81,20 @@ _PROVENANCE_KEYS = {
     "actor_id",
     "cause_event_id",
     "copied_from_event_id",
+}
+_CONTROL_KEYS = {
+    "type",
+    "control_id",
+    "delivery",
+    "prompt",
+    "run_id",
+    "target_run_id",
+    "cause_run_id",
+    "claim_id",
+    "owner_id",
+    "lease_expires_at",
+    "message",
+    "reason",
 }
 _ROLES = {"system", "user", "assistant", "tool"}
 
@@ -147,6 +170,31 @@ class JsonlSessionStore:
             )
             await self._append_lines((_encode_event(plan.event),))
 
+        return plan.snapshot
+
+    async def record_control(
+        self,
+        session_id: str,
+        expected_version: int,
+        kind: SessionEventKind,
+        control: ControlTransition,
+        *,
+        event_context: SessionEventContext | None = None,
+    ) -> SessionSnapshot:
+        async with self._lock:
+            all_events = await self._read_all_events()
+            session_events = tuple(
+                event for event in all_events if event.session_id == session_id
+            )
+            plan = prepare_session_control(
+                session_id,
+                session_events,
+                expected_version,
+                kind,
+                control,
+                event_context=event_context,
+            )
+            await self._append_lines((_encode_event(plan.event),))
         return plan.snapshot
 
     async def fork(
@@ -239,6 +287,7 @@ def _encode_event(event: DurableSessionEvent) -> str:
         },
         "message": message,
         "compaction": compaction,
+        "control": _encode_control(event.control),
     }
     try:
         return json.dumps(
@@ -271,7 +320,9 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
             raise ValueError(f"unsupported schema_version: {schema_version}")
 
         expected_event_keys = (
-            _EVENT_KEYS_V4
+            _EVENT_KEYS_V5
+            if schema_version == 5
+            else _EVENT_KEYS_V4
             if schema_version == 4
             else _EVENT_KEYS_V3
             if schema_version == 3
@@ -282,7 +333,7 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
         session_id = _require_string(record["session_id"], "session_id")
         sequence = _require_int(record["sequence"], "sequence")
         kind = _require_string(record["kind"], "kind")
-        if schema_version == 4:
+        if schema_version >= 4:
             event_id = _require_string(record["event_id"], "event_id")
             run_id = _require_optional_string(record["run_id"], "run_id")
             turn_id = _require_optional_string(record["turn_id"], "turn_id")
@@ -294,11 +345,18 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
             run_id = None
             turn_id = None
             provenance = EventProvenance(source="legacy")
+        control = (
+            _decode_control(_require_object(record["control"], "control"))
+            if schema_version >= 5 and record["control"] is not None
+            else None
+        )
         if kind == "message_committed":
             if schema_version >= 3 and record["compaction"] is not None:
                 raise ValueError(
                     "message_committed event compaction must be null"
                 )
+            if control is not None:
+                raise ValueError("message_committed event control must be null")
             message_record = _require_object(record["message"], "message")
             message = _decode_message(message_record, schema_version)
             return DurableSessionEvent(
@@ -318,6 +376,8 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
                 record["compaction"],
                 "compaction",
             )
+            if control is not None:
+                raise ValueError("context_compacted event control must be null")
             return DurableSessionEvent(
                 session_id=session_id,
                 sequence=sequence,
@@ -328,11 +388,114 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
                 turn_id=turn_id,
                 provenance=provenance,
             )
+        if kind in {
+            "control_enqueued",
+            "control_claimed",
+            "control_delivered",
+            "control_cancelled",
+        } and schema_version >= 5:
+            if record["message"] is not None or record["compaction"] is not None:
+                raise ValueError("control event message and compaction must be null")
+            if control is None:
+                raise ValueError("control event is missing its payload")
+            return DurableSessionEvent(
+                session_id=session_id,
+                sequence=sequence,
+                kind=cast(SessionEventKind, kind),
+                control=control,
+                event_id=event_id,
+                run_id=run_id,
+                turn_id=turn_id,
+                provenance=provenance,
+            )
         raise ValueError(f"unsupported event kind: {kind}")
     except (KeyError, TypeError, ValueError) as error:
         raise SessionReplayError(
             f"invalid session event at line {line_number}: {error}"
         ) from error
+
+
+def _encode_control(control: ControlTransition | None) -> object:
+    if control is None:
+        return None
+    record: dict[str, object] = {key: None for key in _CONTROL_KEYS}
+    record["control_id"] = control.control_id
+    if isinstance(control, QueuedControl):
+        record.update(
+            type="queued",
+            delivery=control.delivery,
+            prompt=control.prompt,
+            run_id=control.run_id,
+            target_run_id=control.target_run_id,
+            cause_run_id=control.cause_run_id,
+        )
+    elif isinstance(control, ControlClaim):
+        record.update(
+            type="claim",
+            claim_id=control.claim_id,
+            owner_id=control.owner_id,
+            lease_expires_at=control.lease_expires_at,
+        )
+    elif isinstance(control, ControlDelivery):
+        record.update(
+            type="delivery",
+            claim_id=control.claim_id,
+            message=_encode_message(control.message),
+        )
+    elif isinstance(control, ControlCancellation):
+        record.update(type="cancellation", reason=control.reason)
+    else:
+        raise SessionValidationError(
+            f"unsupported control payload: {type(control).__name__}"
+        )
+    return record
+
+
+def _decode_control(record: Mapping[str, object]) -> ControlTransition:
+    _require_exact_keys(record, _CONTROL_KEYS, "control")
+    payload_type = _require_string(record["type"], "control.type")
+    control_id = _require_string(record["control_id"], "control.control_id")
+    if payload_type == "queued":
+        delivery = _require_string(record["delivery"], "control.delivery")
+        if delivery not in {"steer", "follow_up"}:
+            raise ValueError(f"unsupported control delivery: {delivery}")
+        return QueuedControl(
+            control_id=control_id,
+            delivery=cast(ControlDeliveryKind, delivery),
+            prompt=_require_string(record["prompt"], "control.prompt"),
+            run_id=_require_string(record["run_id"], "control.run_id"),
+            target_run_id=_require_optional_string(
+                record["target_run_id"], "control.target_run_id"
+            ),
+            cause_run_id=_require_optional_string(
+                record["cause_run_id"], "control.cause_run_id"
+            ),
+        )
+    if payload_type == "claim":
+        expires = record["lease_expires_at"]
+        if isinstance(expires, bool) or not isinstance(expires, (int, float)):
+            raise ValueError("control.lease_expires_at must be a number")
+        return ControlClaim(
+            control_id=control_id,
+            claim_id=_require_string(record["claim_id"], "control.claim_id"),
+            owner_id=_require_string(record["owner_id"], "control.owner_id"),
+            lease_expires_at=float(expires),
+        )
+    if payload_type == "delivery":
+        return ControlDelivery(
+            control_id=control_id,
+            claim_id=_require_string(record["claim_id"], "control.claim_id"),
+            message=_decode_message(
+                _require_object(record["message"], "control.message"),
+                5,
+            ),
+        )
+    if payload_type == "cancellation":
+        return ControlCancellation(
+            control_id=control_id,
+            reason=_require_string(record["reason"], "control.reason"),
+        )
+    raise ValueError(f"unsupported control payload type: {payload_type}")
 
 
 def _decode_message(

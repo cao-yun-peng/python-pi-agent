@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import deque
 from copy import deepcopy
 from collections.abc import Awaitable, Callable, Iterable, Sequence
@@ -20,14 +21,20 @@ from .domain import (
     AgentResult,
     ApprovalDecision,
     CompactionDecision,
+    ControlCancellation,
+    ControlClaim,
+    ControlDelivery,
+    ControlTransition,
     ContextPlan,
     EventChannel,
     EventKind,
     EventProvenance,
     Finish,
     Message,
+    QueuedControl,
     SessionCompaction,
     SessionEventContext,
+    SessionEventKind,
     SessionSnapshot,
     SessionState,
     TextDelta,
@@ -88,6 +95,13 @@ class _ModelTurn:
     usage: TokenUsage | None
 
 
+@dataclass(frozen=True, slots=True)
+class _SteeringInstruction:
+    prompt: str
+    control_id: str
+    claim_id: str
+
+
 class Agent:
     """A stateful, single-session agent with a serialized run loop."""
 
@@ -104,9 +118,16 @@ class Agent:
         message_committer: (
             Callable[[Message, SessionEventContext], Awaitable[None]] | None
         ) = None,
+        steering_committer: (
+            Callable[
+                [Message, SessionEventContext, str, str],
+                Awaitable[None],
+            ]
+            | None
+        ) = None,
         next_turn_hook: NextTurnHook | None = None,
         steering_receiver: (
-            Callable[[bool], Awaitable[tuple[str, ...]]] | None
+            Callable[[bool], Awaitable[tuple[_SteeringInstruction, ...]]] | None
         ) = None,
         session_id: str | None = None,
         system_prompt: str | None = None,
@@ -141,6 +162,7 @@ class Agent:
         self._event_sink = ensure_isolated_event_sink(event_sink)
         self._max_model_requests = max_model_requests
         self._message_committer = message_committer
+        self._steering_committer = steering_committer
         self._next_turn_hook = next_turn_hook
         self._steering_receiver = steering_receiver
         self._session_id = session_id
@@ -166,6 +188,7 @@ class Agent:
         prompt: str,
         *,
         run_id: str | None = None,
+        prompt_already_committed: bool = False,
     ) -> AgentResult:
         """Run model/tool turns until a final assistant message is committed."""
         if not prompt.strip():
@@ -180,17 +203,18 @@ class Agent:
             total_usage: TokenUsage | None = None
 
             try:
-                await self._commit(
-                    Message(role="user", content=prompt),
-                    SessionEventContext(
-                        run_id=self._active_run_id,
-                        turn_id=self._active_turn_id,
-                        provenance=EventProvenance(
-                            source="user",
-                            actor_id="user",
+                if not prompt_already_committed:
+                    await self._commit(
+                        Message(role="user", content=prompt),
+                        SessionEventContext(
+                            run_id=self._active_run_id,
+                            turn_id=self._active_turn_id,
+                            provenance=EventProvenance(
+                                source="user",
+                                actor_id="user",
+                            ),
                         ),
-                    ),
-                )
+                    )
                 for request_number in range(1, self._max_model_requests + 1):
                     self._active_turn_id = _turn_id(
                         self._active_run_id,
@@ -230,8 +254,8 @@ class Agent:
                             request_number + 1,
                         )
                         for instruction in steering:
-                            await self._commit(
-                                Message(role="user", content=instruction),
+                            await self._commit_steering(
+                                Message(role="user", content=instruction.prompt),
                                 SessionEventContext(
                                     run_id=self._active_run_id,
                                     turn_id=next_turn_id,
@@ -240,6 +264,8 @@ class Agent:
                                         actor_id="steer",
                                     ),
                                 ),
+                                instruction.control_id,
+                                instruction.claim_id,
                             )
 
                     if has_tool_calls or steering:
@@ -285,11 +311,35 @@ class Agent:
         self,
         *,
         close_if_empty: bool,
-    ) -> tuple[str, ...]:
+    ) -> tuple[_SteeringInstruction, ...]:
         receiver = self._steering_receiver
         if receiver is None:
             return ()
         return await receiver(close_if_empty)
+
+    async def _commit_steering(
+        self,
+        message: Message,
+        context: SessionEventContext,
+        control_id: str,
+        claim_id: str,
+    ) -> None:
+        if self._steering_committer is None:
+            await self._commit(message, context)
+            return
+        await self._steering_committer(
+            message,
+            context,
+            control_id,
+            claim_id,
+        )
+        self._messages.append(message)
+        self._emit(
+            "message_committed",
+            "durable",
+            provenance_source=context.provenance.source,
+            **_message_payload(message),
+        )
 
     async def _request_model(self, request_number: int) -> _ModelTurn:
         context = await self._prepare_context(request_number)
@@ -739,9 +789,11 @@ class _SessionWriter:
         self,
         session_store: SessionStore,
         snapshot: SessionSnapshot,
+        lock: asyncio.Lock,
     ) -> None:
         self._session_store = session_store
         self._snapshot = snapshot
+        self._lock = lock
 
     @property
     def snapshot(self) -> SessionSnapshot:
@@ -752,25 +804,51 @@ class _SessionWriter:
         message: Message,
         event_context: SessionEventContext,
     ) -> None:
-        self._snapshot = await self._session_store.append(
-            self._snapshot.session_id,
-            self._snapshot.version,
-            (message,),
-            event_context=event_context,
-        )
+        async with self._lock:
+            await self._refresh()
+            self._snapshot = await self._session_store.append(
+                self._snapshot.session_id,
+                self._snapshot.version,
+                (message,),
+                event_context=event_context,
+            )
+
+    async def deliver_control(
+        self,
+        message: Message,
+        event_context: SessionEventContext,
+        control_id: str,
+        claim_id: str,
+    ) -> None:
+        async with self._lock:
+            await self._refresh()
+            self._snapshot = await self._session_store.record_control(
+                self._snapshot.session_id,
+                self._snapshot.version,
+                "control_delivered",
+                ControlDelivery(control_id, claim_id, message),
+                event_context=event_context,
+            )
 
     async def compact(
         self,
         compaction: SessionCompaction,
         event_context: SessionEventContext,
     ) -> SessionSnapshot:
-        self._snapshot = await self._session_store.compact(
-            self._snapshot.session_id,
-            self._snapshot.version,
-            compaction,
-            event_context=event_context,
-        )
+        async with self._lock:
+            await self._refresh()
+            self._snapshot = await self._session_store.compact(
+                self._snapshot.session_id,
+                self._snapshot.version,
+                compaction,
+                event_context=event_context,
+            )
         return self._snapshot
+
+    async def _refresh(self) -> None:
+        self._snapshot = await self._session_store.load(
+            self._snapshot.session_id
+        )
 
 
 class _SessionNextTurnHook:
@@ -816,6 +894,8 @@ class _QueuedSessionRun:
     prompt: str
     delivery: str
     future: asyncio.Future[AgentResult]
+    control_id: str | None = None
+    claim_id: str | None = None
 
 
 class AgentSession:
@@ -836,11 +916,15 @@ class AgentSession:
         event_sink: EventSink | None = None,
         system_prompt: str | None = None,
         max_model_requests: int = 8,
+        control_claim_lease_seconds: float = 30.0,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         if compaction_policy is not None and compaction_strategy is None:
             raise ConfigurationError(
                 "compaction_policy requires a compaction_strategy"
             )
+        if control_claim_lease_seconds <= 0:
+            raise ValueError("control_claim_lease_seconds must be greater than zero")
         self._session_id = session_id
         self._session_store = session_store
         self._provider = provider
@@ -853,10 +937,15 @@ class AgentSession:
         self._event_sink = ensure_isolated_event_sink(event_sink)
         self._system_prompt = system_prompt
         self._max_model_requests = max_model_requests
+        self._control_claim_lease_seconds = control_claim_lease_seconds
+        self._clock = clock
+        self._owner_id = uuid4().hex
         self._run_lock = asyncio.Lock()
         self._control_lock = asyncio.Lock()
+        self._durable_lock = asyncio.Lock()
+        self._restore_lock = asyncio.Lock()
         self._queued_runs: deque[_QueuedSessionRun] = deque()
-        self._steering: deque[str] = deque()
+        self._steering: deque[QueuedControl] = deque()
         self._dispatcher_task: asyncio.Task[None] | None = None
         self._active_task: asyncio.Task[AgentResult] | None = None
         self._active_compaction_task: asyncio.Task[SessionSnapshot] | None = None
@@ -865,6 +954,7 @@ class AgentSession:
         self._accepting_steer = False
         self._idle_event = asyncio.Event()
         self._idle_event.set()
+        self._restored = False
 
     @property
     def event_sink_failures(self) -> tuple[EventSinkFailure, ...]:
@@ -899,6 +989,7 @@ class AgentSession:
         if not prompt.strip():
             raise ValueError("prompt must contain non-whitespace text")
 
+        await self.restore()
         queued = await self._enqueue_run(prompt, delivery="prompt")
         try:
             return await asyncio.shield(queued.future)
@@ -911,6 +1002,7 @@ class AgentSession:
         if not prompt.strip():
             raise ValueError("prompt must contain non-whitespace text")
 
+        await self.restore()
         queued = await self._enqueue_run(prompt, delivery="follow_up")
         queued.future.add_done_callback(_consume_background_result)
         return queued.run_id
@@ -920,22 +1012,51 @@ class AgentSession:
         if not prompt.strip():
             raise ValueError("prompt must contain non-whitespace text")
 
+        await self.restore()
         async with self._control_lock:
             if self._active_run is None or not self._accepting_steer:
                 raise SessionControlError(
                     "steer requires an active run that still accepts input"
                 )
-            self._steering.append(prompt)
+            active = self._active_run
+            control = QueuedControl(
+                control_id=uuid4().hex,
+                delivery="steer",
+                prompt=prompt,
+                run_id=active.run_id,
+                target_run_id=active.run_id,
+                cause_run_id=active.run_id,
+            )
+            await self._record_control(
+                "control_enqueued",
+                control,
+                run_id=active.run_id,
+                actor_id="steer",
+            )
+            self._steering.append(control)
 
     async def abort(self, *, clear_queue: bool = True) -> None:
         """Cancel the active run and, by default, all queued follow-ups."""
+        await self.restore()
         active_tasks: tuple[asyncio.Task[object], ...]
         async with self._control_lock:
             if clear_queue:
                 while self._queued_runs:
                     queued = self._queued_runs.popleft()
+                    if queued.control_id is not None:
+                        await self._cancel_control(
+                            queued.control_id,
+                            run_id=queued.run_id,
+                            reason="abort",
+                        )
                     queued.future.cancel()
-            self._steering.clear()
+            while self._steering:
+                control = self._steering.popleft()
+                await self._cancel_control(
+                    control.control_id,
+                    run_id=control.run_id,
+                    reason="abort",
+                )
             self._accepting_steer = False
             active_tasks = tuple(
                 task
@@ -960,7 +1081,46 @@ class AgentSession:
 
     async def wait_until_idle(self) -> None:
         """Wait until no run is active and the follow-up queue is empty."""
+        await self.restore()
         await self._idle_event.wait()
+
+    async def restore(self) -> None:
+        """Restore pending durable controls once and resume eligible follow-ups."""
+        if self._restored:
+            return
+        async with self._restore_lock:
+            if self._restored:
+                return
+            async with self._durable_lock:
+                snapshot = await self._session_store.load(self._session_id)
+            loop = asyncio.get_running_loop()
+            for pending in snapshot.pending_controls:
+                control = pending.control
+                if control.delivery == "steer":
+                    await self._cancel_control(
+                        control.control_id,
+                        run_id=control.run_id,
+                        reason="target_run_not_active_after_restore",
+                    )
+                    continue
+                if (
+                    pending.claim is not None
+                    and pending.claim.lease_expires_at > self._clock()
+                ):
+                    continue
+                queued = _QueuedSessionRun(
+                    run_id=control.run_id,
+                    prompt=control.prompt,
+                    delivery="follow_up",
+                    future=loop.create_future(),
+                    control_id=control.control_id,
+                )
+                queued.future.add_done_callback(_consume_background_result)
+                self._queued_runs.append(queued)
+            self._restored = True
+            if self._queued_runs:
+                self._idle_event.clear()
+                self._start_dispatcher_locked()
 
     async def _enqueue_run(
         self,
@@ -976,6 +1136,25 @@ class AgentSession:
             future=loop.create_future(),
         )
         async with self._control_lock:
+            if delivery == "follow_up":
+                control = QueuedControl(
+                    control_id=uuid4().hex,
+                    delivery="follow_up",
+                    prompt=prompt,
+                    run_id=queued.run_id,
+                    cause_run_id=(
+                        self._active_run.run_id
+                        if self._active_run is not None
+                        else None
+                    ),
+                )
+                await self._record_control(
+                    "control_enqueued",
+                    control,
+                    run_id=queued.run_id,
+                    actor_id="follow-up",
+                )
+                queued.control_id = control.control_id
             self._queued_runs.append(queued)
             self._idle_event.clear()
             if (
@@ -998,11 +1177,16 @@ class AgentSession:
                     return
 
                 queued = self._queued_runs.popleft()
+                if queued.control_id is not None:
+                    queued.claim_id = await self._claim_control(
+                        queued.control_id,
+                        run_id=queued.run_id,
+                    )
                 self._active_run = queued
                 self._accepting_steer = True
                 self._state = "running"
                 self._active_task = asyncio.create_task(
-                    self._run_once(queued.prompt, queued.run_id),
+                    self._run_once(queued),
                     name=f"agent-run:{queued.run_id}",
                 )
                 active_task = self._active_task
@@ -1021,6 +1205,13 @@ class AgentSession:
             finally:
                 async with self._control_lock:
                     if self._active_run is queued:
+                        while self._steering:
+                            control = self._steering.popleft()
+                            await self._cancel_control(
+                                control.control_id,
+                                run_id=control.run_id,
+                                reason="target_run_settled",
+                            )
                         self._active_run = None
                         self._active_task = None
                         self._accepting_steer = False
@@ -1039,13 +1230,25 @@ class AgentSession:
         async with self._control_lock:
             if queued in self._queued_runs:
                 self._queued_runs.remove(queued)
+                if queued.control_id is not None:
+                    await self._cancel_control(
+                        queued.control_id,
+                        run_id=queued.run_id,
+                        reason="submission_cancelled",
+                    )
                 queued.future.cancel()
                 if self._active_run is None and not self._queued_runs:
                     self._state = "idle"
                     self._idle_event.set()
                 return
             if self._active_run is queued:
-                self._steering.clear()
+                while self._steering:
+                    control = self._steering.popleft()
+                    await self._cancel_control(
+                        control.control_id,
+                        run_id=control.run_id,
+                        reason="active_submission_cancelled",
+                    )
                 self._accepting_steer = False
                 self._state = "aborting"
                 active_task = self._active_task
@@ -1061,19 +1264,122 @@ class AgentSession:
     async def _receive_steering(
         self,
         close_if_empty: bool,
-    ) -> tuple[str, ...]:
+    ) -> tuple[_SteeringInstruction, ...]:
         async with self._control_lock:
-            steering = tuple(self._steering)
+            claimed: list[_SteeringInstruction] = []
+            for control in self._steering:
+                claim_id = await self._claim_control(
+                    control.control_id,
+                    run_id=control.run_id,
+                )
+                claimed.append(
+                    _SteeringInstruction(
+                        prompt=control.prompt,
+                        control_id=control.control_id,
+                        claim_id=claim_id,
+                    )
+                )
             self._steering.clear()
-            if close_if_empty and not steering:
+            if close_if_empty and not claimed:
                 self._accepting_steer = False
-            return steering
+            return tuple(claimed)
 
-    async def _run_once(self, prompt: str, run_id: str) -> AgentResult:
+    async def _record_control(
+        self,
+        kind: SessionEventKind,
+        control: ControlTransition,
+        *,
+        run_id: str,
+        actor_id: str,
+    ) -> SessionSnapshot:
+        async with self._durable_lock:
+            snapshot = await self._session_store.load(self._session_id)
+            return await self._session_store.record_control(
+                self._session_id,
+                snapshot.version,
+                kind,
+                control,
+                event_context=SessionEventContext(
+                    run_id=run_id,
+                    provenance=EventProvenance(
+                        source="runtime",
+                        actor_id=actor_id,
+                    ),
+                ),
+            )
+
+    async def _claim_control(self, control_id: str, *, run_id: str) -> str:
+        async with self._durable_lock:
+            snapshot = await self._session_store.load(self._session_id)
+            pending = next(
+                (
+                    item
+                    for item in snapshot.pending_controls
+                    if item.control.control_id == control_id
+                ),
+                None,
+            )
+            if pending is None:
+                raise SessionControlError(
+                    f"control {control_id!r} is no longer pending"
+                )
+            if (
+                pending.claim is not None
+                and pending.claim.owner_id != self._owner_id
+                and pending.claim.lease_expires_at > self._clock()
+            ):
+                raise SessionControlError(
+                    f"control {control_id!r} is claimed by another dispatcher"
+                )
+            claim_id = uuid4().hex
+            claim = ControlClaim(
+                control_id=control_id,
+                claim_id=claim_id,
+                owner_id=self._owner_id,
+                lease_expires_at=(
+                    self._clock() + self._control_claim_lease_seconds
+                ),
+            )
+            await self._session_store.record_control(
+                self._session_id,
+                snapshot.version,
+                "control_claimed",
+                claim,
+                event_context=SessionEventContext(
+                    run_id=run_id,
+                    provenance=EventProvenance(
+                        source="runtime",
+                        actor_id="control-dispatcher",
+                    ),
+                ),
+            )
+            return claim_id
+
+    async def _cancel_control(
+        self,
+        control_id: str,
+        *,
+        run_id: str,
+        reason: str,
+    ) -> None:
+        await self._record_control(
+            "control_cancelled",
+            ControlCancellation(control_id, reason),
+            run_id=run_id,
+            actor_id="control-dispatcher",
+        )
+
+    async def _run_once(self, queued: _QueuedSessionRun) -> AgentResult:
         """Execute one queued run against the latest durable snapshot."""
+        prompt = queued.prompt
+        run_id = queued.run_id
         async with self._run_lock:
             snapshot = await self._session_store.load(self._session_id)
-            writer = _SessionWriter(self._session_store, snapshot)
+            writer = _SessionWriter(
+                self._session_store,
+                snapshot,
+                self._durable_lock,
+            )
             await self._recover_unresolved_tool_calls(writer, run_id=run_id)
 
             if not writer.snapshot.messages and self._system_prompt is not None:
@@ -1101,6 +1407,24 @@ class AgentSession:
                 ),
             )
 
+            prompt_already_committed = queued.control_id is not None
+            if prompt_already_committed:
+                if queued.claim_id is None:
+                    raise SessionControlError("follow-up control is not claimed")
+                await writer.deliver_control(
+                    Message(role="user", content=prompt),
+                    SessionEventContext(
+                        run_id=run_id,
+                        turn_id=_turn_id(run_id, 1),
+                        provenance=EventProvenance(
+                            source="user",
+                            actor_id="follow-up",
+                        ),
+                    ),
+                    queued.control_id,
+                    queued.claim_id,
+                )
+
             agent = Agent(
                 self._provider,
                 tools=self._tools,
@@ -1110,6 +1434,7 @@ class AgentSession:
                 event_sink=self._event_sink,
                 initial_messages=writer.snapshot.messages,
                 message_committer=writer.commit,
+                steering_committer=writer.deliver_control,
                 next_turn_hook=(
                     _SessionNextTurnHook(
                         writer,
@@ -1123,7 +1448,11 @@ class AgentSession:
                 session_id=self._session_id,
                 max_model_requests=self._max_model_requests,
             )
-            result = await agent.run(prompt, run_id=run_id)
+            result = await agent.run(
+                prompt,
+                run_id=run_id,
+                prompt_already_committed=prompt_already_committed,
+            )
 
             return AgentResult(
                 message=result.message,
@@ -1159,7 +1488,11 @@ class AgentSession:
         async with self._run_lock:
             try:
                 snapshot = await self._session_store.load(self._session_id)
-                writer = _SessionWriter(self._session_store, snapshot)
+                writer = _SessionWriter(
+                    self._session_store,
+                    snapshot,
+                    self._durable_lock,
+                )
                 await self._recover_unresolved_tool_calls(writer)
                 preparation = prepare_compaction(
                     writer.snapshot.messages,

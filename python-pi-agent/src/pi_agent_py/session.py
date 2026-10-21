@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from .domain import (
+    ControlTransition,
     DurableSessionEvent,
     Message,
     SessionCompaction,
     SessionEventContext,
+    SessionEventKind,
     SessionSnapshot,
 )
 from .errors import SessionConflictError, SessionValidationError
@@ -14,6 +16,7 @@ from .session_transitions import (
     fork_session_events,
     prepare_session_append,
     prepare_session_compaction,
+    prepare_session_control,
     replay_session,
     validate_session_id,
 )
@@ -72,6 +75,27 @@ class InMemorySessionStore:
             current_events,
             expected_version,
             compaction,
+            event_context=event_context,
+        )
+        self._events_by_session[session_id] = [*current_events, plan.event]
+        return plan.snapshot
+
+    async def record_control(
+        self,
+        session_id: str,
+        expected_version: int,
+        kind: SessionEventKind,
+        control: ControlTransition,
+        *,
+        event_context: SessionEventContext | None = None,
+    ) -> SessionSnapshot:
+        current_events = self._events_by_session.get(session_id, [])
+        plan = prepare_session_control(
+            session_id,
+            current_events,
+            expected_version,
+            kind,
+            control,
             event_context=event_context,
         )
         self._events_by_session[session_id] = [*current_events, plan.event]

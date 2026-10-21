@@ -12,7 +12,15 @@ Role: TypeAlias = Literal["system", "user", "assistant", "tool"]
 FinishReason: TypeAlias = Literal["stop", "length", "tool_calls"]
 ToolSideEffects: TypeAlias = Literal["none", "read", "write", "external"]
 EventChannel: TypeAlias = Literal["durable", "live", "capability"]
-SessionEventKind: TypeAlias = Literal["message_committed", "context_compacted"]
+ControlDeliveryKind: TypeAlias = Literal["steer", "follow_up"]
+SessionEventKind: TypeAlias = Literal[
+    "message_committed",
+    "context_compacted",
+    "control_enqueued",
+    "control_claimed",
+    "control_delivered",
+    "control_cancelled",
+]
 EventSource: TypeAlias = Literal[
     "user",
     "model",
@@ -268,6 +276,95 @@ class SessionEventContext:
 
 
 @dataclass(frozen=True, slots=True)
+class QueuedControl:
+    """One durable steer or follow-up intent accepted by a session."""
+
+    control_id: str
+    delivery: ControlDeliveryKind
+    prompt: str
+    run_id: str
+    target_run_id: str | None = None
+    cause_run_id: str | None = None
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("control_id", self.control_id),
+            ("prompt", self.prompt),
+            ("run_id", self.run_id),
+        ):
+            if not value.strip():
+                raise ValueError(f"{name} must not be empty")
+        if self.delivery == "steer":
+            if self.target_run_id != self.run_id:
+                raise ValueError("steer must target its active run_id")
+        elif self.target_run_id is not None:
+            raise ValueError("follow_up cannot have target_run_id")
+        if self.cause_run_id is not None and not self.cause_run_id.strip():
+            raise ValueError("cause_run_id must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ControlClaim:
+    """A leased claim that prevents two dispatchers consuming one control."""
+
+    control_id: str
+    claim_id: str
+    owner_id: str
+    lease_expires_at: float
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("control_id", self.control_id),
+            ("claim_id", self.claim_id),
+            ("owner_id", self.owner_id),
+        ):
+            if not value.strip():
+                raise ValueError(f"{name} must not be empty")
+        if self.lease_expires_at <= 0:
+            raise ValueError("lease_expires_at must be greater than zero")
+
+
+@dataclass(frozen=True, slots=True)
+class ControlDelivery:
+    """Atomically consumes a claimed control and commits its user message."""
+
+    control_id: str
+    claim_id: str
+    message: Message
+
+    def __post_init__(self) -> None:
+        if not self.control_id.strip() or not self.claim_id.strip():
+            raise ValueError("control_id and claim_id must not be empty")
+        if self.message.role != "user":
+            raise ValueError("control delivery message must use the user role")
+
+
+@dataclass(frozen=True, slots=True)
+class ControlCancellation:
+    """Terminal cancellation of a queued or claimed control."""
+
+    control_id: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        if not self.control_id.strip() or not self.reason.strip():
+            raise ValueError("control_id and reason must not be empty")
+
+
+ControlTransition: TypeAlias = (
+    QueuedControl | ControlClaim | ControlDelivery | ControlCancellation
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PendingControl:
+    """Replay projection for a control that has not reached a terminal event."""
+
+    control: QueuedControl
+    claim: ControlClaim | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DurableSessionEvent:
     """One ordered fact in a replayable session log."""
 
@@ -276,6 +373,7 @@ class DurableSessionEvent:
     kind: SessionEventKind
     message: Message | None = None
     compaction: SessionCompaction | None = None
+    control: ControlTransition | None = None
     event_id: str | None = None
     run_id: str | None = None
     turn_id: str | None = None
@@ -302,17 +400,41 @@ class DurableSessionEvent:
             provenance=self.provenance,
         )
         if self.kind == "message_committed":
-            if self.message is None or self.compaction is not None:
+            if (
+                self.message is None
+                or self.compaction is not None
+                or self.control is not None
+            ):
                 raise ValueError(
                     "message_committed event requires only a message payload"
                 )
         elif self.kind == "context_compacted":
-            if self.compaction is None or self.message is not None:
+            if (
+                self.compaction is None
+                or self.message is not None
+                or self.control is not None
+            ):
                 raise ValueError(
                     "context_compacted event requires only a compaction payload"
                 )
+        elif self.kind == "control_enqueued":
+            if not isinstance(self.control, QueuedControl):
+                raise ValueError("control_enqueued requires QueuedControl")
+        elif self.kind == "control_claimed":
+            if not isinstance(self.control, ControlClaim):
+                raise ValueError("control_claimed requires ControlClaim")
+        elif self.kind == "control_delivered":
+            if not isinstance(self.control, ControlDelivery):
+                raise ValueError("control_delivered requires ControlDelivery")
+        elif self.kind == "control_cancelled":
+            if not isinstance(self.control, ControlCancellation):
+                raise ValueError("control_cancelled requires ControlCancellation")
         else:
             raise ValueError(f"unsupported session event kind: {self.kind}")
+        if self.control is not None and (
+            self.message is not None or self.compaction is not None
+        ):
+            raise ValueError("control events cannot use message or compaction payloads")
 
 
 def session_event_id(session_id: str, sequence: int) -> str:
@@ -327,6 +449,7 @@ class SessionSnapshot:
     session_id: str
     version: int
     messages: tuple[Message, ...]
+    pending_controls: tuple[PendingControl, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

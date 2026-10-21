@@ -23,7 +23,7 @@
 
 ## 后果
 
-run 的调用者取消时，会取消自己的活动或排队请求；follow-up 的后台失败由 EventSink/durable history 观察，不产生 asyncio 未取异常警告。当前控制队列是进程内状态，进程退出前尚未消费的队列不会恢复；消费后的消息按照普通 durable message 恢复。
+run 的调用者取消时，会取消自己的活动或排队请求；follow-up 的后台失败由 EventSink/durable history 观察，不产生 asyncio 未取异常警告。控制队列最初是进程内状态；其 durable enqueue/claim/deliver/cancel 与恢复语义由 ADR 0017 补充。
 
 ## 验证
 
