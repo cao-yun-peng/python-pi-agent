@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Mapping
 
-from .domain import AgentEvent, EventKind
+from .domain import AgentEvent, AgentEventEnvelope, EventChannel, EventKind
 from .ports import EventSink
 
 
@@ -48,6 +49,7 @@ _SECRET_KEYS = frozenset(
 class EventSinkFailure:
     """A bounded, non-sensitive diagnostic for an observer failure."""
 
+    event_id: str
     event_kind: EventKind
     stage: Literal["emit", "enqueue", "deliver"]
     error_type: str
@@ -114,6 +116,7 @@ class IsolatedEventSink:
         except Exception as error:
             self._record_failure(
                 EventSinkFailure(
+                    event_id=event.envelope.event_id,
                     event_kind=event.kind,
                     stage="emit",
                     error_type=type(error).__name__,
@@ -242,6 +245,7 @@ class BufferedEventSink:
     ) -> None:
         self._failures.append(
             EventSinkFailure(
+                event_id=event.envelope.event_id,
                 event_kind=event.kind,
                 stage=stage,
                 error_type=error_type.__name__,
@@ -257,6 +261,75 @@ def ensure_isolated_event_sink(sink: EventSink | None) -> IsolatedEventSink:
     if isinstance(sink, IsolatedEventSink):
         return sink
     return IsolatedEventSink(sink or NullEventSink())
+
+
+def make_agent_event(
+    kind: EventKind,
+    channel: EventChannel,
+    *,
+    source: str,
+    payload: Mapping[str, object] | None = None,
+    session_id: str | None = None,
+    run_id: str | None = None,
+    turn_id: str | None = None,
+    request_id: str | None = None,
+    attempt_id: str | None = None,
+    span_id: str | None = None,
+    parent_span_id: str | None = None,
+    duration_ms: float | None = None,
+    durable_event_id: str | None = None,
+) -> AgentEvent:
+    """Build one observer event with a versioned, typed metadata envelope."""
+    return AgentEvent(
+        kind=kind,
+        channel=channel,
+        payload=dict(payload or {}),
+        envelope=AgentEventEnvelope(
+            source=source,
+            session_id=session_id,
+            run_id=run_id,
+            turn_id=turn_id,
+            request_id=request_id,
+            attempt_id=attempt_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            duration_ms=duration_ms,
+            durable_event_id=durable_event_id,
+        ),
+    )
+
+
+def agent_event_record(event: AgentEvent) -> dict[str, object]:
+    """Return the stable JSON record shape for one observer event."""
+    envelope = event.envelope
+    return {
+        "schema_version": envelope.schema_version,
+        "event_id": envelope.event_id,
+        "occurred_at": envelope.occurred_at,
+        "source": envelope.source,
+        "channel": event.channel,
+        "kind": event.kind,
+        "session_id": envelope.session_id,
+        "run_id": envelope.run_id,
+        "turn_id": envelope.turn_id,
+        "request_id": envelope.request_id,
+        "attempt_id": envelope.attempt_id,
+        "span_id": envelope.span_id,
+        "parent_span_id": envelope.parent_span_id,
+        "duration_ms": envelope.duration_ms,
+        "durable_event_id": envelope.durable_event_id,
+        "payload": dict(event.payload),
+    }
+
+
+def serialize_agent_event(event: AgentEvent) -> str:
+    """Serialize an event record without inventing adapter-specific metadata."""
+    return json.dumps(
+        agent_event_record(event),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 def redact_event(
@@ -293,7 +366,12 @@ def redact_event(
                 selected.replacement,
             )
 
-    return AgentEvent(kind=event.kind, channel=event.channel, payload=payload)
+    return AgentEvent(
+        kind=event.kind,
+        channel=event.channel,
+        payload=payload,
+        envelope=event.envelope,
+    )
 
 
 def _redact_tool_calls(value: object, replacement: str) -> object:

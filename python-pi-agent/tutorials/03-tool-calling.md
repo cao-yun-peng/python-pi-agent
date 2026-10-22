@@ -12,7 +12,7 @@ ModelProvider
   -> ToolExecutionContext 审批快照
   -> ApprovalPolicy 审批
   -> ToolExecutionContext 执行快照
-  -> Sandbox.execute()
+  -> ToolExecutionGate.execute()
   -> Tool.execute(arguments, context)
   -> ToolOutput
   -> commit tool message
@@ -32,7 +32,7 @@ $env:PYTHONPATH = (Resolve-Path .\python-pi-agent\src).Path
 
 1. **Definition**：`ToolDefinition` 声明名称、描述、输入 schema、副作用、审批、重试、回放和超时语义。
 2. **Provider**：`FunctionTool` 把 async Python 函数适配成工具。
-3. **Consumer**：`Agent` 校验、建立 context、审批、经 Sandbox 执行并提交结果。
+3. **Consumer**：`Agent` 校验、建立 context、审批、经 ToolExecutionGate 调度并提交结果。
 4. **Lifecycle**：工具在 Agent 构造时显式注入，执行任务跟随 run 的取消和超时作用域。
 5. **Evidence**：`tests/test_tool_runtime.py` 覆盖成功、拒绝、无效参数、超时、取消与未知工具。
 
@@ -71,7 +71,7 @@ tool       call-1 -> 5
 
 当工具标记 `requires_approval=True` 且应用没有配置策略时，`DenyByDefaultApprovalPolicy` 必然拒绝。安全默认值不能依赖调用者“记得配置”。
 
-审批通过后仍必须经过 `Sandbox`。默认 sandbox 只允许 `side_effects="none"`；read、write 和 external 工具需要应用显式配置允许范围。详见第 14 章。
+审批通过后仍必须经过 `ToolExecutionGate`。默认 Gate 只允许 `side_effects="none"`；read、write 和 external 工具需要应用显式配置允许范围。Gate 不是 OS 隔离；真正的进程沙箱见第 20 章。
 
 ## 为什么多数工具错误要回填模型
 

@@ -24,7 +24,7 @@ from pi_agent_py import (
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
-    InProcessSandbox,
+    TrustedToolExecutionGate,
     WaitUntilCancelled,
 )
 
@@ -90,6 +90,32 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             provider.request_contexts[0].run_id,
             provider.request_contexts[1].run_id,
         )
+
+    async def test_committed_events_link_to_durable_event_identity(self) -> None:
+        store = InMemorySessionStore()
+        events = InMemoryEventSink()
+        session = AgentSession(
+            "demo",
+            store,
+            FakeProvider([[TextDelta("answer"), Finish()]]),
+            event_sink=events,
+        )
+
+        await session.run("question")
+
+        durable_events = await store.read_events("demo")
+        committed = [
+            event for event in events.events if event.kind == "message_committed"
+        ]
+        self.assertEqual(
+            [event.envelope.durable_event_id for event in committed],
+            [event.event_id for event in durable_events],
+        )
+        self.assertTrue(
+            all(event.envelope.session_id == "demo" for event in committed)
+        )
+        self.assertTrue(all(event.envelope.run_id for event in committed))
+        self.assertTrue(all("run_id" not in event.payload for event in committed))
 
     async def test_provider_failure_keeps_committed_user_message(self) -> None:
         store = InMemorySessionStore()
@@ -173,7 +199,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             store,
             provider,
             tools=[FunctionTool(definition, sometimes_blocks)],
-            sandbox=InProcessSandbox(),
+            execution_gate=TrustedToolExecutionGate(),
             event_sink=events,
         )
 
@@ -287,6 +313,15 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             "compaction_completed",
             [event.kind for event in events.events],
         )
+        started = next(
+            event for event in events.events if event.kind == "compaction_started"
+        )
+        completed = next(
+            event for event in events.events if event.kind == "compaction_completed"
+        )
+        self.assertEqual(started.envelope.span_id, completed.envelope.span_id)
+        self.assertEqual(completed.envelope.durable_event_id, "demo:6")
+        self.assertIsNotNone(completed.envelope.duration_ms)
 
     async def test_automatically_compacts_when_threshold_is_reached(self) -> None:
         store = InMemorySessionStore()

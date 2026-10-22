@@ -1,0 +1,13 @@
+: keep-alive
+
+data: {"id":"chatcmpl-fixture-tool","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-flash","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture-tool","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-flash","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_fixture_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture-tool","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-flash","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"深圳\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture-tool","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"chatcmpl-fixture-tool","object":"chat.completion.chunk","created":1730000000,"model":"deepseek-flash","choices":[],"usage":{"prompt_tokens":40,"completion_tokens":18,"total_tokens":58}}
+
+data: [DONE]

@@ -75,6 +75,8 @@ messages
 
 这类 Hook 是拦截器，不是观察者：Agent 必须等待它，它可以改变后续输入，也可以阻止运行。因此超时和异常不能只记日志后继续；当前实现会发出 `plugin_hook_failed`，再抛出 `PluginExecutionError`。外部任务取消则发出 `plugin_hook_cancelled` 并继续传播 `CancelledError`。
 
+Hook 接收强类型 `NextTurnContext`，其中包含 `session_id`、`run_id`、目标 `turn_id` 和 `next_request_number`。插件不需要从全局状态猜测当前运行；Hook 的 started/terminal observer event 也使用同一上下文进入 envelope，因此可以接入完整 run 时间线。
+
 `EventSink` 仍是观察通道。它不参与上面的返回值链，也不应承担阻塞 I/O。
 
 ## 5. 为什么暂时不把插件 Hook 接入 AgentSession
@@ -116,4 +118,5 @@ messages
 - 能说明原子发布为何避免半加载插件。
 - 能区分观察者和拦截器的错误策略。
 - 能解释 priority、注册顺序、超时和取消如何共同决定 Hook 行为。
+- 能说明 `NextTurnContext` 为何比只传一个请求序号更利于隔离和观测关联。
 - 能说明为什么 session-aware 插件变换必须进入 durable log 或只做请求投影。

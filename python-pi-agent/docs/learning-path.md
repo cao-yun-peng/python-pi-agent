@@ -19,8 +19,8 @@
 - 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v5、durable event log、replay、持久化 fork、compaction event，以及 steer/follow-up 的 enqueue/claim/deliver/cancel 恢复语义。多进程文件锁和数据库事务留给后续存储 Provider。
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。
 - 阶段 7 已完成显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销、SessionPluginFactory/Lease、请求投影 Hook、后台 settled observer 和逆序 cleanup。资源发现、durable control port 与安全热重载仍未开始。
-- 阶段 8 已完成第一条安全执行纵向切片：ToolExecutionContext 贯穿审批、Sandbox 与工具，默认 effect gate 拒绝 read/write/external，支持工具 allowlist、参数快照隔离、超时、取消和可观察拒绝。真正的子进程/容器隔离、工作区文件策略和身份化授权仍未开始。
-- 阶段 9 已完成第一条安全观察纵向切片：Agent/Session/Plugin 统一隔离 EventSink 异常，日志事件可在入队前脱敏，慢 I/O 使用有界顺序 worker 并显式关闭。结构化 telemetry schema、指标聚合和 durable 审计 sink 仍未开始。
+- 阶段 8 已完成两条安全执行纵向切片：第一条由 ToolExecutionContext、ApprovalPolicy 与 ToolExecutionGate 提供声明式默认拒绝；第二条由 SandboxedShellTool、ProcessSandbox 与 Docker Provider 提供真实 workspace 进程隔离、最小环境/网络/资源配置、enforcement evidence 和取消清理。文件 read/search/patch 的统一 workspace port、单次权限升级和身份化授权仍未开始。
+- 阶段 9 已完成两条观察纵向切片：第一条统一隔离 EventSink 异常、入队前脱敏和有界 worker 生命周期；第二条增加 versioned AgentEventEnvelope、固定 JSON record、模型/工具/压缩/Hook span duration，以及 observer message 到 durable event 的 identity join。低基数指标聚合、采样/exporter 和 durable 审计 sink 仍未开始。
 - Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；普通推理与 compaction 不再只能靠 payload 猜测。下一步的多 Provider router、retry 和 session-aware 插件应复用该上下文。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
@@ -128,8 +128,8 @@ runtime event
 
 插件方向下一步若需要主动控制能力，应给 SessionPluginContext 注入受限 control port，并复用 durable enqueue/claim/deliver/cancel；不得暴露 AgentSession、Store 或内存 deque。之后再考虑资源发现与安全热重载，不应直接做目录自动扫描。
 
-可观测性方向下一步应先定义稳定 telemetry schema 和低基数指标，再决定是否需要强一致审计 sink。强一致审计不能伪装成 best-effort EventSink，而应成为独立 durable capability。
+可观测性方向下一步应在现有稳定 envelope 上实现最小低基数聚合：run 成功率、模型/工具/压缩耗时和 observer drop 计数；随后再决定 exporter 与采样策略。强一致审计不能伪装成 best-effort EventSink，而应成为独立 durable capability。
 
-安全执行方向下一步应实现一个真正隔离的 workspace Sandbox provider：明确进程边界、路径规范化、环境变量 allowlist、网络策略、资源上限和终止协议。不能仅凭 `side_effects` 声明信任未知插件代码。
+安全执行方向下一步应让 read/search/patch 共用规范化 workspace port，并把当前 Docker 集成证据扩展到 symlink/junction 与网络拒绝；随后再设计 `read-only -> workspace-write -> trusted local` 的单次升级审批。不要为追求形式完整同时实现多套 OS-native runner，也不要把未知 Python 插件误认为已被 Shell sandbox 覆盖。
 
 上下文方向仍应实现 compaction eval 的最小离线切片，用版本化 case 和 deterministic grader 验证摘要保留目标、约束、工具发现和下一步；随后再处理精确 tokenizer 与资源加载。

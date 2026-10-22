@@ -12,6 +12,7 @@ from pi_agent_py import (
     FunctionTool,
     JSONObject,
     Message,
+    NextTurnContext,
     PluginAPI,
     PluginHost,
     TextDelta,
@@ -27,10 +28,13 @@ class LearningTraceHook:
         self,
         messages: Sequence[Message],
         *,
-        next_request_number: int,
+        context: NextTurnContext,
     ) -> Sequence[Message]:
         roles = " -> ".join(message.role for message in messages)
-        print(f"hook before request {next_request_number}: {roles}")
+        print(
+            f"hook before {context.turn_id} "
+            f"(request {context.next_request_number}): {roles}"
+        )
         return messages
 
 

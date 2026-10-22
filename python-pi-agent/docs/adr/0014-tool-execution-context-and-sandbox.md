@@ -1,5 +1,7 @@
 # ADR 0014: ToolExecutionContext、审批与 Sandbox 执行边界
 
+> 当前状态：其中把进程内 dispatcher 命名为 Sandbox 的决定已被 ADR 0020 取代。审批快照、TOCTOU 防护和默认拒绝语义继续有效。
+
 ## 背景
 
 原工具链在参数校验后直接调用 `ApprovalPolicy.review(call, definition)` 和 `tool.execute(arguments)`。审批器与工具拿不到 session、模型请求序号或批次位置；审批决定没有随调用进入执行边界；runtime 也没有 `Sandbox` 端口，所有函数都直接在 Agent 进程中运行。`ToolDefinition.side_effects` 因而只是说明文字，没有强制消费方。

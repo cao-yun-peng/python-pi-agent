@@ -17,7 +17,6 @@ from .compaction import (
 )
 from .context import FullHistoryContextStrategy
 from .domain import (
-    AgentEvent,
     AgentResult,
     ApprovalDecision,
     CompactionDecision,
@@ -26,11 +25,13 @@ from .domain import (
     ControlDelivery,
     ControlTransition,
     ContextPlan,
+    DurableEventIdentity,
     EventChannel,
     EventKind,
     EventProvenance,
     Finish,
     Message,
+    NextTurnContext,
     ProviderRequestContext,
     QueuedControl,
     SessionCompaction,
@@ -45,6 +46,7 @@ from .domain import (
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
+    session_event_id,
 )
 from .errors import (
     AgentError,
@@ -57,11 +59,12 @@ from .errors import (
     ModelProtocolError,
     ProviderError,
     SandboxError,
-    SandboxViolationError,
+    SandboxTimeoutError,
     SessionControlError,
+    ToolExecutionDeniedError,
     ToolValidationError,
 )
-from .events import EventSinkFailure, ensure_isolated_event_sink
+from .events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from .plugins import PluginHost, PluginSessionLease
 from .ports import (
     ApprovalPolicy,
@@ -72,13 +75,13 @@ from .ports import (
     ModelProvider,
     NextTurnHook,
     ProviderRequestHook,
-    Sandbox,
     SessionStore,
     Tool,
+    ToolExecutionGate,
 )
 from .session_transitions import find_unresolved_tool_calls
 from .tools import (
-    DeclaredSideEffectSandbox,
+    DeclaredSideEffectGate,
     DenyByDefaultApprovalPolicy,
     validate_tool_arguments,
 )
@@ -114,17 +117,21 @@ class Agent:
         *,
         tools: Sequence[Tool] = (),
         approval_policy: ApprovalPolicy | None = None,
-        sandbox: Sandbox | None = None,
+        execution_gate: ToolExecutionGate | None = None,
         context_strategy: ContextStrategy | None = None,
         event_sink: EventSink | None = None,
         initial_messages: Sequence[Message] = (),
         message_committer: (
-            Callable[[Message, SessionEventContext], Awaitable[None]] | None
+            Callable[
+                [Message, SessionEventContext],
+                Awaitable[DurableEventIdentity],
+            ]
+            | None
         ) = None,
         steering_committer: (
             Callable[
                 [Message, SessionEventContext, str, str],
-                Awaitable[None],
+                Awaitable[DurableEventIdentity],
             ]
             | None
         ) = None,
@@ -159,8 +166,10 @@ class Agent:
             if approval_policy is not None
             else DenyByDefaultApprovalPolicy()
         )
-        self._sandbox = (
-            sandbox if sandbox is not None else DeclaredSideEffectSandbox()
+        self._execution_gate = (
+            execution_gate
+            if execution_gate is not None
+            else DeclaredSideEffectGate()
         )
         self._context_strategy = context_strategy or FullHistoryContextStrategy()
         self._event_sink = ensure_isolated_event_sink(event_sink)
@@ -332,7 +341,7 @@ class Agent:
         if self._steering_committer is None:
             await self._commit(message, context)
             return
-        await self._steering_committer(
+        durable_identity = await self._steering_committer(
             message,
             context,
             control_id,
@@ -342,6 +351,7 @@ class Agent:
         self._emit(
             "message_committed",
             "durable",
+            durable_event_id=durable_identity.event_id,
             provenance_source=context.provenance.source,
             **_message_payload(message),
         )
@@ -362,12 +372,15 @@ class Agent:
             request_number,
             request_context,
         )
+        span_id = request_context.attempt_id
+        started_at = time.perf_counter()
         self._emit(
             "model_request_started",
             "live",
             request_number=request_number,
             request_id=request_context.request_id,
             attempt_id=request_context.attempt_id,
+            span_id=span_id,
             purpose=request_context.purpose,
             attempt=request_context.attempt,
         )
@@ -378,61 +391,120 @@ class Agent:
         usage: TokenUsage | None = None
         finish: Finish | None = None
 
-        async for event in self._provider.stream(
-            context.messages,
-            self._tool_definitions,
-            context=request_context,
-        ):
-            if isinstance(event, ThinkingDelta):
-                _require_unfinished(finish, "thinking")
-                partial_thinking.append(event.text)
-                self._emit("thinking_delta", "live", text=event.text)
-            elif isinstance(event, TextDelta):
-                _require_unfinished(finish, "text")
-                partial_text.append(event.text)
-                self._emit("text_delta", "live", text=event.text)
-            elif isinstance(event, ToolCall):
-                _require_unfinished(finish, "tool call")
-                if event.id in tool_call_ids:
-                    raise ModelProtocolError(f"duplicate tool call id: {event.id}")
-                tool_call_ids.add(event.id)
-                tool_calls.append(event)
-                self._emit(
-                    "tool_call_received",
-                    "capability",
-                    tool_call_id=event.id,
-                    tool_name=event.name,
-                    arguments=event.arguments,
-                )
-            elif isinstance(event, TokenUsage):
-                usage = event
-                self._emit(
-                    "model_usage",
-                    "live",
-                    input_tokens=event.input_tokens,
-                    output_tokens=event.output_tokens,
-                    total_tokens=event.total_tokens,
-                    cached_input_tokens=event.cached_input_tokens,
-                )
-            elif isinstance(event, Finish):
-                if finish is not None:
-                    raise ModelProtocolError("provider emitted more than one finish")
-                finish = event
-            else:
-                raise ModelProtocolError(
-                    f"unsupported model event: {type(event).__name__}"
-                )
+        try:
+            async for event in self._provider.stream(
+                context.messages,
+                self._tool_definitions,
+                context=request_context,
+            ):
+                if isinstance(event, ThinkingDelta):
+                    _require_unfinished(finish, "thinking")
+                    partial_thinking.append(event.text)
+                    self._emit(
+                        "thinking_delta",
+                        "live",
+                        request_id=request_context.request_id,
+                        attempt_id=request_context.attempt_id,
+                        parent_span_id=span_id,
+                        text=event.text,
+                    )
+                elif isinstance(event, TextDelta):
+                    _require_unfinished(finish, "text")
+                    partial_text.append(event.text)
+                    self._emit(
+                        "text_delta",
+                        "live",
+                        request_id=request_context.request_id,
+                        attempt_id=request_context.attempt_id,
+                        parent_span_id=span_id,
+                        text=event.text,
+                    )
+                elif isinstance(event, ToolCall):
+                    _require_unfinished(finish, "tool call")
+                    if event.id in tool_call_ids:
+                        raise ModelProtocolError(f"duplicate tool call id: {event.id}")
+                    tool_call_ids.add(event.id)
+                    tool_calls.append(event)
+                    self._emit(
+                        "tool_call_received",
+                        "capability",
+                        request_id=request_context.request_id,
+                        attempt_id=request_context.attempt_id,
+                        parent_span_id=span_id,
+                        tool_call_id=event.id,
+                        tool_name=event.name,
+                        arguments=event.arguments,
+                    )
+                elif isinstance(event, TokenUsage):
+                    usage = event
+                    self._emit(
+                        "model_usage",
+                        "live",
+                        request_id=request_context.request_id,
+                        attempt_id=request_context.attempt_id,
+                        parent_span_id=span_id,
+                        input_tokens=event.input_tokens,
+                        output_tokens=event.output_tokens,
+                        total_tokens=event.total_tokens,
+                        cached_input_tokens=event.cached_input_tokens,
+                    )
+                elif isinstance(event, Finish):
+                    if finish is not None:
+                        raise ModelProtocolError("provider emitted more than one finish")
+                    finish = event
+                else:
+                    raise ModelProtocolError(
+                        f"unsupported model event: {type(event).__name__}"
+                    )
 
-        if finish is None:
-            raise ModelProtocolError("provider stream ended without finish")
-        if tool_calls and finish.reason not in {"tool_calls", "length"}:
-            raise ModelProtocolError(
-                "provider emitted tool calls without tool_calls finish reason"
+            if finish is None:
+                raise ModelProtocolError("provider stream ended without finish")
+            if tool_calls and finish.reason not in {"tool_calls", "length"}:
+                raise ModelProtocolError(
+                    "provider emitted tool calls without tool_calls finish reason"
+                )
+            if not tool_calls and finish.reason == "tool_calls":
+                raise ModelProtocolError(
+                    "provider emitted tool_calls finish reason without tool calls"
+                )
+        except asyncio.CancelledError:
+            self._emit(
+                "model_request_failed",
+                "live",
+                request_id=request_context.request_id,
+                attempt_id=request_context.attempt_id,
+                span_id=span_id,
+                duration_ms=_duration_ms(started_at),
+                request_number=request_number,
+                outcome="cancelled",
+                error="CancelledError",
             )
-        if not tool_calls and finish.reason == "tool_calls":
-            raise ModelProtocolError(
-                "provider emitted tool_calls finish reason without tool calls"
+            raise
+        except Exception as error:
+            self._emit(
+                "model_request_failed",
+                "live",
+                request_id=request_context.request_id,
+                attempt_id=request_context.attempt_id,
+                span_id=span_id,
+                duration_ms=_duration_ms(started_at),
+                request_number=request_number,
+                outcome="error",
+                error=type(error).__name__,
             )
+            raise
+
+        self._emit(
+            "model_request_finished",
+            "live",
+            request_id=request_context.request_id,
+            attempt_id=request_context.attempt_id,
+            span_id=span_id,
+            duration_ms=_duration_ms(started_at),
+            request_number=request_number,
+            outcome="success",
+            finish_reason=finish.reason,
+        )
 
         return _ModelTurn(
             message=Message(
@@ -506,12 +578,20 @@ class Agent:
         hook = self._next_turn_hook
         if hook is None:
             return
+        if self._active_run_id is None:
+            raise RuntimeError("next-turn preparation requires an active run")
+        context = NextTurnContext(
+            session_id=self._session_id,
+            run_id=self._active_run_id,
+            turn_id=_turn_id(self._active_run_id, next_request_number),
+            next_request_number=next_request_number,
+        )
 
         try:
             prepared = tuple(
                 await hook.prepare(
                     self.messages,
-                    next_request_number=next_request_number,
+                    context=context,
                 )
             )
         except asyncio.CancelledError:
@@ -658,9 +738,12 @@ class Agent:
         context: ToolExecutionContext,
     ) -> ToolOutput:
         call = context.call
+        span_id = uuid4().hex
+        started_at = time.perf_counter()
         self._emit(
             "tool_execution_started",
             "capability",
+            span_id=span_id,
             tool_call_id=call.id,
             tool_name=call.name,
             request_number=context.request_number,
@@ -671,14 +754,14 @@ class Agent:
         try:
             timeout = tool.definition.timeout_seconds
             if timeout is None:
-                output = await self._sandbox.execute(
+                output = await self._execution_gate.execute(
                     tool,
                     call.arguments,
                     context,
                 )
             else:
                 async with asyncio.timeout(timeout):
-                    output = await self._sandbox.execute(
+                    output = await self._execution_gate.execute(
                         tool,
                         call.arguments,
                         context,
@@ -691,6 +774,8 @@ class Agent:
             self._emit(
                 "tool_execution_finished",
                 "capability",
+                span_id=span_id,
+                duration_ms=_duration_ms(started_at),
                 tool_call_id=call.id,
                 tool_name=call.name,
                 outcome="cancelled",
@@ -705,22 +790,29 @@ class Agent:
                 content="Tool execution exceeded its timeout.",
                 is_error=True,
             )
-        except SandboxViolationError as error:
-            outcome = "sandbox_denied"
+        except ToolExecutionDeniedError as error:
+            outcome = "execution_denied"
             self._emit(
-                "tool_sandbox_denied",
+                "tool_execution_denied",
                 "capability",
+                parent_span_id=span_id,
                 tool_call_id=call.id,
                 tool_name=call.name,
                 side_effects=context.definition.side_effects,
-                sandbox=type(self._sandbox).__name__,
+                gate=type(self._execution_gate).__name__,
                 error=type(error).__name__,
                 request_number=context.request_number,
                 call_index=context.call_index,
                 session_id=context.session_id,
             )
             output = ToolOutput(
-                content="Tool execution was blocked by the sandbox.",
+                content="Tool execution was blocked by the execution policy.",
+                is_error=True,
+            )
+        except SandboxTimeoutError as error:
+            outcome = "sandbox_timeout"
+            output = ToolOutput(
+                content=f"Sandbox execution timed out ({type(error).__name__}).",
                 is_error=True,
             )
         except SandboxError as error:
@@ -739,6 +831,8 @@ class Agent:
         self._emit(
             "tool_execution_finished",
             "capability",
+            span_id=span_id,
+            duration_ms=_duration_ms(started_at),
             tool_call_id=call.id,
             tool_name=call.name,
             outcome=outcome,
@@ -797,13 +891,19 @@ class Agent:
             run_id=self._active_run_id,
             turn_id=self._active_turn_id,
         )
+        durable_identity: DurableEventIdentity | None = None
         if self._message_committer is not None:
-            await self._message_committer(message, context)
+            durable_identity = await self._message_committer(message, context)
 
         self._messages.append(message)
         self._emit(
             "message_committed",
             "durable",
+            durable_event_id=(
+                durable_identity.event_id
+                if durable_identity is not None
+                else None
+            ),
             provenance_source=context.provenance.source,
             **_message_payload(message),
         )
@@ -812,20 +912,31 @@ class Agent:
         self,
         kind: EventKind,
         channel: EventChannel,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        attempt_id: str | None = None,
+        span_id: str | None = None,
+        parent_span_id: str | None = None,
+        duration_ms: float | None = None,
+        durable_event_id: str | None = None,
         **payload: object,
     ) -> None:
-        correlated_payload = dict(payload)
-        if self._session_id is not None:
-            correlated_payload.setdefault("session_id", self._session_id)
-        if self._active_run_id is not None:
-            correlated_payload.setdefault("run_id", self._active_run_id)
-        if self._active_turn_id is not None:
-            correlated_payload.setdefault("turn_id", self._active_turn_id)
         self._event_sink.emit(
-            AgentEvent(
-                kind=kind,
-                channel=channel,
-                payload=correlated_payload,
+            make_agent_event(
+                kind,
+                channel,
+                source="agent",
+                payload=payload,
+                session_id=session_id or self._session_id,
+                run_id=self._active_run_id,
+                turn_id=self._active_turn_id,
+                request_id=request_id,
+                attempt_id=attempt_id,
+                span_id=span_id,
+                parent_span_id=parent_span_id,
+                duration_ms=duration_ms,
+                durable_event_id=durable_event_id,
             )
         )
 
@@ -851,7 +962,7 @@ class _SessionWriter:
         self,
         message: Message,
         event_context: SessionEventContext,
-    ) -> None:
+    ) -> DurableEventIdentity:
         async with self._lock:
             await self._refresh()
             self._snapshot = await self._session_store.append(
@@ -860,6 +971,7 @@ class _SessionWriter:
                 (message,),
                 event_context=event_context,
             )
+            return _latest_durable_identity(self._snapshot)
 
     async def deliver_control(
         self,
@@ -867,7 +979,7 @@ class _SessionWriter:
         event_context: SessionEventContext,
         control_id: str,
         claim_id: str,
-    ) -> None:
+    ) -> DurableEventIdentity:
         async with self._lock:
             await self._refresh()
             self._snapshot = await self._session_store.record_control(
@@ -877,6 +989,7 @@ class _SessionWriter:
                 ControlDelivery(control_id, claim_id, message),
                 event_context=event_context,
             )
+            return _latest_durable_identity(self._snapshot)
 
     async def compact(
         self,
@@ -906,17 +1019,15 @@ class _SessionNextTurnHook:
         self,
         writer: _SessionWriter,
         prepare: Callable[..., Awaitable[None]],
-        run_id: str,
     ) -> None:
         self._writer = writer
         self._prepare = prepare
-        self._run_id = run_id
 
     async def prepare(
         self,
         messages: Sequence[Message],
         *,
-        next_request_number: int,
+        context: NextTurnContext,
     ) -> Sequence[Message]:
         if tuple(messages) != self._writer.snapshot.messages:
             raise CompactionError(
@@ -924,10 +1035,10 @@ class _SessionNextTurnHook:
             )
         await self._prepare(
             self._writer,
-            request_number=next_request_number,
+            request_number=context.next_request_number,
             event_context=SessionEventContext(
-                run_id=self._run_id,
-                turn_id=_turn_id(self._run_id, next_request_number),
+                run_id=context.run_id,
+                turn_id=context.turn_id,
                 provenance=EventProvenance(
                     source="compaction",
                     actor_id="automatic-compaction",
@@ -958,7 +1069,7 @@ class AgentSession:
         *,
         tools: Sequence[Tool] = (),
         approval_policy: ApprovalPolicy | None = None,
-        sandbox: Sandbox | None = None,
+        execution_gate: ToolExecutionGate | None = None,
         compaction_policy: CompactionPolicy | None = None,
         compaction_strategy: CompactionStrategy | None = None,
         context_strategy: ContextStrategy | None = None,
@@ -980,7 +1091,7 @@ class AgentSession:
         self._provider = provider
         self._tools = tuple(tools)
         self._approval_policy = approval_policy
-        self._sandbox = sandbox
+        self._execution_gate = execution_gate
         self._compaction_policy = compaction_policy
         self._compaction_strategy = compaction_strategy
         self._context_strategy = context_strategy
@@ -1518,7 +1629,7 @@ class AgentSession:
                 self._provider,
                 tools=self._tools,
                 approval_policy=self._approval_policy,
-                sandbox=self._sandbox,
+                execution_gate=self._execution_gate,
                 context_strategy=self._context_strategy,
                 event_sink=self._event_sink,
                 provider_request_hook=self._plugin_lease,
@@ -1529,7 +1640,6 @@ class AgentSession:
                     _SessionNextTurnHook(
                         writer,
                         self._maybe_auto_compact,
-                        run_id,
                     )
                     if self._compaction_policy is not None
                     else None
@@ -1677,25 +1787,32 @@ class AgentSession:
                     "recovered": True,
                 },
             )
-            await writer.commit(
-                recovered,
-                SessionEventContext(
-                    run_id=run_id,
-                    provenance=EventProvenance(
-                        source="recovery",
-                        actor_id="tool-call-recovery",
-                    ),
+            recovery_context = SessionEventContext(
+                run_id=run_id,
+                provenance=EventProvenance(
+                    source="recovery",
+                    actor_id="tool-call-recovery",
                 ),
             )
+            durable_identity = await writer.commit(
+                recovered,
+                recovery_context,
+            )
             self._event_sink.emit(
-                AgentEvent(
-                    kind="message_committed",
-                    channel="durable",
+                make_agent_event(
+                    "message_committed",
+                    "durable",
+                    source="agent_session",
                     payload={**_message_payload(recovered), "recovered": True},
+                    session_id=self._session_id,
+                    run_id=run_id,
+                    durable_event_id=durable_identity.event_id,
                 )
             )
             self._emit(
                 "tool_call_recovered",
+                event_context=recovery_context,
+                durable_event_id=durable_identity.event_id,
                 tool_call_id=call.id,
                 tool_name=call.name,
                 outcome="unknown",
@@ -1714,6 +1831,13 @@ class AgentSession:
         if self._compaction_policy is None:
             return
 
+        correlation_context = event_context or SessionEventContext(
+            provenance=EventProvenance(
+                source="compaction",
+                actor_id="automatic-compaction",
+            )
+        )
+
         candidate_messages = (
             *writer.snapshot.messages,
             *pending_messages,
@@ -1727,6 +1851,7 @@ class AgentSession:
         except CompactionError as error:
             self._emit(
                 "compaction_failed",
+                event_context=correlation_context,
                 error=type(error).__name__,
                 automatic=True,
                 stage="policy",
@@ -1736,6 +1861,7 @@ class AgentSession:
             wrapped = CompactionPolicyError("compaction policy failed")
             self._emit(
                 "compaction_failed",
+                event_context=correlation_context,
                 error=type(wrapped).__name__,
                 automatic=True,
                 stage="policy",
@@ -1744,6 +1870,7 @@ class AgentSession:
 
         self._emit(
             "compaction_evaluated",
+            event_context=correlation_context,
             automatic=True,
             should_compact=decision.should_compact,
             estimated_tokens=decision.estimated_tokens,
@@ -1762,6 +1889,7 @@ class AgentSession:
         except CompactionNotNeededError:
             self._emit(
                 "compaction_skipped",
+                event_context=correlation_context,
                 automatic=True,
                 reason="no_compactable_history",
                 source_version=writer.snapshot.version,
@@ -1770,6 +1898,7 @@ class AgentSession:
         except AgentError as error:
             self._emit(
                 "compaction_failed",
+                event_context=correlation_context,
                 error=type(error).__name__,
                 automatic=True,
                 stage="preparation",
@@ -1779,6 +1908,7 @@ class AgentSession:
             wrapped = CompactionError("compaction preparation failed")
             self._emit(
                 "compaction_failed",
+                event_context=correlation_context,
                 error=type(wrapped).__name__,
                 automatic=True,
                 stage="preparation",
@@ -1790,13 +1920,7 @@ class AgentSession:
             preparation,
             automatic=True,
             request_number=request_number,
-            event_context=event_context
-            or SessionEventContext(
-                provenance=EventProvenance(
-                    source="compaction",
-                    actor_id="automatic-compaction",
-                )
-            ),
+            event_context=correlation_context,
         )
 
     async def _execute_compaction(
@@ -1813,8 +1937,23 @@ class AgentSession:
             raise ConfigurationError("compaction strategy is not configured")
 
         source_version = writer.snapshot.version
+        request_context = ProviderRequestContext(
+            request_id=uuid4().hex,
+            attempt_id=uuid4().hex,
+            purpose="compaction",
+            request_number=request_number,
+            session_id=self._session_id,
+            run_id=event_context.run_id,
+            turn_id=event_context.turn_id,
+        )
+        span_id = request_context.attempt_id
+        started_at = time.perf_counter()
         self._emit(
             "compaction_started",
+            event_context=event_context,
+            request_id=request_context.request_id,
+            attempt_id=request_context.attempt_id,
+            span_id=span_id,
             automatic=automatic,
             source_version=source_version,
             source_message_count=preparation.source_message_count,
@@ -1824,15 +1963,7 @@ class AgentSession:
         try:
             summary = await strategy.summarize(
                 preparation.messages_to_summarize,
-                context=ProviderRequestContext(
-                    request_id=uuid4().hex,
-                    attempt_id=uuid4().hex,
-                    purpose="compaction",
-                    request_number=request_number,
-                    session_id=self._session_id,
-                    run_id=event_context.run_id,
-                    turn_id=event_context.turn_id,
-                ),
+                context=request_context,
             )
             if not isinstance(summary, str):
                 raise CompactionError(
@@ -1850,11 +1981,24 @@ class AgentSession:
                 event_context,
             )
         except asyncio.CancelledError:
-            self._emit("compaction_cancelled", automatic=automatic)
+            self._emit(
+                "compaction_cancelled",
+                event_context=event_context,
+                request_id=request_context.request_id,
+                attempt_id=request_context.attempt_id,
+                span_id=span_id,
+                duration_ms=_duration_ms(started_at),
+                automatic=automatic,
+            )
             raise
         except AgentError as error:
             self._emit(
                 "compaction_failed",
+                event_context=event_context,
+                request_id=request_context.request_id,
+                attempt_id=request_context.attempt_id,
+                span_id=span_id,
+                duration_ms=_duration_ms(started_at),
                 error=type(error).__name__,
                 automatic=automatic,
                 stage="execution",
@@ -1864,6 +2008,11 @@ class AgentSession:
             wrapped = CompactionError("compaction strategy failed")
             self._emit(
                 "compaction_failed",
+                event_context=event_context,
+                request_id=request_context.request_id,
+                attempt_id=request_context.attempt_id,
+                span_id=span_id,
+                duration_ms=_duration_ms(started_at),
                 error=type(wrapped).__name__,
                 automatic=automatic,
                 stage="execution",
@@ -1872,6 +2021,12 @@ class AgentSession:
 
         self._emit(
             "compaction_completed",
+            event_context=event_context,
+            request_id=request_context.request_id,
+            attempt_id=request_context.attempt_id,
+            span_id=span_id,
+            duration_ms=_duration_ms(started_at),
+            durable_event_id=_latest_durable_identity(compacted).event_id,
             automatic=automatic,
             source_version=source_version,
             compacted_version=compacted.version,
@@ -1879,9 +2034,41 @@ class AgentSession:
         )
         return compacted
 
-    def _emit(self, kind: EventKind, **payload: object) -> None:
+    def _emit(
+        self,
+        kind: EventKind,
+        *,
+        event_context: SessionEventContext | None = None,
+        run_id: str | None = None,
+        turn_id: str | None = None,
+        request_id: str | None = None,
+        attempt_id: str | None = None,
+        span_id: str | None = None,
+        parent_span_id: str | None = None,
+        duration_ms: float | None = None,
+        durable_event_id: str | None = None,
+        **payload: object,
+    ) -> None:
+        context = event_context or SessionEventContext(
+            run_id=run_id,
+            turn_id=turn_id,
+        )
         self._event_sink.emit(
-            AgentEvent(kind=kind, channel="capability", payload=payload)
+            make_agent_event(
+                kind,
+                "capability",
+                source="agent_session",
+                payload=payload,
+                session_id=self._session_id,
+                run_id=context.run_id,
+                turn_id=context.turn_id,
+                request_id=request_id,
+                attempt_id=attempt_id,
+                span_id=span_id,
+                parent_span_id=parent_span_id,
+                duration_ms=duration_ms,
+                durable_event_id=durable_event_id,
+            )
         )
 
 
@@ -1892,6 +2079,21 @@ def _require_unfinished(finish: Finish | None, event_name: str) -> None:
 
 def _turn_id(run_id: str, request_number: int) -> str:
     return f"{run_id}:turn:{request_number}"
+
+
+def _duration_ms(started_at: float) -> float:
+    """Return a non-negative monotonic duration for observer metadata."""
+    return max(0.0, (time.perf_counter() - started_at) * 1000)
+
+
+def _latest_durable_identity(snapshot: SessionSnapshot) -> DurableEventIdentity:
+    if snapshot.version <= 0:
+        raise RuntimeError("durable commit did not advance the session version")
+    return DurableEventIdentity(
+        session_id=snapshot.session_id,
+        sequence=snapshot.version,
+        event_id=session_event_id(snapshot.session_id, snapshot.version),
+    )
 
 
 def _tool_execution_context(

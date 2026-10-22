@@ -8,13 +8,19 @@ from .domain import (
     ApprovalDecision,
     JSONObject,
     JSONValue,
+    SandboxProcessRequest,
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
     ToolSideEffects,
+    WorkspaceAccessMode,
 )
-from .errors import SandboxViolationError, ToolValidationError
-from .ports import Tool
+from .errors import (
+    SandboxUnavailableError,
+    ToolExecutionDeniedError,
+    ToolValidationError,
+)
+from .ports import ProcessSandbox, Tool
 
 ToolHandler = Callable[
     [JSONObject, ToolExecutionContext],
@@ -70,11 +76,11 @@ class StaticApprovalPolicy:
         return self._decision
 
 
-class DeclaredSideEffectSandbox:
-    """In-process dispatcher gated by declared effect and optional tool allowlists.
+class DeclaredSideEffectGate:
+    """In-process dispatcher gated by declared effect and tool allowlists.
 
-    This is a policy boundary, not operating-system isolation. Replace the
-    Sandbox port with a process, container, or remote executor for hostile code.
+    This class is intentionally named a gate: it trusts tool declarations and
+    does not isolate Python handlers from the host process.
     """
 
     def __init__(
@@ -107,11 +113,11 @@ class DeclaredSideEffectSandbox:
         if definition.requires_approval and (
             context.approval is None or not context.approval.approved
         ):
-            raise SandboxViolationError(
+            raise ToolExecutionDeniedError(
                 f'tool "{definition.name}" requires an approved decision'
             )
         if definition.side_effects not in self._allowed_side_effects:
-            raise SandboxViolationError(
+            raise ToolExecutionDeniedError(
                 f'tool "{definition.name}" declares disallowed '
                 f'effect "{definition.side_effects}"'
             )
@@ -119,18 +125,100 @@ class DeclaredSideEffectSandbox:
             self._allowed_tools is not None
             and definition.name not in self._allowed_tools
         ):
-            raise SandboxViolationError(
-                f'tool "{definition.name}" is not in the sandbox allowlist'
+            raise ToolExecutionDeniedError(
+                f'tool "{definition.name}" is not in the execution allowlist'
             )
         return await tool.execute(arguments, context)
 
 
-class InProcessSandbox(DeclaredSideEffectSandbox):
-    """Explicitly permissive in-process dispatcher for trusted tools."""
+class TrustedToolExecutionGate(DeclaredSideEffectGate):
+    """Explicitly permissive dispatcher for already-trusted Python tools."""
 
     def __init__(self) -> None:
         super().__init__(
             allowed_side_effects=("none", "read", "write", "external")
+        )
+
+
+class SandboxedShellTool:
+    """Model-facing shell whose command always crosses a ProcessSandbox port."""
+
+    def __init__(
+        self,
+        sandbox: ProcessSandbox,
+        *,
+        mode: WorkspaceAccessMode = "workspace-write",
+        timeout_seconds: float | None = 120.0,
+        requires_approval: bool = True,
+        require_full_enforcement: bool = True,
+        name: str = "shell",
+    ) -> None:
+        if mode not in ("read-only", "workspace-write"):
+            raise ValueError("unknown workspace access mode")
+        if timeout_seconds is not None and timeout_seconds < 0:
+            raise ValueError("timeout_seconds must not be negative")
+        self._sandbox = sandbox
+        self._mode = mode
+        self._timeout_seconds = timeout_seconds
+        self._require_full_enforcement = require_full_enforcement
+        self._definition = ToolDefinition(
+            name=name,
+            description=(
+                "Run one shell command inside the configured isolated workspace."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+                "additionalProperties": False,
+            },
+            side_effects="write" if mode == "workspace-write" else "read",
+            requires_approval=requires_approval,
+            retry_safe=False,
+            replay_safe=False,
+        )
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return self._definition
+
+    async def execute(
+        self,
+        arguments: JSONObject,
+        context: ToolExecutionContext,
+    ) -> ToolOutput:
+        del context
+        command = arguments["command"]
+        if not isinstance(command, str):
+            raise TypeError("validated shell command must be a string")
+        result = await self._sandbox.run(
+            SandboxProcessRequest(
+                command=command,
+                mode=self._mode,
+                timeout_seconds=self._timeout_seconds,
+            )
+        )
+        if self._require_full_enforcement and result.enforcement != "full":
+            raise SandboxUnavailableError(
+                "the process sandbox reported only partial enforcement"
+            )
+        sections = []
+        if result.stdout:
+            sections.append(result.stdout)
+        if result.stderr:
+            sections.append(f"stderr:\n{result.stderr}")
+        if result.output_truncated:
+            sections.append("[sandbox output truncated]")
+        return ToolOutput(
+            content="\n".join(sections) or "(no output)",
+            structured_content={
+                "exit_code": result.exit_code,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "enforcement": result.enforcement,
+                "output_truncated": result.output_truncated,
+            },
+            is_error=result.exit_code != 0,
         )
 
 

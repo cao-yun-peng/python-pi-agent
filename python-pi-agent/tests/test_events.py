@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from pi_agent_py import (
     Agent,
     AgentEvent,
+    AgentEventEnvelope,
     AgentSession,
     BufferedEventSink,
     CallbackEventSink,
@@ -16,7 +18,9 @@ from pi_agent_py import (
     ProviderError,
     RedactingEventSink,
     TextDelta,
+    make_agent_event,
     redact_event,
+    serialize_agent_event,
 )
 
 
@@ -113,6 +117,7 @@ class EventRedactionTests(unittest.TestCase):
 
         redacted = redact_event(original)
 
+        self.assertIs(redacted.envelope, original.envelope)
         self.assertEqual(redacted.payload["content"], "<redacted>")
         self.assertEqual(redacted.payload["thinking"], "<redacted>")
         calls = redacted.payload["tool_calls"]
@@ -166,6 +171,45 @@ class EventRedactionTests(unittest.TestCase):
         for event, field in cases:
             with self.subTest(kind=event.kind):
                 self.assertEqual(redact_event(event).payload[field], "<redacted>")
+
+
+class EventEnvelopeTests(unittest.TestCase):
+    def test_builds_versioned_correlation_metadata_outside_payload(self) -> None:
+        event = make_agent_event(
+            "model_request_finished",
+            "live",
+            source="agent",
+            session_id="session-1",
+            run_id="run-1",
+            turn_id="run-1:turn:1",
+            request_id="request-1",
+            attempt_id="attempt-1",
+            span_id="span-1",
+            duration_ms=12.5,
+            payload={"outcome": "success"},
+        )
+
+        self.assertEqual(event.envelope.schema_version, 1)
+        self.assertTrue(event.envelope.event_id)
+        self.assertGreater(event.envelope.occurred_at, 0)
+        self.assertEqual(event.envelope.source, "agent")
+        self.assertEqual(event.envelope.run_id, "run-1")
+        self.assertEqual(event.envelope.request_id, "request-1")
+        self.assertEqual(event.envelope.duration_ms, 12.5)
+        self.assertEqual(event.payload, {"outcome": "success"})
+        record = json.loads(serialize_agent_event(event))
+        self.assertEqual(record["schema_version"], 1)
+        self.assertEqual(record["run_id"], "run-1")
+        self.assertEqual(record["kind"], "model_request_finished")
+        self.assertEqual(record["payload"], {"outcome": "success"})
+
+    def test_rejects_incomplete_correlation_metadata(self) -> None:
+        with self.assertRaisesRegex(ValueError, "turn_id requires run_id"):
+            AgentEventEnvelope(turn_id="turn-1")
+        with self.assertRaisesRegex(ValueError, "attempt_id requires request_id"):
+            AgentEventEnvelope(attempt_id="attempt-1")
+        with self.assertRaisesRegex(ValueError, "duration_ms"):
+            AgentEventEnvelope(duration_ms=-1)
 
 
 class BufferedEventSinkTests(unittest.IsolatedAsyncioTestCase):

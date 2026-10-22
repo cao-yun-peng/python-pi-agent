@@ -41,6 +41,8 @@ Agent commit
   -> DurableSessionEvent
 ```
 
+`SessionWriter.commit()` 还返回最小 `DurableEventIdentity` receipt。成功后发出的 `message_committed` observer event 把 receipt 的 event ID 放入 `event.envelope.durable_event_id`。这样 UI/trace 可以连接 durable fact，却不需要把完整 durable event 复制进 best-effort 通道。Standalone Agent 没有 SessionStore，因此该字段允许为空。
+
 用户输入标记为 `user`，assistant 标记为 `model`，工具结果标记为 `tool`，中断补齐标记为 `recovery`，压缩事件标记为 `compaction`。
 
 ## 4. JSONL v4 与旧日志

@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl-fixture-nonstream",
+  "object": "chat.completion",
+  "created": 1730000000,
+  "model": "deepseek-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "你好，我是 DeepSeek。",
+        "reasoning_content": "用户只是打招呼，简短回应即可。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 9,
+    "total_tokens": 21,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  }
+}

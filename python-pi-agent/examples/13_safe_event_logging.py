@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 
 from pi_agent_py import (
     Agent,
@@ -14,20 +13,12 @@ from pi_agent_py import (
     Finish,
     RedactingEventSink,
     TextDelta,
+    serialize_agent_event,
 )
 
 
 def write_json_log(event: AgentEvent) -> None:
-    print(
-        json.dumps(
-            {
-                "kind": event.kind,
-                "channel": event.channel,
-                "payload": event.payload,
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(serialize_agent_event(event))
 
 
 async def main() -> None:

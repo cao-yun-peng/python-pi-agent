@@ -8,7 +8,8 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
                |           ├── context.py implements ContextStrategy
                |           ├── compaction.py implements CompactionStrategy
                |           ├── plugins.py assembles Tool / NextTurnHook
-               |           └── tools.py provides tools, approval, and sandbox providers
+               |           ├── tools.py provides tools, approval, and execution gates
+               |           └── sandbox.py implements ProcessSandbox
                ├── events.py implements isolation, redaction, and buffering
                ├── session_transitions.py provides pure state transitions
                ├── session.py implements SessionStore
@@ -29,20 +30,25 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - `events.py` 提供同步观察适配器、runtime 失败隔离、日志脱敏和显式关闭的有界后台投递。
 - `testing.py` 是确定性 Provider 实现，也是 Provider 契约的第一份证据。
 - `providers/deepseek.py` 隔离 DeepSeek 的 HTTP、认证、SSE 和错误格式。
-- `tools.py` 提供 `FunctionTool`、审批策略、声明式副作用 Sandbox 和可替换的 schema 校验边界。
+- `tools.py` 提供 `FunctionTool`、审批策略、声明式副作用 Gate、`SandboxedShellTool` 和可替换的 schema 校验边界。
+- `sandbox.py` 提供真正的 `ProcessSandbox` Provider；首个实现通过 Docker 隔离 workspace Shell。
 - `plugins.py` 提供显式、事务化的 `PluginHost`，把 Tool、Hook 与 cleanup 组合成不可变能力快照。
 
 ## 状态模型
 
 当前 durable event log 是会话事实来源，`SessionSnapshot.messages` 是通过 replay 得到的模型可见状态投影。用户消息在请求前提交；assistant 消息只有在收到明确的 `Finish` 后才提交。流式文本和 thinking delta 立即通过 live event 暴露；完成后的 thinking 单独保存在 `Message.thinking`，不混入面向用户的正文，但可供供应商协议在后续请求中重放。
 
-每个 durable event 具有稳定的 `event_id=<session_id>:<sequence>`、可选 `run_id`、可选 `turn_id` 和强类型 `EventProvenance`。一次排队任务对应一个 run；每次模型请求及其工具结果对应 `<run_id>:turn:<request_number>`。user/model/tool/recovery/compaction 的来源在提交边界声明，live/capability event 同时携带当前 run/turn 便于关联，但不能替代 durable log。fork 为目标会话重新生成 event ID，并用 `copied_from_event_id` 保留源事件关系。
+每个 durable event 具有稳定的 `event_id=<session_id>:<sequence>`、可选 `run_id`、可选 `turn_id` 和强类型 `EventProvenance`。一次排队任务对应一个 run；每次模型请求及其工具结果对应 `<run_id>:turn:<request_number>`。user/model/tool/recovery/compaction 的来源在提交边界声明。fork 为目标会话重新生成 event ID，并用 `copied_from_event_id` 保留源事件关系。
+
+每个 best-effort `AgentEvent` 使用独立的 `AgentEventEnvelope`，固定保存 schema version、event/time/source、session/run/turn、request/attempt、span、duration 和可选 `durable_event_id`；事件专有数据才进入 payload。模型请求、工具执行、compaction 与 plugin Hook 使用 started/terminal span，耗时由 monotonic clock 计算。`NextTurnContext` 把目标 run/turn 显式传入 Hook，避免 run-scoped 插件事件断链。`AgentSession` 成功提交 message 后，通知 envelope 的 `durable_event_id` 指回实际 durable fact；standalone Agent 没有 Store 时该字段为空。Envelope 只建立观察关联，不能替代 durable log。
 
 工具调用以带 `tool_calls` 的 assistant message 持久存在，工具结果以引用 `tool_call_id` 的 tool message 回填。schema 错误、审批拒绝和执行失败也是模型可见结果；外部取消则终止整个 run。
 
-工具安全管线固定为 resolve → validate → approval context → ApprovalPolicy → execution context → Sandbox → Tool。`ToolExecutionContext` 携带 call/definition、session id、模型请求序号、批次位置和可选审批决定。审批与执行分别从原始 committed call 建立深拷贝快照，防止 policy 或 handler 修改嵌套 JSON 后污染 transcript，或把审批参数偷换成执行参数。受保护工具在审批异常、错误返回值或无策略时 fail-closed。
+工具安全管线固定为 resolve → validate → approval context → ApprovalPolicy → execution context → ToolExecutionGate → Tool。`ToolExecutionContext` 携带 call/definition、session id、模型请求序号、批次位置和可选审批决定。审批与执行分别从原始 committed call 建立深拷贝快照，防止 policy 或 handler 修改嵌套 JSON 后污染 transcript，或把审批参数偷换成执行参数。受保护工具在审批异常、错误返回值或无策略时 fail-closed。
 
-runtime 只通过 `Sandbox.execute()` 调度工具，不再直接调用 `Tool.execute()`。默认 `DeclaredSideEffectSandbox` 只允许 `side_effects="none"`，应用必须显式允许 read/write/external，并可叠加工具名 allowlist；Sandbox 还会二次确认受保护调用携带批准决定。默认实现与 `InProcessSandbox` 都在当前 Python 进程中执行，只是可替换的策略/调度边界，不构成 OS 级隔离。对不可信工具必须提供子进程、容器或远端 Sandbox provider。沙箱拒绝产生 `tool_sandbox_denied` 和模型可见 error tool result；timeout 包围整个 sandbox/tool 调用，取消继续传播。
+runtime 只通过 `ToolExecutionGate.execute()` 调度工具，不再直接调用 `Tool.execute()`。默认 `DeclaredSideEffectGate` 只允许 `side_effects="none"`，应用必须显式允许 read/write/external，并可叠加工具名 allowlist；Gate 还会二次确认受保护调用携带批准决定。`TrustedToolExecutionGate` 只适用于已经信任的 Python Tool。两者都不构成 OS 隔离，拒绝产生 `tool_execution_denied` 和模型可见 error tool result；timeout 包围 Gate/Tool 调用，取消继续传播。
+
+进程隔离是独立 capability。`SandboxedShellTool` 消费 `ProcessSandbox`，当前 `DockerProcessSandbox` 把规范化 workspace 作为唯一宿主挂载，容器根只读、默认网络关闭、不向容器转发未显式声明的宿主环境变量，并施加 capability、CPU、内存、进程数、tmpfs 和输出捕获限制。Docker 或镜像不可用时 fail closed，不回退到宿主 Shell；timeout/取消由 Provider 强制删除容器并终止客户端。V1 只支持 `read-only` 与 `workspace-write`，不把 `danger-full-access` 伪装成沙箱模式。该边界只覆盖显式使用 ProcessSandbox 的 Shell，不覆盖任意第三方 Python 插件。
 
 逐消息提交允许取消或进程退出发生在一个工具批次中间。`AgentSession` 每次继续运行或手动压缩前都会校验工具调用/结果序列：若会话尾部存在未决调用，就为每个缺失结果追加一个 `is_error=True` 的恢复 tool message，明确记录“外部副作用结果未知，不得自动重试”，然后才允许追加新的用户消息。已经完成的 tool result 不会重复生成。若未决调用之后已经存在其他 user/assistant 消息，append-only 日志无法在原位置安全修补，session 会以 `SessionValidationError` 拒绝继续，而不是把错误结果追加到错误位置。恢复消息本身是普通 `message_committed` durable fact，因此内存、JSONL、fork 和 replay 使用同一语义；`tool_call_recovered` capability event 提供恢复证据。
 
@@ -68,9 +74,9 @@ steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写
 
 `AgentSession` 第一次 restore 时通过 `PluginHost.open_session()` 获得固定的 `PluginSessionLease`。每个 factory 只接收 session ID，并为每个 Session 返回独立实例。请求 interceptor 接收 `ProviderRequestContext + ContextPlan`，只能返回新的请求投影，不能改 `source_message_count`、访问 Store 或修改 canonical history。run-settled observer 作为隔离后台任务执行，lease close 会等待观察任务并逆序释放实例。有活动 lease 时 host 拒绝单独 unload；host close 先关闭 lease。插件若未来需要发送 steer/follow-up，必须通过复用 durable control transition 的受限端口实现。
 
-观察与拦截使用不同错误语义。`Agent`、`AgentSession` 和 `PluginHost` 自动把应用的 `EventSink` 包进 `IsolatedEventSink`；sink 异常只产生有界 `EventSinkFailure`，不改变模型、工具、持久化或插件控制流，也不会覆盖原始错误。失败诊断不保存异常消息，避免把密钥或用户数据从异常文本二次写入日志。正常同步 sink 仍保持立即、有序投递，已有 UI 和测试不需要异步化。
+观察与拦截使用不同错误语义。`Agent`、`AgentSession` 和 `PluginHost` 自动把应用的 `EventSink` 包进 `IsolatedEventSink`；sink 异常只产生有界 `EventSinkFailure`，并保留失败事件的 envelope event ID，不改变模型、工具、持久化或插件控制流，也不会覆盖原始错误。失败诊断不保存异常消息，避免把密钥或用户数据从异常文本二次写入日志。正常同步 sink 仍保持立即、有序投递，已有 UI 和测试不需要异步化。
 
-日志安全由应用显式组装，而不是破坏原始事件。`RedactingEventSink` 复制事件，默认隐藏 message/text/thinking、工具参数、结构化结果和嵌套敏感键；token 用量元数据保留。慢 I/O 可放入 `BufferedEventSink` 的有界队列，由单 worker 顺序送往同步 logger。推荐顺序是 `Isolated(runtime) -> Redacting -> Buffered -> logger`，使数据在入队前已脱敏。队列满或 logger 失败允许丢失并记录诊断，因此 EventSink 仍是 best-effort 观察通道，不能替代 `SessionStore` durable log。后台 worker 必须通过 `aclose()` 显式排空和关闭。
+日志安全由应用显式组装，而不是破坏原始事件。`RedactingEventSink` 复制 payload 并保留原 envelope identity，默认隐藏 message/text/thinking、工具参数、结构化结果和嵌套敏感键；token 用量元数据保留。`serialize_agent_event()` 把 envelope 与脱敏 payload 写成固定 JSON record。慢 I/O 可放入 `BufferedEventSink` 的有界队列，由单 worker 顺序送往同步 logger。推荐顺序是 `Isolated(runtime) -> Redacting -> Buffered -> logger`，使数据在入队前已脱敏。队列满或 logger 失败允许丢失并记录诊断，因此 EventSink 仍是 best-effort 观察通道，不能替代 `SessionStore` durable log。后台 worker 必须通过 `aclose()` 显式排空和关闭。
 
 ## 依赖规则
 
@@ -90,6 +96,7 @@ steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写
 - 日志适配器只能消费事件副本；脱敏不得修改模型可见消息或 durable state。
 - BufferedEventSink 是可丢失的观察队列，不能承载恢复、审计或业务提交事实。
 - runtime 顺序执行工具；并行策略要等资源隔离与取消语义稳定后再加入。
-- ApprovalPolicy 只作决定，Sandbox 独占最终执行入口；用户批准不会自动扩大 sandbox allowlist。
+- ApprovalPolicy 只作决定，ToolExecutionGate 消费声明式策略；用户批准不会自动扩大 effect/tool allowlist。
+- ProcessSandbox 只运行进程请求，不接收任意 Python Tool；隔离 Provider 不可用时必须 fail closed。
 - ToolExecutionContext 是运行时快照而非 durable fact；跨进程人工审批需要独立持久状态机。
 - steer/follow-up 已有 durable enqueue/claim/deliver/cancel；JSONL 仍缺少跨进程文件锁，因此 claim lease 目前主要提供可验证的恢复契约，而不是完整的分布式队列。

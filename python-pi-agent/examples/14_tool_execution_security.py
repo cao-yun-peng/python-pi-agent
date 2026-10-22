@@ -1,4 +1,4 @@
-"""Approve and sandbox one tool call with an inspectable execution context."""
+"""Approve and gate one trusted tool call with an inspectable context."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import asyncio
 
 from pi_agent_py import (
     Agent,
-    DeclaredSideEffectSandbox,
+    DeclaredSideEffectGate,
     FakeProvider,
     Finish,
     FunctionTool,
@@ -62,7 +62,7 @@ async def main() -> None:
             [TextDelta("The note was saved."), Finish()],
         ]
     )
-    sandbox = DeclaredSideEffectSandbox(
+    execution_gate = DeclaredSideEffectGate(
         allowed_side_effects=("none", "write"),
         allowed_tools=("save_note",),
     )
@@ -73,7 +73,7 @@ async def main() -> None:
             True,
             reason="The example pre-authorizes this one tool.",
         ),
-        sandbox=sandbox,
+        execution_gate=execution_gate,
         session_id="security-demo",
     )
 

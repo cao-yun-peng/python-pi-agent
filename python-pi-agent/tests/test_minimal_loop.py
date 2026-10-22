@@ -43,6 +43,7 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
                 "model_request_started",
                 "text_delta",
                 "text_delta",
+                "model_request_finished",
                 "message_committed",
                 "run_completed",
                 "run_settled",
@@ -52,6 +53,20 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             [event.channel for event in events.events if event.kind == "message_committed"],
             ["durable", "durable"],
         )
+        started = next(
+            event for event in events.events if event.kind == "model_request_started"
+        )
+        finished = next(
+            event for event in events.events if event.kind == "model_request_finished"
+        )
+        self.assertEqual(started.envelope.schema_version, 1)
+        self.assertEqual(started.envelope.source, "agent")
+        self.assertEqual(started.envelope.request_id, request_context.request_id)
+        self.assertEqual(started.envelope.span_id, finished.envelope.span_id)
+        self.assertIsNotNone(finished.envelope.duration_ms)
+        self.assertTrue(all(event.envelope.run_id for event in events.events))
+        self.assertNotIn("run_id", started.payload)
+        self.assertNotIn("request_id", started.payload)
 
     async def test_provider_failure_does_not_commit_partial_assistant_message(self) -> None:
         provider = FakeProvider(
@@ -64,6 +79,12 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             await agent.run("会失败吗？")
 
         self.assertEqual(agent.messages, (Message(role="user", content="会失败吗？"),))
+        failed = next(
+            event for event in events.events if event.kind == "model_request_failed"
+        )
+        self.assertEqual(failed.payload["error"], "ProviderError")
+        self.assertEqual(failed.payload["outcome"], "error")
+        self.assertIsNotNone(failed.envelope.duration_ms)
         self.assertEqual(
             [event.kind for event in events.events[-2:]],
             ["run_failed", "run_settled"],

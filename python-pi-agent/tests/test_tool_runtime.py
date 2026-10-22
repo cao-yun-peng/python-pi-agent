@@ -8,13 +8,14 @@ from pi_agent_py import (
     Agent,
     AgentLoopLimitError,
     ApprovalDecision,
-    DeclaredSideEffectSandbox,
+    DeclaredSideEffectGate,
     FakeProvider,
     Finish,
     FunctionTool,
     InMemoryEventSink,
     JSONObject,
     Message,
+    NextTurnContext,
     StaticApprovalPolicy,
     TextDelta,
     TokenUsage,
@@ -27,16 +28,16 @@ from pi_agent_py import (
 
 class RecordingNextTurnHook:
     def __init__(self) -> None:
-        self.calls: list[tuple[tuple[Message, ...], int]] = []
+        self.calls: list[tuple[tuple[Message, ...], NextTurnContext]] = []
 
     async def prepare(
         self,
         messages: Sequence[Message],
         *,
-        next_request_number: int,
+        context: NextTurnContext,
     ) -> Sequence[Message]:
         history = tuple(messages)
-        self.calls.append((history, next_request_number))
+        self.calls.append((history, context))
         return history
 
 
@@ -156,8 +157,9 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await agent.run("use a tool")
 
         self.assertEqual(len(hook.calls), 1)
-        prepared_history, next_request_number = hook.calls[0]
-        self.assertEqual(next_request_number, 2)
+        prepared_history, context = hook.calls[0]
+        self.assertEqual(context.next_request_number, 2)
+        self.assertEqual(context.turn_id, f"{context.run_id}:turn:2")
         self.assertEqual(
             [message.role for message in prepared_history],
             ["user", "assistant", "tool"],
@@ -272,6 +274,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             if event.kind == "tool_execution_finished"
         ]
         self.assertEqual(finished[0].payload["outcome"], "timeout")
+        started = next(
+            event for event in events.events if event.kind == "tool_execution_started"
+        )
+        self.assertEqual(started.envelope.span_id, finished[0].envelope.span_id)
+        self.assertIsNotNone(finished[0].envelope.duration_ms)
 
     async def test_cancellation_propagates_into_running_tool(self) -> None:
         started = asyncio.Event()
@@ -355,7 +362,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             ["run_failed", "run_settled"],
         )
 
-    async def test_default_sandbox_denies_declared_read_effect(self) -> None:
+    async def test_default_execution_gate_denies_declared_read_effect(self) -> None:
         executed = False
 
         async def read_data(
@@ -390,9 +397,9 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(executed)
         self.assertTrue(result.messages[2].is_error)
-        self.assertIn("blocked by the sandbox", result.messages[2].content)
+        self.assertIn("blocked by the execution policy", result.messages[2].content)
         denied = [
-            event for event in events.events if event.kind == "tool_sandbox_denied"
+            event for event in events.events if event.kind == "tool_execution_denied"
         ]
         self.assertEqual(len(denied), 1)
         self.assertEqual(denied[0].payload["side_effects"], "read")
@@ -401,9 +408,9 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             for event in events.events
             if event.kind == "tool_execution_finished"
         ]
-        self.assertEqual(finished[0].payload["outcome"], "sandbox_denied")
+        self.assertEqual(finished[0].payload["outcome"], "execution_denied")
 
-    async def test_configured_sandbox_allows_only_declared_scope(self) -> None:
+    async def test_configured_execution_gate_allows_only_declared_scope(self) -> None:
         contexts: list[ToolExecutionContext] = []
 
         async def read_data(
@@ -426,14 +433,14 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 [TextDelta("done"), Finish()],
             ]
         )
-        sandbox = DeclaredSideEffectSandbox(
+        execution_gate = DeclaredSideEffectGate(
             allowed_side_effects=("none", "read"),
             allowed_tools=("read_data",),
         )
         agent = Agent(
             provider,
             tools=[FunctionTool(definition, read_data)],
-            sandbox=sandbox,
+            execution_gate=execution_gate,
         )
 
         result = await agent.run("read data")

@@ -54,6 +54,7 @@ class ContextStrategy(Protocol):
         -> context_prepared（capability）
         -> model_request_started（live）
         -> ModelProvider.stream(ContextPlan.messages)
+        -> model_request_finished / model_request_failed（live）
         -> 提交完整 assistant message（durable）
 ```
 

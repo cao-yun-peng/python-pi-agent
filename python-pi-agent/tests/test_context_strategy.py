@@ -99,14 +99,10 @@ class ContextStrategyTests(unittest.IsolatedAsyncioTestCase):
             event for event in events.events if event.kind == "context_prepared"
         )
         self.assertEqual(prepared.channel, "capability")
-        self.assertTrue(prepared.payload["run_id"])
-        self.assertTrue(str(prepared.payload["turn_id"]).endswith(":turn:1"))
+        self.assertTrue(prepared.envelope.run_id)
+        self.assertTrue(str(prepared.envelope.turn_id).endswith(":turn:1"))
         self.assertEqual(
-            {
-                key: value
-                for key, value in prepared.payload.items()
-                if key not in {"run_id", "turn_id"}
-            },
+            dict(prepared.payload),
             {
                 "request_number": 1,
                 "source_message_count": 3,

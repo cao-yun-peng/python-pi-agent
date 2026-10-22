@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
 
@@ -7,7 +8,7 @@ import httpx
 
 from pi_agent_py import (
     Agent,
-    DeclaredSideEffectSandbox,
+    DeclaredSideEffectGate,
     ConfigurationError,
     Finish,
     FunctionTool,
@@ -19,6 +20,7 @@ from pi_agent_py import (
     ProviderRateLimitError,
     ProviderRequestContext,
     ProviderResponseError,
+    ProviderTimeoutError,
     ToolCall,
     ToolDefinition,
     ToolExecutionContext,
@@ -235,7 +237,7 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
         agent = Agent(
             provider,
             tools=[FunctionTool(definition, weather)],
-            sandbox=DeclaredSideEffectSandbox(
+            execution_gate=DeclaredSideEffectGate(
                 allowed_side_effects=("none", "read")
             ),
         )
@@ -305,6 +307,97 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with self.assertRaisesRegex(ProviderRateLimitError, "Rate Limit Reached"):
+            await _collect(provider, [Message(role="user", content="hello")])
+
+    async def test_maps_timeout_to_provider_timeout_error(self) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("read timed out", request=request)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        self.addAsyncCleanup(client.aclose)
+        provider = DeepSeekProvider(
+            DeepSeekConfig(api_key="test-key", timeout_seconds=3),
+            client=client,
+        )
+
+        with self.assertRaisesRegex(ProviderTimeoutError, "timed out after 3s"):
+            await _collect(provider, [Message(role="user", content="hello")])
+
+    async def test_task_cancellation_propagates_without_wrapping(self) -> None:
+        stream_reached_blocking_point = asyncio.Event()
+
+        class BlockingStream(httpx.AsyncByteStream):
+            async def __aiter__(self):  # type: ignore[override]
+                yield (
+                    b'data: {"choices":[{"delta":{"content":"a"},'
+                    b'"finish_reason":null}]}\n\n'
+                )
+                stream_reached_blocking_point.set()
+                await asyncio.Event().wait()
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            del request
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                stream=BlockingStream(),
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        self.addAsyncCleanup(client.aclose)
+        provider = DeepSeekProvider(DeepSeekConfig(api_key="test-key"), client=client)
+
+        async def consume() -> None:
+            async for _ in provider.stream(
+                [Message(role="user", content="hello")],
+                (),
+                context=ProviderRequestContext(
+                    request_id="request-cancel",
+                    attempt_id="attempt-cancel",
+                    purpose="agent_turn",
+                    request_number=1,
+                    run_id="run-cancel",
+                    turn_id="run-cancel:turn:1",
+                ),
+            ):
+                pass
+
+        task = asyncio.create_task(consume())
+        await asyncio.wait_for(stream_reached_blocking_point.wait(), timeout=1)
+        task.cancel()
+
+        # CancelledError 必须原样穿过 Provider，不能被包装成 ProviderError。
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(task.cancelled())
+
+    async def test_rejects_unsupported_finish_reason_explicitly(self) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            del request
+            body = "\n".join(
+                [
+                    'data: {"choices":[{"delta":{},"finish_reason":"content_filter"}]}',
+                    "",
+                    "data: [DONE]",
+                    "",
+                ]
+            )
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                content=body.encode(),
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        self.addAsyncCleanup(client.aclose)
+        provider = DeepSeekProvider(DeepSeekConfig(api_key="test-key"), client=client)
+
+        # 当前 FinishReason 只覆盖 stop / length / tool_calls；
+        # 未映射的结束原因必须显式失败，而不是被悄悄当成 stop。
+        with self.assertRaisesRegex(
+            ProviderResponseError,
+            "not supported yet: content_filter",
+        ):
             await _collect(provider, [Message(role="user", content="hello")])
 
     async def test_owned_client_close_is_idempotent(self) -> None:

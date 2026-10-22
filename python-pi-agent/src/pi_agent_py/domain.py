@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import time
 from typing import Literal, Mapping, TypeAlias
+from uuid import uuid4
 
 JSONPrimitive: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
@@ -12,7 +14,10 @@ Role: TypeAlias = Literal["system", "user", "assistant", "tool"]
 FinishReason: TypeAlias = Literal["stop", "length", "tool_calls"]
 ProviderRequestPurpose: TypeAlias = Literal["agent_turn", "compaction"]
 ToolSideEffects: TypeAlias = Literal["none", "read", "write", "external"]
+WorkspaceAccessMode: TypeAlias = Literal["read-only", "workspace-write"]
+SandboxEnforcement: TypeAlias = Literal["full", "partial"]
 EventChannel: TypeAlias = Literal["durable", "live", "capability"]
+AGENT_EVENT_SCHEMA_VERSION = 1
 ControlDeliveryKind: TypeAlias = Literal["steer", "follow_up"]
 SessionEventKind: TypeAlias = Literal[
     "message_committed",
@@ -44,6 +49,8 @@ EventKind: TypeAlias = Literal[
     "compaction_failed",
     "compaction_cancelled",
     "model_request_started",
+    "model_request_finished",
+    "model_request_failed",
     "thinking_delta",
     "text_delta",
     "model_usage",
@@ -53,7 +60,7 @@ EventKind: TypeAlias = Literal[
     "tool_approval_requested",
     "tool_approval_decided",
     "tool_execution_started",
-    "tool_sandbox_denied",
+    "tool_execution_denied",
     "tool_execution_finished",
     "tool_call_recovered",
     "plugin_loaded",
@@ -117,6 +124,40 @@ class ToolOutput:
     content: str
     structured_content: JSONValue = None
     is_error: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxProcessRequest:
+    """One command requested inside a workspace process sandbox."""
+
+    command: str
+    mode: WorkspaceAccessMode = "workspace-write"
+    timeout_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if not self.command.strip():
+            raise ValueError("sandbox command must not be empty")
+        if "\x00" in self.command:
+            raise ValueError("sandbox command must not contain NUL")
+        if self.mode not in ("read-only", "workspace-write"):
+            raise ValueError("unknown workspace access mode")
+        if self.timeout_seconds is not None and self.timeout_seconds < 0:
+            raise ValueError("sandbox timeout_seconds must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxProcessResult:
+    """Completed sandbox command plus evidence about its enforcement."""
+
+    exit_code: int
+    stdout: str
+    stderr: str
+    enforcement: SandboxEnforcement
+    output_truncated: bool = False
+
+    def __post_init__(self) -> None:
+        if self.enforcement not in ("full", "partial"):
+            raise ValueError("unknown sandbox enforcement level")
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +239,25 @@ class ProviderRequestContext:
             self.run_id is None or self.turn_id is None
         ):
             raise ValueError("agent_turn requests require run_id and turn_id")
+
+
+@dataclass(frozen=True, slots=True)
+class NextTurnContext:
+    """Identity for the safe boundary before a run's next model request."""
+
+    run_id: str
+    turn_id: str
+    next_request_number: int
+    session_id: str | None = None
+
+    def __post_init__(self) -> None:
+        for name, value in (("run_id", self.run_id), ("turn_id", self.turn_id)):
+            if not value.strip():
+                raise ValueError(f"{name} must not be empty")
+        if self.next_request_number <= 0:
+            raise ValueError("next_request_number must be greater than zero")
+        if self.session_id is not None and not self.session_id.strip():
+            raise ValueError("session_id must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -491,6 +551,23 @@ def session_event_id(session_id: str, sequence: int) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class DurableEventIdentity:
+    """Stable identity returned after one durable session fact is committed."""
+
+    session_id: str
+    sequence: int
+    event_id: str
+
+    def __post_init__(self) -> None:
+        if not self.session_id.strip():
+            raise ValueError("durable event session_id must not be empty")
+        if self.sequence <= 0:
+            raise ValueError("durable event sequence must be greater than zero")
+        if not self.event_id.strip():
+            raise ValueError("durable event event_id must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
 class SessionSnapshot:
     """An immutable view of one session at a known version."""
 
@@ -564,6 +641,53 @@ ModelStreamEvent: TypeAlias = (
 
 
 @dataclass(frozen=True, slots=True)
+class AgentEventEnvelope:
+    """Stable metadata shared by every best-effort observer event."""
+
+    schema_version: int = AGENT_EVENT_SCHEMA_VERSION
+    event_id: str = field(default_factory=lambda: uuid4().hex)
+    occurred_at: float = field(default_factory=time)
+    source: str = "application"
+    session_id: str | None = None
+    run_id: str | None = None
+    turn_id: str | None = None
+    request_id: str | None = None
+    attempt_id: str | None = None
+    span_id: str | None = None
+    parent_span_id: str | None = None
+    duration_ms: float | None = None
+    durable_event_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.schema_version <= 0:
+            raise ValueError("event schema_version must be greater than zero")
+        if not self.event_id.strip():
+            raise ValueError("event_id must not be empty")
+        if self.occurred_at < 0:
+            raise ValueError("occurred_at must not be negative")
+        if not self.source.strip():
+            raise ValueError("event source must not be empty")
+        for name, value in (
+            ("session_id", self.session_id),
+            ("run_id", self.run_id),
+            ("turn_id", self.turn_id),
+            ("request_id", self.request_id),
+            ("attempt_id", self.attempt_id),
+            ("span_id", self.span_id),
+            ("parent_span_id", self.parent_span_id),
+            ("durable_event_id", self.durable_event_id),
+        ):
+            if value is not None and not value.strip():
+                raise ValueError(f"{name} must not be empty")
+        if self.turn_id is not None and self.run_id is None:
+            raise ValueError("event turn_id requires run_id")
+        if self.attempt_id is not None and self.request_id is None:
+            raise ValueError("event attempt_id requires request_id")
+        if self.duration_ms is not None and self.duration_ms < 0:
+            raise ValueError("event duration_ms must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
 class AgentEvent:
     """An observable runtime event.
 
@@ -574,6 +698,7 @@ class AgentEvent:
     kind: EventKind
     channel: EventChannel
     payload: Mapping[str, object] = field(default_factory=dict)
+    envelope: AgentEventEnvelope = field(default_factory=AgentEventEnvelope)
 
 
 @dataclass(frozen=True, slots=True)

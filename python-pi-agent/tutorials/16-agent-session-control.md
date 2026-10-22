@@ -46,7 +46,7 @@ follow-up 是新的 run，拥有新的 `run_id`。dispatcher 按 FIFO 执行；�
 
 ## 4. Abort 和调用者取消
 
-`abort()` 取消活动 Agent task，取消信号继续传播到 Provider、Sandbox 和 Tool。默认还会取消所有未开始 follow-up，并等待 session idle。若使用 `clear_queue=False`，只等待当前活动 task 结束，dispatcher 可以继续处理剩余队列。
+`abort()` 取消活动 Agent task，取消信号继续传播到 Provider、ToolExecutionGate 和 Tool；若 Tool 内部消费 `ProcessSandbox`，该 Provider 负责清理子进程或容器。默认还会取消所有未开始 follow-up，并等待 session idle。若使用 `clear_queue=False`，只等待当前活动 task 结束，dispatcher 可以继续处理剩余队列。
 
 直接取消 `asyncio.create_task(session.run(...))` 也会撤销该提交：尚未开始则从队列移除，已经开始则取消活动 task。已经写入 durable log 的消息不会回滚；下一次 run 会使用未决工具恢复逻辑修复尾部。
 

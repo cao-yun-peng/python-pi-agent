@@ -1,4 +1,4 @@
-# 第十四章：ToolExecutionContext、审批与 Sandbox
+# 第十四章：ToolExecutionContext、审批与执行 Gate
 
 ## 1. 原来的安全元数据没有执行力
 
@@ -27,13 +27,13 @@ resolve Tool
   -> build approval ToolExecutionContext snapshot
   -> ApprovalPolicy.review(context)（仅 requires_approval）
   -> rebuild execution snapshot + approval decision
-  -> Sandbox.execute(tool, arguments, context)
+  -> ToolExecutionGate.execute(tool, arguments, context)
   -> Tool.execute(arguments, context)
   -> validate ToolOutput
   -> commit tool result
 ```
 
-审批拒绝时不会进入 Sandbox；沙箱拒绝时不会进入 Tool。超时包围 Sandbox 与 Tool 的完整执行，外部取消沿同一 asyncio task 传播。
+审批拒绝时不会进入 Gate；Gate 拒绝时不会进入 Tool。超时包围 Gate 与 Tool 的完整执行，外部取消沿同一 asyncio task 传播。
 
 ## 3. ToolExecutionContext 里有什么
 
@@ -68,12 +68,12 @@ class ApprovalPolicy(Protocol):
 
 审批目前仍是 live capability decision，不是 durable fact。若未来需要人工审批跨进程等待，必须新增可持久化的 approval state machine，不能只保存内存中的 `ApprovalDecision`。
 
-## 5. Sandbox 是唯一执行入口
+## 5. ToolExecutionGate 是策略入口，不是沙箱
 
 端口定义：
 
 ```python
-class Sandbox(Protocol):
+class ToolExecutionGate(Protocol):
     async def execute(
         self,
         tool: Tool,
@@ -82,7 +82,7 @@ class Sandbox(Protocol):
     ) -> ToolOutput: ...
 ```
 
-runtime 不再直接调用 `tool.execute()`。默认 `DeclaredSideEffectSandbox`：
+runtime 不再直接调用 `tool.execute()`。默认 `DeclaredSideEffectGate`：
 
 - 只允许 `side_effects="none"`；
 - 可显式允许 read/write/external；
@@ -92,15 +92,15 @@ runtime 不再直接调用 `tool.execute()`。默认 `DeclaredSideEffectSandbox`
 配置示例：
 
 ```python
-sandbox = DeclaredSideEffectSandbox(
+execution_gate = DeclaredSideEffectGate(
     allowed_side_effects=("none", "read"),
     allowed_tools=("read_note",),
 )
 ```
 
-这是一条**声明式策略边界**，仍在当前 Python 进程执行。它无法阻止一个谎报 `side_effects="none"` 的恶意 handler 访问网络或文件。对不可信代码必须实现真正的 Sandbox provider，例如受限子进程、容器或远端 worker，并在那里控制文件系统、网络、环境变量和资源限额。
+这是一条**声明式策略边界**，仍在当前 Python 进程执行。它无法阻止一个谎报 `side_effects="none"` 的恶意 handler 访问网络或文件。它因此不再使用 `Sandbox` 命名。
 
-`InProcessSandbox` 显式允许所有声明的副作用，仅适用于调用者已经信任工具实现的场景；它仍会检查受保护调用已获批准。
+`TrustedToolExecutionGate` 显式允许所有声明的副作用，仅适用于调用者已经信任工具实现的场景；它仍会检查受保护调用已获批准。真正的进程隔离由第 20 章的 `ProcessSandbox` 承担。
 
 ## 6. 工具怎样使用 context
 
@@ -114,7 +114,7 @@ async def save_note(
     return ToolOutput(content=f"saved: {arguments['text']}")
 ```
 
-完整组装见 `examples/14_tool_execution_security.py`。注意审批与 Sandbox 是两个独立闸门：用户批准不等于应用自动扩大执行权限，sandbox 仍必须允许对应 effect 和 tool。
+完整组装见 `examples/14_tool_execution_security.py`。注意审批与 Gate 是两个独立判断：用户批准不等于应用自动允许对应 effect 和 tool。
 
 ## 7. 与 Pi 的映射
 
@@ -137,8 +137,8 @@ async def save_note(
 
 掌握标准：
 
-- 能解释为什么顺序必须是 validate → approve → sandbox → execute。
+- 能解释为什么顺序必须是 validate → approve → gate → execute。
 - 能证明审批器不能通过修改参数改变实际执行内容。
 - 能区分用户批准、声明式 effect allowlist 与真正的 OS 隔离。
-- 能说明 sandbox 拒绝为何回填 tool error，而外部取消为何直接传播。
-- 能实现一个新的 Sandbox provider，而不修改 Agent Loop 或 Tool 实现。
+- 能说明 Gate 拒绝为何回填 tool error，而外部取消为何直接传播。
+- 不会把任意 Python handler 经 Gate 调用描述成已经被沙箱隔离。

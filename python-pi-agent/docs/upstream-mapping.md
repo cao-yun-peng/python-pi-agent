@@ -3,6 +3,7 @@
 本项目是独立 Python 实现。映射用于学习设计，不承诺 API 兼容。
 
 当前 Pi 参考固定在 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb`。
+DeepSeek Harness 沙箱概念对照 `v0.2.1-rc.2`（release commit `687f282`）的 `packages/sandbox/sandbox/README.md`；只借鉴 per-call policy、fail-closed 与 enforcement evidence，不复制其多包结构。
 
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
@@ -14,12 +15,16 @@
 | `ToolDefinition` / `Tool` | `AgentTool`、参数 schema 与 execute context | Capability Definition / Provider / Consumer | 使用教学型 JSON Schema 子集；handler 接收隔离快照 context |
 | `ToolExecutionContext` | core toolCallId/params/signal + coding-agent `ExtensionToolContext` / `BeforeToolCallContext` | invocation-scoped capability context | 已含 call/definition、session、request/call index 与审批决定；待 signal API、cwd、identity、nested calls 和 progress |
 | `ApprovalPolicy` | `beforeToolCall` block hook | 独立策略 capability | 使用完整 context，异常/错误返回值 fail-closed；默认拒绝受保护工具，尚无身份策略与 durable approval |
-| `Sandbox` / `DeclaredSideEffectSandbox` | coding-agent 工具工厂与进程执行边界的应用侧组合 | policy + execution provider seam | runtime 只经 Sandbox 调度；默认只允许 none effect。当前 provider 是进程内声明式闸门，不是 OS 隔离 |
+| `ToolExecutionGate` / `DeclaredSideEffectGate` | coding-agent `beforeToolCall`/工具组装的应用侧策略 | policy consumer seam | runtime 只经 Gate 调度；默认只允许 none effect。名称明确不承诺 OS 隔离 |
+| `ProcessSandbox` / `DockerProcessSandbox` | Pi 建议的外部容器/VM 隔离边界 | DeepSeek Harness subprocess confinement、per-call policy、fail-closed 与 enforcement completeness | 当前只提供 Docker workspace Provider；比 same-world runner 隔离更完整，但尚无 native backend、文件工具统一路由和单次升级 |
+| `SandboxedShellTool` | Pi bash 工具经容器/VM 路由的 consumer 模式 | confined shell consumer | command 进入只挂载 workspace 的容器；未知 Python 插件仍在 Harness 进程中运行 |
 | tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交并可从 durable event replay；重启时会保守补齐尾部未决调用，副作用结果标记为 unknown |
 | `EventSink` / `IsolatedEventSink` | `Agent.subscribe()` / `AgentSession.subscribe()` | live events 与 durable session events 分离 | Pi core Agent 会 await listener；本项目把 EventSink 限定为观察者并自动隔离异常，拦截行为留给 Hook |
 | `RedactingEventSink` / `BufferedEventSink` | UI/session listener 的应用侧消费 | telemetry 数据最小化 + lifecycle | 默认隐藏模型可见内容后再进入有界队列；best-effort、显式关闭，不替代 durable log |
+| `AgentEventEnvelope` / observer span | run/turn/model/tool lifecycle event | versioned telemetry schema + trace correlation | 公共字段移出 payload；模型/工具/压缩/Hook 有 started/terminal span 与 monotonic duration，尚无 OpenTelemetry exporter 和指标聚合 |
+| `DurableEventIdentity` | session entry identity 与运行时 committed notification | observer-to-fact join | AgentSession 的 message notification 指回 durable event；standalone Agent 无 Store 时允许为空 |
 | `AgentSession` | Pi `AgentSession` 的 prompt/steer/followUp/abort、状态与 compaction 编排 | Consumer 组合 Provider、存储与控制 capability | 已支持 FIFO dispatcher、durable steer/follow-up、claim lease、abort、settled/idle、恢复和压缩；JSONL 尚无跨进程文件锁 |
-| `NextTurnHook` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | Agent 保持单插槽，PluginHost 可在插槽外组合多个 Hook；仍无队列与模型路由 |
+| `NextTurnHook` / `NextTurnContext` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | Agent 保持单插槽，PluginHost 可在插槽外组合多个 Hook；context 显式携带 session/run/turn/request number，仍无队列与模型路由 |
 | `PluginFactory` / `PluginAPI` | `ExtensionFactory` / `ExtensionAPI` | 显式 capability registration | 注册 Tool、NextTurnHook、SessionPluginFactory 与 cleanup；不含 UI/命令/MCP |
 | `PluginHost` / `PluginSessionLease` | extension loader + session-bound ExtensionRunner | Provider lifecycle + evidence | staging 后原子发布；每 Session 独立实例，请求 Hook 只改投影，后台 settled observer 隔离；不做目录发现与热重载 |
 | plugin hook chain | ExtensionRunner 的顺序 handler dispatch | ordered interceptor pipeline | 使用 priority + 注册顺序、逐 Hook 超时和 fail-closed；Pi 的许多 handler 会记录错误后继续 |

@@ -2,7 +2,7 @@
 
 一个教学优先、模块化、可复用的 Python Agent Harness。我们从可以完全看懂的最小循环开始，逐步加入工具、会话、上下文压缩、权限、沙箱、插件、评测与多 Agent 协作。
 
-当前已经实现十六条纵向切片：
+当前纵向切片包括：
 
 ```text
 用户输入 -> 消息历史 -> ModelProvider -> 流式事件 -> Assistant 消息 -> settled
@@ -18,9 +18,11 @@ JSONL -> 严格反序列化 -> durable events -> replay -> 跨进程恢复
 候选上下文 -> token threshold policy -> run 前/工具续轮前 durable compaction
 PluginFactory -> 原子注册 -> Tool / 有序 Hook -> Agent 组装 -> 逆序释放
 EventSink -> 异常隔离 -> 日志脱敏 -> 有界后台投递 -> 显式关闭
-ToolCall -> ToolExecutionContext -> ApprovalPolicy -> Sandbox -> ToolOutput
+AgentEventEnvelope -> version/time/source/correlation -> spans -> durable event join
+ToolCall -> ToolExecutionContext -> ApprovalPolicy -> ToolExecutionGate -> ToolOutput
 DurableSessionEvent -> event/run/turn identity -> provenance -> schema v4 replay
 AgentSession -> dispatcher -> steer / follow-up / abort -> settled / idle
+Shell Tool -> ProcessSandbox -> Docker workspace -> bounded result
 ```
 
 它同时提供脚本化 `FakeProvider` 和真实 `DeepSeekProvider`。默认测试仍然确定、离线且不会产生 API 费用。
@@ -50,6 +52,8 @@ AgentSession -> dispatcher -> steer / follow-up / abort -> settled / idle
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\17_durable_controls.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\18_provider_request_context.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\19_session_aware_plugin.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\20_docker_workspace_sandbox.py --help
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\21_minimal_http_sse.py
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：
@@ -69,6 +73,16 @@ $env:DEEPSEEK_API_KEY = "你的密钥"
 
 默认使用当前官方模型名 `deepseek-flash`，可通过 `DEEPSEEK_MODEL` 修改。详见[第二章：DeepSeekProvider](tutorials/02-deepseek-provider.md)。
 
+想先看清“线路上到底传了什么”，可以运行不依赖 Agent 框架的最小客户端：
+
+```powershell
+# 离线 fixture，不访问网络
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\21_minimal_http_sse.py
+# 真实调用
+$env:DEEPSEEK_API_KEY = "你的密钥"
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\21_minimal_http_sse.py --live
+```
+
 预期示例输出：
 
 ```text
@@ -81,6 +95,7 @@ capability context_prepared
 live    model_request_started
 live    text_delta
 live    text_delta
+live    model_request_finished
 durable message_committed
 live    run_completed
 live    run_settled
@@ -96,24 +111,26 @@ live    run_settled
 6. `src/pi_agent_py/testing.py`：如何不用真实模型验证循环
 7. `tests/test_minimal_loop.py`：公开行为契约
 8. `src/pi_agent_py/providers/deepseek.py`：真实 SSE Provider 适配器
-9. `src/pi_agent_py/tools.py`：工具定义、审批策略与 schema 校验
-10. [教程：工具调用系统](tutorials/03-tool-calling.md)
-11. [教程：会话存储与 AgentSession](tutorials/04-session-runtime.md)
-12. [教程：Durable Event Log 与 Replay](tutorials/05-durable-event-log.md)
-13. [教程：JSONL 持久化](tutorials/06-jsonl-persistence.md)
-14. [教程：持久化会话分叉](tutorials/07-session-fork.md)
-15. [教程：ContextStrategy 接缝](tutorials/08-context-strategy.md)
-16. [教程：Token Budget 与完整消息组](tutorials/09-token-budget-context.md)
-17. [教程：Durable Compaction](tutorials/10-durable-compaction.md)
-18. [教程：Token Threshold 自动压缩与 NextTurnHook](tutorials/11-automatic-compaction.md)
-19. [教程：显式、可释放的插件系统](tutorials/12-plugin-system.md)
-20. [教程：隔离 EventSink 与安全日志](tutorials/13-safe-event-observation.md)
-21. [教程：ToolExecutionContext、审批与 Sandbox](tutorials/14-tool-execution-security.md)
-22. [教程：Durable Event 的 Run、Turn 与 Provenance](tutorials/15-durable-event-provenance.md)
-23. [教程：AgentSession 控制状态机](tutorials/16-agent-session-control.md)
-24. [教程：Steer 与 Follow-up 的持久化恢复](tutorials/17-durable-session-controls.md)
-25. [教程：ProviderRequestContext](tutorials/18-provider-request-context.md)
-26. [教程：Session-aware 插件与生命周期租约](tutorials/19-session-aware-plugins.md)
-27. [Compaction 质量评测方案](docs/compaction-evaluation.md)
+9. `src/pi_agent_py/tools.py`：工具定义、审批策略、执行 Gate 与沙箱化 Shell consumer
+10. `src/pi_agent_py/sandbox.py`：真正的进程隔离 Provider 与 fail-closed 生命周期
+11. [教程：工具调用系统](tutorials/03-tool-calling.md)
+12. [教程：会话存储与 AgentSession](tutorials/04-session-runtime.md)
+13. [教程：Durable Event Log 与 Replay](tutorials/05-durable-event-log.md)
+14. [教程：JSONL 持久化](tutorials/06-jsonl-persistence.md)
+15. [教程：持久化会话分叉](tutorials/07-session-fork.md)
+16. [教程：ContextStrategy 接缝](tutorials/08-context-strategy.md)
+17. [教程：Token Budget 与完整消息组](tutorials/09-token-budget-context.md)
+18. [教程：Durable Compaction](tutorials/10-durable-compaction.md)
+19. [教程：Token Threshold 自动压缩与 NextTurnHook](tutorials/11-automatic-compaction.md)
+20. [教程：显式、可释放的插件系统](tutorials/12-plugin-system.md)
+21. [教程：隔离 EventSink 与安全日志](tutorials/13-safe-event-observation.md)
+22. [教程：ToolExecutionContext、审批与执行 Gate](tutorials/14-tool-execution-security.md)
+23. [教程：Durable Event 的 Run、Turn 与 Provenance](tutorials/15-durable-event-provenance.md)
+24. [教程：AgentSession 控制状态机](tutorials/16-agent-session-control.md)
+25. [教程：Steer 与 Follow-up 的持久化恢复](tutorials/17-durable-session-controls.md)
+26. [教程：ProviderRequestContext](tutorials/18-provider-request-context.md)
+27. [教程：Session-aware 插件与生命周期租约](tutorials/19-session-aware-plugins.md)
+28. [教程：Docker Workspace Process Sandbox](tutorials/20-workspace-process-sandbox.md)
+29. [Compaction 质量评测方案](docs/compaction-evaluation.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。

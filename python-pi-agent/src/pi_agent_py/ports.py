@@ -15,7 +15,10 @@ from .domain import (
     JSONObject,
     Message,
     ModelStreamEvent,
+    NextTurnContext,
     ProviderRequestContext,
+    SandboxProcessRequest,
+    SandboxProcessResult,
     SessionEventContext,
     SessionEventKind,
     SessionSnapshot,
@@ -64,7 +67,7 @@ class NextTurnHook(Protocol):
         self,
         messages: Sequence[Message],
         *,
-        next_request_number: int,
+        context: NextTurnContext,
     ) -> Sequence[Message]:
         """Return the canonical history for the next model request."""
         ...
@@ -186,8 +189,8 @@ class Tool(Protocol):
         ...
 
 
-class Sandbox(Protocol):
-    """Owns the final dispatch boundary for every validated tool call."""
+class ToolExecutionGate(Protocol):
+    """Applies in-process policy before dispatching a validated tool call."""
 
     async def execute(
         self,
@@ -195,7 +198,15 @@ class Sandbox(Protocol):
         arguments: JSONObject,
         context: ToolExecutionContext,
     ) -> ToolOutput:
-        """Enforce execution policy and invoke the tool or raise SandboxError."""
+        """Invoke the tool or raise ToolExecutionGateError without claiming isolation."""
+        ...
+
+
+class ProcessSandbox(Protocol):
+    """Runs commands behind an enforceable process and workspace boundary."""
+
+    async def run(self, request: SandboxProcessRequest) -> SandboxProcessResult:
+        """Execute one command or fail closed when isolation is unavailable."""
         ...
 
 

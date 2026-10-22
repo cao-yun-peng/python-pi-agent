@@ -82,12 +82,28 @@ class ToolValidationError(AgentError):
         self.violations = violations
 
 
+class ToolExecutionGateError(AgentError):
+    """A tool execution gate could not safely dispatch an invocation."""
+
+
+class ToolExecutionDeniedError(ToolExecutionGateError):
+    """A tool execution policy denied the requested invocation."""
+
+
 class SandboxError(AgentError):
-    """A sandbox could not safely dispatch a tool invocation."""
+    """An isolated process sandbox failed before producing a result."""
 
 
-class SandboxViolationError(SandboxError):
-    """A sandbox policy denied the requested tool invocation."""
+class SandboxUnavailableError(SandboxError):
+    """The requested process isolation cannot be enforced on this host."""
+
+
+class SandboxTimeoutError(SandboxError):
+    """A sandboxed process exceeded its deadline and was terminated."""
+
+
+class SandboxOutputLimitError(SandboxError):
+    """A sandboxed process exceeded its bounded output allowance."""
 
 
 class PluginError(AgentError):

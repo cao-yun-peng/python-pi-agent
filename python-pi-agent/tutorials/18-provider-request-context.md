@@ -38,7 +38,10 @@ ContextStrategy
   -> ProviderRequestHook
   -> model_request_started event
   -> ModelProvider.stream(..., context=context)
+  -> model_request_finished / model_request_failed event
 ```
+
+Observer event 把 request/attempt/session/run/turn 放在 `AgentEventEnvelope`，不再复制到开放 payload。started 与 terminal event 共享 attempt/span ID，terminal envelope 记录 monotonic duration。
 
 压缩请求使用 `purpose="compaction"`，手动压缩可以没有 run/turn；自动压缩会关联触发它的目标 run。这样 telemetry 和路由策略无需检查 prompt 就能区分两类流量。
 

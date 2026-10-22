@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Protocol
+from uuid import uuid4
 
 from .domain import (
-    AgentEvent,
     ContextPlan,
     EventKind,
     Message,
+    NextTurnContext,
     ProviderRequestContext,
 )
 from .errors import (
@@ -22,7 +24,7 @@ from .errors import (
     PluginLoadError,
     PluginRegistrationError,
 )
-from .events import EventSinkFailure, ensure_isolated_event_sink
+from .events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from .ports import EventSink, NextTurnHook, Tool
 
 CleanupCallback = Callable[[], Awaitable[None] | None]
@@ -328,11 +330,14 @@ class PluginSessionLease:
         current = deepcopy(plan)
         for item in self._plugins:
             registration = item.registration
+            span_id = uuid4().hex
+            started_at = time.perf_counter()
             self._emit(
                 "plugin_hook_started",
+                request_context=context,
+                span_id=span_id,
                 plugin_name=registration.plugin_name,
                 hook="before_provider_request",
-                request_id=context.request_id,
             )
             try:
                 call = item.plugin.before_provider_request(
@@ -355,17 +360,21 @@ class PluginSessionLease:
             except asyncio.CancelledError:
                 self._emit(
                     "plugin_hook_cancelled",
+                    request_context=context,
+                    span_id=span_id,
+                    duration_ms=_duration_ms(started_at),
                     plugin_name=registration.plugin_name,
                     hook="before_provider_request",
-                    request_id=context.request_id,
                 )
                 raise
             except Exception as error:
                 self._emit(
                     "plugin_hook_failed",
+                    request_context=context,
+                    span_id=span_id,
+                    duration_ms=_duration_ms(started_at),
                     plugin_name=registration.plugin_name,
                     hook="before_provider_request",
-                    request_id=context.request_id,
                     error=type(error).__name__,
                 )
                 raise PluginExecutionError(
@@ -375,9 +384,11 @@ class PluginSessionLease:
             current = prepared
             self._emit(
                 "plugin_hook_finished",
+                request_context=context,
+                span_id=span_id,
+                duration_ms=_duration_ms(started_at),
                 plugin_name=registration.plugin_name,
                 hook="before_provider_request",
-                request_id=context.request_id,
             )
         return current
 
@@ -394,17 +405,45 @@ class PluginSessionLease:
 
     async def _observe_run_settled(self, run_id: str) -> None:
         for item in self._plugins:
+            span_id = uuid4().hex
+            started_at = time.perf_counter()
+            self._emit(
+                "plugin_hook_started",
+                run_id=run_id,
+                span_id=span_id,
+                plugin_name=item.registration.plugin_name,
+                hook="on_run_settled",
+            )
             try:
                 await item.plugin.on_run_settled(run_id)
             except asyncio.CancelledError:
+                self._emit(
+                    "plugin_hook_cancelled",
+                    run_id=run_id,
+                    span_id=span_id,
+                    duration_ms=_duration_ms(started_at),
+                    plugin_name=item.registration.plugin_name,
+                    hook="on_run_settled",
+                )
                 raise
             except Exception as error:
                 self._emit(
                     "plugin_hook_failed",
+                    run_id=run_id,
+                    span_id=span_id,
+                    duration_ms=_duration_ms(started_at),
                     plugin_name=item.registration.plugin_name,
                     hook="on_run_settled",
-                    run_id=run_id,
                     error=type(error).__name__,
+                )
+            else:
+                self._emit(
+                    "plugin_hook_finished",
+                    run_id=run_id,
+                    span_id=span_id,
+                    duration_ms=_duration_ms(started_at),
+                    plugin_name=item.registration.plugin_name,
+                    hook="on_run_settled",
                 )
 
     async def close(self) -> None:
@@ -430,9 +469,31 @@ class PluginSessionLease:
         del exc_info
         await self.close()
 
-    def _emit(self, kind: EventKind, **payload: object) -> None:
+    def _emit(
+        self,
+        kind: EventKind,
+        *,
+        request_context: ProviderRequestContext | None = None,
+        run_id: str | None = None,
+        span_id: str | None = None,
+        duration_ms: float | None = None,
+        **payload: object,
+    ) -> None:
+        context = request_context
         self._event_sink.emit(
-            AgentEvent(kind=kind, channel="capability", payload=payload)
+            make_agent_event(
+                kind,
+                "capability",
+                source="plugin_session",
+                payload=payload,
+                session_id=self.session_id,
+                run_id=context.run_id if context is not None else run_id,
+                turn_id=context.turn_id if context is not None else None,
+                request_id=context.request_id if context is not None else None,
+                attempt_id=context.attempt_id if context is not None else None,
+                span_id=span_id,
+                duration_ms=duration_ms,
+            )
         )
 
 
@@ -690,9 +751,21 @@ class PluginHost:
             plugin_names=lease.plugin_names,
         )
 
-    def _emit(self, kind: EventKind, **payload: object) -> None:
+    def _emit(
+        self,
+        kind: EventKind,
+        *,
+        session_id: str | None = None,
+        **payload: object,
+    ) -> None:
         self._event_sink.emit(
-            AgentEvent(kind=kind, channel="capability", payload=payload)
+            make_agent_event(
+                kind,
+                "capability",
+                source="plugin_host",
+                payload=payload,
+                session_id=session_id,
+            )
         )
 
 
@@ -711,20 +784,24 @@ class _PluginNextTurnHook:
         self,
         messages: Sequence[Message],
         *,
-        next_request_number: int,
+        context: NextTurnContext,
     ) -> Sequence[Message]:
         current = tuple(messages)
         for item in self._hooks:
+            span_id = uuid4().hex
+            started_at = time.perf_counter()
             self._emit(
                 "plugin_hook_started",
+                context=context,
+                span_id=span_id,
                 plugin_name=item.plugin_name,
                 hook="next_turn",
-                next_request_number=next_request_number,
+                next_request_number=context.next_request_number,
             )
             try:
                 call = item.hook.prepare(
                     current,
-                    next_request_number=next_request_number,
+                    context=context,
                 )
                 if item.timeout_seconds is None:
                     prepared = tuple(await call)
@@ -736,6 +813,9 @@ class _PluginNextTurnHook:
             except asyncio.CancelledError:
                 self._emit(
                     "plugin_hook_cancelled",
+                    context=context,
+                    span_id=span_id,
+                    duration_ms=_duration_ms(started_at),
                     plugin_name=item.plugin_name,
                     hook="next_turn",
                 )
@@ -743,6 +823,9 @@ class _PluginNextTurnHook:
             except Exception as error:
                 self._emit(
                     "plugin_hook_failed",
+                    context=context,
+                    span_id=span_id,
+                    duration_ms=_duration_ms(started_at),
                     plugin_name=item.plugin_name,
                     hook="next_turn",
                     error=type(error).__name__,
@@ -754,16 +837,41 @@ class _PluginNextTurnHook:
             current = prepared
             self._emit(
                 "plugin_hook_finished",
+                context=context,
+                span_id=span_id,
+                duration_ms=_duration_ms(started_at),
                 plugin_name=item.plugin_name,
                 hook="next_turn",
-                next_request_number=next_request_number,
+                next_request_number=context.next_request_number,
             )
         return current
 
-    def _emit(self, kind: EventKind, **payload: object) -> None:
+    def _emit(
+        self,
+        kind: EventKind,
+        *,
+        context: NextTurnContext,
+        span_id: str | None = None,
+        duration_ms: float | None = None,
+        **payload: object,
+    ) -> None:
         self._event_sink.emit(
-            AgentEvent(kind=kind, channel="capability", payload=payload)
+            make_agent_event(
+                kind,
+                "capability",
+                source="plugin_next_turn_hook",
+                payload=payload,
+                session_id=context.session_id,
+                run_id=context.run_id,
+                turn_id=context.turn_id,
+                span_id=span_id,
+                duration_ms=duration_ms,
+            )
         )
+
+
+def _duration_ms(started_at: float) -> float:
+    return max(0.0, (time.perf_counter() - started_at) * 1000)
 
 
 async def _run_cleanups(

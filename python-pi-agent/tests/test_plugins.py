@@ -15,6 +15,7 @@ from pi_agent_py import (
     InMemorySessionStore,
     JSONObject,
     Message,
+    NextTurnContext,
     PluginAPI,
     PluginExecutionError,
     PluginHost,
@@ -31,6 +32,15 @@ from pi_agent_py import (
 )
 
 
+def _next_turn_context() -> NextTurnContext:
+    return NextTurnContext(
+        session_id="session-1",
+        run_id="run-1",
+        turn_id="run-1:turn:2",
+        next_request_number=2,
+    )
+
+
 class RecordingHook:
     def __init__(self, name: str, calls: list[str]) -> None:
         self._name = name
@@ -40,9 +50,9 @@ class RecordingHook:
         self,
         messages: Sequence[Message],
         *,
-        next_request_number: int,
+        context: NextTurnContext,
     ) -> Sequence[Message]:
-        self._calls.append(f"{self._name}:{next_request_number}")
+        self._calls.append(f"{self._name}:{context.next_request_number}")
         return messages
 
 
@@ -267,6 +277,22 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             [event.kind for event in events.events if event.kind.startswith("plugin_")],
             ["plugin_loaded", "plugin_hook_started", "plugin_hook_finished"],
         )
+        hook_events = [
+            event
+            for event in events.events
+            if event.payload.get("hook") == "next_turn"
+        ]
+        self.assertEqual(
+            hook_events[0].envelope.span_id,
+            hook_events[1].envelope.span_id,
+        )
+        self.assertIsNotNone(hook_events[1].envelope.duration_ms)
+        self.assertEqual(hook_events[1].envelope.source, "plugin_next_turn_hook")
+        self.assertIsNotNone(hook_events[1].envelope.run_id)
+        self.assertEqual(
+            hook_events[1].envelope.turn_id,
+            f"{hook_events[1].envelope.run_id}:turn:2",
+        )
 
     async def test_hooks_run_by_priority_then_registration_order(self) -> None:
         calls: list[str] = []
@@ -286,7 +312,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
 
         prepared = await hook.prepare(
             (Message(role="user", content="hello"),),
-            next_request_number=2,
+            context=_next_turn_context(),
         )
 
         self.assertEqual(tuple(prepared), (Message(role="user", content="hello"),))
@@ -365,9 +391,9 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 self,
                 messages: Sequence[Message],
                 *,
-                next_request_number: int,
+                context: NextTurnContext,
             ) -> Sequence[Message]:
-                del messages, next_request_number
+                del messages, context
                 await asyncio.Event().wait()
                 raise AssertionError("unreachable")
 
@@ -385,7 +411,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         assert hook is not None
 
         with self.assertRaisesRegex(PluginExecutionError, 'plugin "blocking"'):
-            await hook.prepare((), next_request_number=2)
+            await hook.prepare((), context=_next_turn_context())
 
         self.assertEqual(
             [event.kind for event in events.events[-2:]],
@@ -402,9 +428,9 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 self,
                 messages: Sequence[Message],
                 *,
-                next_request_number: int,
+                context: NextTurnContext,
             ) -> Sequence[Message]:
-                del messages, next_request_number
+                del messages, context
                 started.set()
                 await asyncio.Event().wait()
                 raise AssertionError("unreachable")
@@ -419,7 +445,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         await host.load("cancel", plugin)
         hook = host.snapshot().next_turn_hook
         assert hook is not None
-        task = asyncio.create_task(hook.prepare((), next_request_number=2))
+        task = asyncio.create_task(hook.prepare((), context=_next_turn_context()))
         await started.wait()
         task.cancel()
 

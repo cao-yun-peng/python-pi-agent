@@ -1,6 +1,6 @@
 # ADR 0002: Sequential Tool Loop with Explicit Approval
 
-> 执行 context 与 Sandbox 边界由 ADR 0014 补充；本 ADR 的顺序执行决定仍然有效。
+> 执行 context 与 Gate 边界由 ADR 0014 补充，Gate/ProcessSandbox 分离由 ADR 0020 修正；本 ADR 的顺序执行决定仍然有效。
 
 ## Status
 
