@@ -26,7 +26,7 @@ AgentEventEnvelope -> version/time/source/correlation -> spans -> durable event 
 ToolCall -> ToolExecutionContext -> ApprovalPolicy -> ToolExecutionGate -> ToolOutput
 DurableSessionEvent -> event/run/turn identity -> provenance -> schema v4 replay
 AgentSession -> dispatcher -> steer / follow-up / abort -> settled / idle
-BashTool -> SandboxedBashExecutor -> exact argv ProcessSandbox -> Docker workspace
+agent.yaml -> coding_profile -> BashTool -> SandboxedBashExecutor -> Docker workspace
 ```
 
 它同时提供脚本化 `FakeProvider`，以及 DeepSeek、Kimi、GLM Chat Completions 和 TiMi Codex/GPT/Grok Responses API 适配器。默认测试仍然确定、离线且不会产生 API 费用。
@@ -63,6 +63,7 @@ BashTool -> SandboxedBashExecutor -> exact argv ProcessSandbox -> Docker workspa
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\24_application_runtime.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\26_bash_tool_contract.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\27_docker_bash_executor.py --help
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\28_configured_bash_runtime.py --help
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：
@@ -163,5 +164,6 @@ live    run_settled
 38. [教程：AgentRuntime、Profile 与统一生命周期](tutorials/25-application-runtime-assembly.md)
 39. [教程：BashTool 与 ShellExecutor 契约](tutorials/26-bash-tool-contract.md)
 40. [教程：Docker-backed BashExecutor](tutorials/27-docker-bash-executor.md)
+41. [教程：从 agent.yaml 组装 Docker Bash Runtime](tutorials/28-configured-bash-runtime.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。

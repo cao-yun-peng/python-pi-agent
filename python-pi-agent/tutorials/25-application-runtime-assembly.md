@@ -52,6 +52,8 @@ runtime = await (
 
 调用 `default_provider_catalog()` 是显式动作，不会在 import 阶段注册全局 Provider。
 
+后续第 28 章沿用同一边界：`agent.yaml` 可选声明 Docker Bash 部署参数，`coding_profile()` 只声明权限默认值，Builder 才在 build 事务中创建 Sandbox、Executor 与 Tool。Profile 仍不捕获 workspace 或 Docker client。
+
 ## 4. owned 与 borrowed
 
 调用方传入的对象默认是 borrowed，Runtime 不关闭它。Builder 自己从 Catalog 创建的 Provider 是 owned，会在 Runtime 关闭时释放内部 HTTP client。

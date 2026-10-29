@@ -113,3 +113,5 @@ bash = BashTool(executor, requires_approval=True)
 - 本阶段主动省略 host-local trusted executor、后台 job、PTY、完整输出 spill、网络权限升级和多平台 native runner。
 
 掌握标准：能从一条 `ToolCall` 追到最终 Docker argv，解释每一层拥有的默认值与失败语义，并证明 Docker 不可用时命令不会回退到宿主机。
+
+正式应用不必继续手工组装这些对象；第 28 章把相同链路接入 `agent.yaml`、`coding_profile()` 与 `AgentRuntimeBuilder`。

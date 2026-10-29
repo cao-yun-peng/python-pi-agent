@@ -11,11 +11,12 @@ from typing import TypeVar, cast
 
 from .app_runtime import AgentRuntime, SessionPoolPolicy
 from .configuration import (
+    DockerBashSettings,
     LoadedAppConfig,
     ProviderResilienceSettings,
     ProviderRuntimeConfig,
 )
-from .domain import Message, NextTurnContext
+from .domain import Message, NextTurnContext, ToolSideEffects
 from .errors import ConfigurationError, RuntimeBuildError, RuntimeCloseError
 from .events import ensure_isolated_event_sink
 from .lifecycle import Cleanup, LifecycleScope, ManagedResource, ResourceOwnership
@@ -51,6 +52,8 @@ from .providers import (
     TimiccResponsesProvider,
 )
 from .session import InMemorySessionStore
+from .sandbox import DockerProcessSandbox
+from .shell import BashTool, SandboxedBashExecutor
 
 T = TypeVar("T")
 ProviderFactory = Callable[
@@ -382,6 +385,12 @@ class AgentRuntimeBuilder:
                 if self._tools is not None
                 else tuple(factory() for factory in profile.tool_factories)
             )
+            if self._loaded_config is not None:
+                bash_settings = self._loaded_config.spec.bash
+                if bash_settings is not None:
+                    tools = tuple(tools) + (
+                        _build_configured_bash(bash_settings),
+                    )
             approval_policy = _resolve_override(
                 self._approval_policy,
                 profile.approval_policy_factory,
@@ -577,6 +586,34 @@ def _validate_tool_names(tools: Sequence[Tool]) -> None:
         raise ConfigurationError(
             "duplicate assembled tool names: " + ", ".join(sorted(duplicates))
         )
+
+
+def _build_configured_bash(settings: DockerBashSettings) -> BashTool:
+    sandbox = DockerProcessSandbox(
+        settings.workspace_root,
+        image=settings.image,
+        docker_executable=settings.docker_executable,
+        network_enabled=settings.network_enabled,
+        max_output_bytes=settings.max_output_bytes,
+    )
+    executor = SandboxedBashExecutor(
+        sandbox,
+        mode=settings.mode,
+        default_timeout_seconds=settings.default_timeout_seconds,
+        max_timeout_seconds=settings.max_timeout_seconds,
+    )
+    side_effects: ToolSideEffects
+    if settings.network_enabled:
+        side_effects = "external"
+    elif settings.mode == "read-only":
+        side_effects = "read"
+    else:
+        side_effects = "write"
+    return BashTool(
+        executor,
+        requires_approval=True,
+        side_effects=side_effects,
+    )
 
 
 async def _rollback(*scopes: LifecycleScope) -> tuple[BaseException, ...]:

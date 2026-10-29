@@ -19,6 +19,8 @@
 
 Builder 从已有 `LoadedAppConfig` 构造原始 Provider，并根据 resilience 配置包裹 `DirectModelRuntime` 或 `ResilientModelRuntime`。原始 Provider 仍由 lifecycle scope 关闭，组合层不夺取其资源所有权。
 
+后续 ADR 0027 将同一显式组装边界扩展到可选 Docker Bash：配置保存非秘密部署事实，`coding_profile()` 保存权限默认值，Builder 才创建活的 Sandbox/Executor/Tool；Profile 仍不持有 I/O。
+
 同一个 session ID 在 Runtime 存活期间共享一个 `AgentSession` controller。容量不足时只能驱逐无 lease、已 restore 且 idle 的 controller；驱逐不会删除 durable history。Runtime 关闭时先拒绝新工作，短暂等待 idle，然后关闭全部 Session、PluginHost/Provider/Store，最后关闭 observer。
 
 为支持静态 plugin Hook 与 durable compaction 共存，`AgentSession` 增加通用 `NextTurnHook` 参数，并按“durable compaction → application/plugin Hook”的顺序组合；Agent loop 本身保持不感知 Builder、Profile 或 PluginHost。

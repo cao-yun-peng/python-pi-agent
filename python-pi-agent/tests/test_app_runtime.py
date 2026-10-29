@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
@@ -12,6 +13,7 @@ from pi_agent_py import (
     AppConfigSpec,
     CredentialDiagnostic,
     DeepSeekSettings,
+    DockerBashSettings,
     FakeProvider,
     Finish,
     LoadedAppConfig,
@@ -24,11 +26,13 @@ from pi_agent_py import (
     SessionPoolPolicy,
     TextDelta,
     ToolCall,
+    StaticApprovalPolicy,
     WaitUntilCancelled,
     ProviderCatalog,
     ProviderRegistration,
     ProviderResilienceSettings,
     ProviderTimeoutError,
+    coding_profile,
 )
 from pi_agent_py.plugins import PluginAPI
 from pi_agent_py.providers import DeepSeekConfig
@@ -71,6 +75,103 @@ class _RecordingHook:
 
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_configured_bash_missing_workspace_rolls_back_build(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider = FakeProvider([])
+            catalog = ProviderCatalog(
+                (ProviderRegistration("deepseek", lambda _config: provider),)
+            )
+            loaded = LoadedAppConfig(
+                spec=AppConfigSpec(
+                    provider=DeepSeekSettings(),
+                    config_path=root / "agent.yaml",
+                    bash=DockerBashSettings(
+                        workspace_root=root / "missing",
+                        image="local/pi-agent:test",
+                    ),
+                ),
+                provider_config=DeepSeekConfig(api_key="test-secret"),
+                credential=CredentialDiagnostic(
+                    variable="DEEPSEEK_API_KEY",
+                    source="explicit",
+                    masked_value="********cret",
+                ),
+            )
+
+            with self.assertRaises(RuntimeBuildError) as raised:
+                await AgentRuntimeBuilder.from_loaded_config(
+                    loaded,
+                    provider_catalog=catalog,
+                ).build()
+
+        self.assertEqual(
+            str(raised.exception),
+            "agent runtime assembly failed",
+        )
+
+    async def test_loaded_config_and_coding_profile_assemble_fail_closed_bash(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            provider = FakeProvider(
+                [
+                    [
+                        ToolCall("call-bash", "bash", {"command": "echo ok"}),
+                        Finish("tool_calls"),
+                    ],
+                    [TextDelta("recovered"), Finish()],
+                ]
+            )
+            catalog = ProviderCatalog(
+                (ProviderRegistration("deepseek", lambda _config: provider),)
+            )
+            loaded = LoadedAppConfig(
+                spec=AppConfigSpec(
+                    provider=DeepSeekSettings(),
+                    config_path=workspace / "agent.yaml",
+                    bash=DockerBashSettings(
+                        workspace_root=workspace,
+                        image="local/pi-agent:test",
+                        docker_executable="missing-pi-agent-docker-test",
+                        network_enabled=True,
+                    ),
+                ),
+                provider_config=DeepSeekConfig(api_key="test-secret"),
+                credential=CredentialDiagnostic(
+                    variable="DEEPSEEK_API_KEY",
+                    source="explicit",
+                    masked_value="********cret",
+                ),
+            )
+            runtime = await (
+                AgentRuntimeBuilder.from_loaded_config(
+                    loaded,
+                    provider_catalog=catalog,
+                )
+                .with_profile(coding_profile())
+                .with_approval_policy(StaticApprovalPolicy(True))
+                .build()
+            )
+
+            result = await runtime.run("session", "run a command")
+            await runtime.aclose()
+
+        self.assertEqual(
+            [definition.name for definition in provider.requested_tools[0]],
+            ["bash"],
+        )
+        self.assertEqual(
+            provider.requested_tools[0][0].side_effects,
+            "external",
+        )
+        self.assertTrue(provider.requested_tools[0][0].requires_approval)
+        self.assertEqual(result.messages[2].role, "tool")
+        self.assertTrue(result.messages[2].is_error)
+        self.assertIn("SandboxUnavailableError", result.messages[2].content)
+        self.assertEqual(result.message.content, "recovered")
+
     async def test_shutdown_cancels_active_run_after_zero_grace(self) -> None:
         provider = FakeProvider([[WaitUntilCancelled()]])
         events = InMemoryEventSink()

@@ -14,6 +14,7 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
+from .tools import DenyByDefaultApprovalPolicy, DeclaredSideEffectGate
 
 ToolFactory = Callable[[], Tool]
 ApprovalPolicyFactory = Callable[[], ApprovalPolicy]
@@ -59,3 +60,15 @@ class AgentProfile:
 def minimal_profile() -> AgentProfile:
     """Return the smallest safe profile with no tools or product persona."""
     return AgentProfile(name="minimal")
+
+
+def coding_profile() -> AgentProfile:
+    """Return safe policy defaults for an explicitly configured Bash tool."""
+    return AgentProfile(
+        name="coding",
+        approval_policy_factory=DenyByDefaultApprovalPolicy,
+        execution_gate_factory=lambda: DeclaredSideEffectGate(
+            allowed_side_effects=("none", "read", "write", "external"),
+            allowed_tools=("bash",),
+        ),
+    )

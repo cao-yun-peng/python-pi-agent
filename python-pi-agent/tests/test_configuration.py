@@ -8,6 +8,7 @@ from pathlib import Path
 from pi_agent_py import ConfigurationError
 from pi_agent_py.configuration import (
     DeepSeekSettings,
+    DockerBashSettings,
     GLMSettings,
     KimiSettings,
     ProviderResilienceSettings,
@@ -26,6 +27,99 @@ from pi_agent_py.providers import (
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_parses_docker_bash_settings_relative_to_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            config_path = _write(
+                root / "agent.yaml",
+                """
+                version: 1
+                provider:
+                  name: deepseek
+                bash:
+                  provider: docker
+                  workspace_root: workspace
+                  image: local/pi-agent:test
+                  docker_executable: docker-test
+                  mode: read-only
+                  default_timeout_seconds: 30
+                  max_timeout_seconds: 90
+                  max_output_bytes: 4096
+                  network_enabled: false
+                """,
+            )
+
+            spec = parse_app_config(config_path)
+            loaded = load_app_config(
+                config_path,
+                environ={"DEEPSEEK_API_KEY": "test-secret"},
+            )
+
+            self.assertEqual(
+                spec.bash,
+                DockerBashSettings(
+                    workspace_root=workspace.resolve(),
+                    image="local/pi-agent:test",
+                    docker_executable="docker-test",
+                    mode="read-only",
+                    default_timeout_seconds=30,
+                    max_timeout_seconds=90,
+                    max_output_bytes=4096,
+                    network_enabled=False,
+                ),
+            )
+            diagnostics = format_config_diagnostics(loaded)
+            self.assertIn("bash: docker", diagnostics)
+            self.assertIn("mode=read-only", diagnostics)
+            self.assertIn("network=disabled", diagnostics)
+            self.assertNotIn("test-secret", diagnostics)
+
+    def test_bash_defaults_disabled_and_invalid_settings_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertIsNone(parse_app_config(_kimi_yaml(root)).bash)
+
+            invalid_cases = (
+                ("[]", "bash must be a mapping"),
+                ("provider: host\nimage: local/test", "must be 'docker'"),
+                ("provider: docker", "bash.image is required"),
+                (
+                    "provider: docker\nimage: local/test\nmode: danger-full-access",
+                    "bash.mode",
+                ),
+                (
+                    "provider: docker\nimage: local/test\n"
+                    "default_timeout_seconds: 20\nmax_timeout_seconds: 10",
+                    "must not exceed",
+                ),
+                (
+                    "provider: docker\nimage: local/test\nmax_output_bytes: 0",
+                    "positive integer",
+                ),
+                (
+                    "provider: docker\nimage: local/test\nnetwork_enabled: 1",
+                    "must be a boolean",
+                ),
+                (
+                    "provider: docker\nimage: local/test\nsurprise: true",
+                    "unknown Bash field",
+                ),
+            )
+            for index, (body, message) in enumerate(invalid_cases):
+                with self.subTest(body=body):
+                    path = _write(
+                        root / f"bash-invalid-{index}.yaml",
+                        "version: 1\n"
+                        "provider:\n"
+                        "  name: deepseek\n"
+                        "bash:\n"
+                        + textwrap.indent(body, "  "),
+                    )
+                    with self.assertRaisesRegex(ConfigurationError, message):
+                        parse_app_config(path)
+
     def test_yaml_defaults_match_direct_provider_config_defaults(self) -> None:
         cases = (
             (

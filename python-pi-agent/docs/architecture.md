@@ -34,7 +34,7 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 - `ports.py` 定义核心运行时所需能力，不提供供应商实现。
 - `runtime.py` 消费端口并维护已提交消息。
 - `app_runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
-- `profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O。
+- `profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 只提供默认拒绝审批与 bash-only Gate，不创建 Docker。
 - `lifecycle.py` 明确区分 owned/borrowed 资源，在关闭或构造回滚时逆序尝试全部 cleanup。
 - `assembly.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
 - `context.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。
@@ -44,7 +44,7 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 - `session.py` 提供 `InMemorySessionStore`，只负责内存事件容器。
 - `session_jsonl.py` 提供带格式版本、严格解码和刷盘语义的 `JsonlSessionStore`。
 - `events.py` 提供同步观察适配器、runtime 失败隔离、日志脱敏和显式关闭的有界后台投递。
-- `configuration.py` 是应用组装边界：把显式 YAML 解析成不含密钥的强类型 spec，再按 override → process env → 指定 dotenv 解析凭据；它不搜索父目录、不修改进程环境，并只暴露脱敏诊断。
+- `configuration.py` 是应用组装边界：把显式 YAML 解析成不含密钥的强类型 spec，再按 override → process env → 指定 dotenv 解析凭据；可选 Bash 节只保存 Docker workspace、镜像、资源边界和网络开关。它不搜索父目录、不修改进程环境，并只暴露脱敏诊断。
 - `model_runtime.py` 在原始 `ModelProvider` 之上提供一次调用且保留原始错误的 `DirectModelRuntime`，以及组合 `RoutePolicy`、`RetryPolicy` 和 `BackoffStrategy` 的 `ResilientModelRuntime`。它不解析供应商 wire protocol，也不改变 Agent loop 的逻辑请求计数。
 - `testing.py` 是确定性 Provider 实现，也是 Provider 契约的第一份证据。
 - `providers/_sse.py` 只处理 SSE event/data framing；`providers/_openai_compat.py` 只处理 OpenAI-compatible Chat Completions 的消息/工具序列化、tool call 分片与 usage 归一化。二者都不拥有认证、URL 或模型能力。
@@ -71,6 +71,8 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 runtime 只通过 `ToolExecutionGate.execute()` 调度工具，不再直接调用 `Tool.execute()`。默认 `DeclaredSideEffectGate` 只允许 `side_effects="none"`，应用必须显式允许 read/write/external，并可叠加工具名 allowlist；Gate 还会二次确认受保护调用携带批准决定。`TrustedToolExecutionGate` 只适用于已经信任的 Python Tool。两者都不构成 OS 隔离，拒绝产生 `tool_execution_denied` 和模型可见 error tool result；timeout 包围 Gate/Tool 调用，取消继续传播。
 
 Shell 语义与进程隔离是两个 capability。`BashTool` 消费 `ShellExecutor`，调用方先把可选 request 解析成默认值和上限完整的 spec，Executor 才能执行。正式 `SandboxedBashExecutor` 把模型工作目录作为 workspace 相对 POSIX 路径解析，拒绝绝对路径、`..` 和 Windows 反斜杠，再固定生成 `("/bin/bash", "-lc", command)`；`ProcessSandbox` 本身只接收精确 argv，不再偷偷决定 Shell。兼容期 `SandboxedShellTool` 仍直接消费该端口，并显式生成 `/bin/sh -lc`。`DockerProcessSandbox` 把规范化 workspace 作为唯一宿主挂载，容器根只读、默认网络关闭、不向容器转发未显式声明的宿主环境变量，并施加 capability、CPU、内存、进程数、tmpfs 和每流输出捕获限制。stdout/stderr 超限时分别保留有界尾部并报告截断，不因日志量改变命令控制流。Docker 或镜像不可用时 fail closed，不回退到宿主 Shell；timeout/取消由 Provider 强制删除容器并终止客户端。当前只支持 `read-only` 与 `workspace-write`，不把 `danger-full-access` 伪装成沙箱模式。
+
+应用配置与产品策略不合并。可选 `agent.yaml::bash` 使用 `DockerBashSettings` 声明 workspace、镜像、超时、输出预算和网络；相对 workspace 以配置文件目录为基准。`AgentRuntimeBuilder.from_loaded_config()` 在构建事务中创建 Sandbox/Executor/Tool，缺省配置不注册 Bash。`coding_profile()` 只让名为 `bash` 的 read/write/external 声明进入 Gate，并继续使用默认拒绝审批；网络开启时工具声明 `external`，不能伪装为普通文件写入。
 
 逐消息提交允许取消或进程退出发生在一个工具批次中间。`AgentSession` 每次继续运行或手动压缩前都会校验工具调用/结果序列：若会话尾部存在未决调用，就为每个缺失结果追加一个 `is_error=True` 的恢复 tool message，明确记录“外部副作用结果未知，不得自动重试”，然后才允许追加新的用户消息。已经完成的 tool result 不会重复生成。若未决调用之后已经存在其他 user/assistant 消息，append-only 日志无法在原位置安全修补，session 会以 `SessionValidationError` 拒绝继续，而不是把错误结果追加到错误位置。恢复消息本身是普通 `message_committed` durable fact，因此内存、JSONL、fork 和 replay 使用同一语义；`tool_call_recovered` capability event 提供恢复证据。
 

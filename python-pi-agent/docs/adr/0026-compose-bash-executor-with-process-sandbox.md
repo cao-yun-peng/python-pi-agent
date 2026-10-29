@@ -34,6 +34,8 @@ ADR 0025 已把模型侧 `BashTool` 与 `ShellExecutor` 分开，但第一批只
 - Docker 镜像必须预先存在并包含 `/bin/bash`。兼容工具仍只要求 `/bin/sh`；
 - Shell 子进程被隔离不代表未知 Python 插件或整个 Harness 已被隔离。
 
+后续 ADR 0027 已把镜像、workspace、超时、输出预算与网络开关接入显式应用配置，并通过不持有活 I/O 的 coding Profile 提供默认拒绝策略。
+
 ## 验证方式
 
 - `test_shell.py` 证明相对工作目录映射、逃逸拒绝、超时封顶、固定 Bash argv、partial enforcement 拒绝、结果投影和取消传播；

@@ -32,6 +32,7 @@ from .configuration import (
     AppConfigSpec,
     CredentialDiagnostic,
     DeepSeekSettings,
+    DockerBashSettings,
     GLMSettings,
     KimiSettings,
     LoadedAppConfig,
@@ -189,7 +190,7 @@ from .ports import (
     TokenEstimator,
     ToolExecutionGate,
 )
-from .profiles import AgentProfile, minimal_profile
+from .profiles import AgentProfile, coding_profile, minimal_profile
 from .runtime import Agent, AgentSession
 from .sandbox import DockerProcessSandbox
 from .shell import BashTool, SandboxedBashExecutor
@@ -263,6 +264,7 @@ __all__ = [
     "DeepSeekSettings",
     "DefaultRetryPolicy",
     "DirectModelRuntime",
+    "DockerBashSettings",
     "GLMSettings",
     "DurableEventIdentity",
     "DurableSessionEvent",
@@ -392,6 +394,7 @@ __all__ = [
     "StaticApprovalPolicy",
     "validate_tool_arguments",
     "build_summary_message",
+    "coding_profile",
     "default_provider_catalog",
     "agent_event_record",
     "ensure_isolated_event_sink",

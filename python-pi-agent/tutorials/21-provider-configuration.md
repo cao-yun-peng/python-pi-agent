@@ -75,6 +75,8 @@ provider:
 
 TiMi 的 key 分组决定可用模型，因此 `model` 没有默认值，必须按控制台实际授权显式填写。
 
+同一顶层 YAML 还可以包含不带秘密的可选能力配置。目前支持 `bash` Docker Provider；它的 workspace、镜像、超时和网络边界见第 28 章。省略整节时不会注册 Bash 工具。
+
 ## 两阶段边界
 
 `parse_app_config()` 只读取 YAML，返回不含秘密的 `AppConfigSpec`。这一步会检查：
@@ -161,6 +163,7 @@ print(format_config_diagnostics(loaded))
 provider: kimi
 model: kimi-k2.6
 config: E:\project\self-agent\pi-agent\agent.yaml
+bash: disabled
 credential: MOONSHOT_API_KEY from dotenv E:\project\self-agent\pi-agent\.env (********1234)
 ```
 
@@ -183,6 +186,6 @@ credential: MOONSHOT_API_KEY from dotenv E:\project\self-agent\pi-agent\.env (**
 
 ## 与 Pi 的映射
 
-Pi 的 `ModelRuntime` 将认证解析和模型配置集中在应用运行时，并允许环境变量、运行时覆盖和持久化凭据。本项目当前规模更小：只实现 DeepSeek/Kimi/GLM/TiMi 的 YAML + dotenv 边界，不复制 OAuth、全局用户目录或动态模型注册。共同原则是密钥解析属于组装层，Provider 和 Agent loop 不读取隐式全局配置。
+Pi 的 `ModelRuntime` 将认证解析和模型配置集中在应用运行时，并允许环境变量、运行时覆盖和持久化凭据。本项目当前规模更小：实现 DeepSeek/Kimi/GLM/TiMi 与可选 Docker Bash 的 YAML 边界，以及独立的 dotenv 凭据解析；不复制 OAuth、全局用户目录或动态模型注册。共同原则是密钥和部署能力解析属于组装层，Provider 和 Agent loop 不读取隐式全局配置。
 
 掌握标准：能说明为什么 YAML 存变量名而不是密钥、为什么加载器不搜索父目录、为什么诊断对象不能保存原始 key，以及如何在测试中用 `environ={...}` 完全隔离真实环境。

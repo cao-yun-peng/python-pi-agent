@@ -18,6 +18,7 @@ from .domain import (
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
+    ToolSideEffects,
     WorkspaceAccessMode,
 )
 from .errors import SandboxTimeoutError, SandboxUnavailableError
@@ -151,6 +152,7 @@ class BashTool:
         executor: ShellExecutor,
         *,
         requires_approval: bool = True,
+        side_effects: ToolSideEffects = "write",
         name: str = "bash",
     ) -> None:
         self._executor = executor
@@ -185,7 +187,7 @@ class BashTool:
                 "required": ["command"],
                 "additionalProperties": False,
             },
-            side_effects="write",
+            side_effects=side_effects,
             requires_approval=requires_approval,
             retry_safe=False,
             replay_safe=False,
