@@ -20,7 +20,7 @@
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。
 - 阶段 6 已完成第一条 Provider resilience 纵向切片：显式候选、能力与 provider-state 路由、pre-output retry、full-jitter/Retry-After backoff、兼容 fallback、总 attempt/elapsed budget、取消传播和 attempt trace。Circuit breaker、健康/成本/延迟加权与跨模型 state 转换留给有运行数据后的迭代。
 - 阶段 7 已完成显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销、SessionPluginFactory/Lease、请求投影 Hook、后台 settled observer 和逆序 cleanup。资源发现、durable control port 与安全热重载仍未开始。
-- 阶段 8 已完成两条安全执行纵向切片：第一条由 ToolExecutionContext、ApprovalPolicy 与 ToolExecutionGate 提供声明式默认拒绝；第二条由 SandboxedShellTool、ProcessSandbox 与 Docker Provider 提供真实 workspace 进程隔离、最小环境/网络/资源配置、enforcement evidence 和取消清理。文件 read/search/patch 的统一 workspace port、单次权限升级和身份化授权仍未开始。
+- 阶段 8 已完成两条安全执行纵向切片：第一条由 ToolExecutionContext、ApprovalPolicy 与 ToolExecutionGate 提供声明式默认拒绝；第二条由 SandboxedShellTool、ProcessSandbox 与 Docker Provider 提供真实 workspace 进程隔离。当前正在分批把该实现演进为 `BashTool -> ShellExecutor -> ProcessSandbox`：Definition、Consumer、Fake Provider 与结果契约已完成，Docker-backed Executor 尚待接入。文件 read/search/patch 的统一 workspace port、单次权限升级和身份化授权仍未开始。
 - 阶段 9 已完成两条观察纵向切片：第一条统一隔离 EventSink 异常、入队前脱敏和有界 worker 生命周期；第二条增加 versioned AgentEventEnvelope、固定 JSON record、模型/工具/压缩/Hook span duration，以及 observer message 到 durable event 的 identity join。低基数指标聚合、采样/exporter 和 durable 审计 sink 仍未开始。
 - 阶段 10 已完成第一条应用组装纵向切片：`AgentProfile`、显式 `ProviderCatalog`、事务化 `AgentRuntimeBuilder`、owned/borrowed 生命周期、`AgentRuntime` facade、可复用 `RuntimeSession` lease，以及惰性 TTL/LRU controller 驱逐。正式 CLI、EventHub/RunHandle、多租户 SessionRef 与 Web/SSE 尚未开始。
 - Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；Chat Completions 三适配器复用内部 wire codec，Responses 仅复用 SSE framing，并通过 provider-owned state 完成无服务端存储的续轮。`ResilientModelRuntime` 已在 wire adapter 之上复用这些边界，不合并两套协议。
@@ -134,6 +134,6 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 
 可观测性方向下一步应在现有稳定 envelope 上实现最小低基数聚合：run 成功率、模型/工具/压缩耗时和 observer drop 计数；随后再决定 exporter 与采样策略。强一致审计不能伪装成 best-effort EventSink，而应成为独立 durable capability。
 
-安全执行方向下一步应让 read/search/patch 共用规范化 workspace port，并把当前 Docker 集成证据扩展到 symlink/junction 与网络拒绝；随后再设计 `read-only -> workspace-write -> trusted local` 的单次升级审批。不要为追求形式完整同时实现多套 OS-native runner，也不要把未知 Python 插件误认为已被 Shell sandbox 覆盖。
+安全执行方向下一步先实现 `SandboxedBashExecutor`：把 Bash request 解析为 workspace 内工作目录、受上限约束的 timeout 和固定 Bash argv，再交给 Docker ProcessSandbox；同时把硬输出上限改成可观察的有界尾部。完成迁移后再让 read/search/patch 共用规范化 workspace port，并设计 `read-only -> workspace-write` 的单次升级审批。不要为追求形式完整同时实现多套 OS-native runner，也不要把未知 Python 插件误认为已被 Shell sandbox 覆盖。
 
 上下文方向仍应实现 compaction eval 的最小离线切片，用版本化 case 和 deterministic grader 验证摘要保留目标、约束、工具发现和下一步；随后再处理精确 tokenizer 与资源加载。

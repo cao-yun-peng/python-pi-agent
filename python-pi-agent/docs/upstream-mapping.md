@@ -3,7 +3,7 @@
 本项目是独立 Python 实现。映射用于学习设计，不承诺 API 兼容。
 
 当前 Pi 参考固定在 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb`。
-DeepSeek Harness 沙箱概念对照 `v0.2.1-rc.2`（release commit `687f282`）的 `packages/sandbox/sandbox/README.md`；只借鉴 per-call policy、fail-closed 与 enforcement evidence，不复制其多包结构。
+DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637e9c2a3afe3` 的 `packages/shell`、`packages/subprocess` 与 `packages/sandbox`；只借鉴 request/spec、能力接缝、per-call policy、fail-closed 与执行证据，不复制其多包结构。
 
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
@@ -21,8 +21,9 @@ DeepSeek Harness 沙箱概念对照 `v0.2.1-rc.2`（release commit `687f282`）�
 | `ToolExecutionContext` | core toolCallId/params/signal + coding-agent `ExtensionToolContext` / `BeforeToolCallContext` | invocation-scoped capability context | 已含 call/definition、session、request/call index 与审批决定；待 signal API、cwd、identity、nested calls 和 progress |
 | `ApprovalPolicy` | `beforeToolCall` block hook | 独立策略 capability | 使用完整 context，异常/错误返回值 fail-closed；默认拒绝受保护工具，尚无身份策略与 durable approval |
 | `ToolExecutionGate` / `DeclaredSideEffectGate` | coding-agent `beforeToolCall`/工具组装的应用侧策略 | policy consumer seam | runtime 只经 Gate 调度；默认只允许 none effect。名称明确不承诺 OS 隔离 |
+| `ShellExecutor` / `BashTool` | Pi Bash tool 的模型 schema 与执行 context | `dsh-shell` Definition、`tool-bash` Consumer、request/spec split | 已有模型安全参数投影、Fake Provider 和正交结果；待 Docker-backed Provider、工作目录边界和输出 spill |
 | `ProcessSandbox` / `DockerProcessSandbox` | Pi 建议的外部容器/VM 隔离边界 | DeepSeek Harness subprocess confinement、per-call policy、fail-closed 与 enforcement completeness | 当前只提供 Docker workspace Provider；比 same-world runner 隔离更完整，但尚无 native backend、文件工具统一路由和单次升级 |
-| `SandboxedShellTool` | Pi bash 工具经容器/VM 路由的 consumer 模式 | confined shell consumer | command 进入只挂载 workspace 的容器；未知 Python 插件仍在 Harness 进程中运行 |
+| `SandboxedShellTool` | Pi bash 工具经容器/VM 路由的 consumer 模式 | confined shell consumer | 作为迁移期旧 Consumer，command 进入只挂载 workspace 的容器；下一批由 `BashTool -> ShellExecutor` 取代，未知 Python 插件仍在 Harness 进程中运行 |
 | tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交并可从 durable event replay；重启时会保守补齐尾部未决调用，副作用结果标记为 unknown |
 | `EventSink` / `IsolatedEventSink` | `Agent.subscribe()` / `AgentSession.subscribe()` | live events 与 durable session events 分离 | Pi core Agent 会 await listener；本项目把 EventSink 限定为观察者并自动隔离异常，拦截行为留给 Hook |
 | `RedactingEventSink` / `BufferedEventSink` | UI/session listener 的应用侧消费 | telemetry 数据最小化 + lifecycle | 默认隐藏模型可见内容后再进入有界队列；best-effort、显式关闭，不替代 durable log |

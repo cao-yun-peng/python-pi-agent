@@ -73,6 +73,11 @@ from .domain import (
     SandboxEnforcement,
     SandboxProcessRequest,
     SandboxProcessResult,
+    ShellCollectedOutput,
+    ShellExecRequest,
+    ShellExecSpec,
+    ShellRunResult,
+    ShellSandboxInfo,
     SessionCompaction,
     SessionEventContext,
     SessionSnapshot,
@@ -180,6 +185,7 @@ from .ports import (
     RetryPolicy,
     RoutePolicy,
     ProcessSandbox,
+    ShellExecutor,
     SessionStore,
     TokenEstimator,
     ToolExecutionGate,
@@ -187,6 +193,7 @@ from .ports import (
 from .profiles import AgentProfile, minimal_profile
 from .runtime import Agent, AgentSession
 from .sandbox import DockerProcessSandbox
+from .shell import BashTool
 from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
 from .session_transitions import (
@@ -228,6 +235,7 @@ __all__ = [
     "AttemptFailure",
     "AttemptSummary",
     "BackoffStrategy",
+    "BashTool",
     "BuiltProvider",
     "AppConfigSpec",
     "BufferedEventSink",
@@ -340,6 +348,12 @@ __all__ = [
     "SandboxTimeoutError",
     "SandboxUnavailableError",
     "SandboxedShellTool",
+    "ShellCollectedOutput",
+    "ShellExecRequest",
+    "ShellExecSpec",
+    "ShellExecutor",
+    "ShellRunResult",
+    "ShellSandboxInfo",
     "SessionConflictError",
     "SessionControlError",
     "SessionAppendPlan",

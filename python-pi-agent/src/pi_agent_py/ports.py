@@ -26,6 +26,9 @@ from .domain import (
     ProviderRequestContext,
     SandboxProcessRequest,
     SandboxProcessResult,
+    ShellExecRequest,
+    ShellExecSpec,
+    ShellRunResult,
     SessionEventContext,
     SessionEventKind,
     SessionSnapshot,
@@ -237,6 +240,18 @@ class ToolExecutionGate(Protocol):
         context: ToolExecutionContext,
     ) -> ToolOutput:
         """Invoke the tool or raise ToolExecutionGateError without claiming isolation."""
+        ...
+
+
+class ShellExecutor(Protocol):
+    """Resolves and runs one-shot Bash commands behind a replaceable seam."""
+
+    def resolve(self, request: ShellExecRequest) -> ShellExecSpec:
+        """Apply implementation-owned defaults and caps without performing I/O."""
+        ...
+
+    async def execute(self, spec: ShellExecSpec) -> ShellRunResult:
+        """Execute a fully resolved spec or raise for infrastructure failure."""
         ...
 
 

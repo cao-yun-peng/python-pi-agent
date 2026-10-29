@@ -1,0 +1,225 @@
+from __future__ import annotations
+
+import asyncio
+import unittest
+from dataclasses import replace
+
+from pi_agent_py import (
+    Agent,
+    BashTool,
+    DeclaredSideEffectGate,
+    FakeProvider,
+    Finish,
+    ShellCollectedOutput,
+    ShellExecRequest,
+    ShellExecSpec,
+    ShellRunResult,
+    ShellSandboxInfo,
+    StaticApprovalPolicy,
+    TextDelta,
+    ToolCall,
+    ToolExecutionContext,
+)
+
+
+class RecordingShellExecutor:
+    def __init__(self, result: ShellRunResult) -> None:
+        self.result = result
+        self.requests: list[ShellExecRequest] = []
+        self.specs: list[ShellExecSpec] = []
+
+    def resolve(self, request: ShellExecRequest) -> ShellExecSpec:
+        self.requests.append(request)
+        timeout_seconds = min(request.timeout_seconds or 120.0, 600.0)
+        return ShellExecSpec(
+            command=request.command,
+            workdir=request.workdir or "/workspace",
+            timeout_seconds=timeout_seconds,
+        )
+
+    async def execute(self, spec: ShellExecSpec) -> ShellRunResult:
+        self.specs.append(spec)
+        return replace(self.result, timeout_seconds=spec.timeout_seconds)
+
+
+def completed_result(
+    *,
+    exit_code: int | None = 0,
+    stdout: ShellCollectedOutput | None = None,
+    stderr: ShellCollectedOutput | None = None,
+    signal: str | None = None,
+    timed_out: bool = False,
+    cancelled: bool = False,
+    sandbox: ShellSandboxInfo | None = None,
+) -> ShellRunResult:
+    return ShellRunResult(
+        exit_code=exit_code,
+        signal=signal,
+        timed_out=timed_out,
+        cancelled=cancelled,
+        timeout_seconds=120.0,
+        stdout=stdout or ShellCollectedOutput(""),
+        stderr=stderr or ShellCollectedOutput(""),
+        sandbox=sandbox,
+    )
+
+
+class BashToolTests(unittest.IsolatedAsyncioTestCase):
+    def test_definition_exposes_only_model_safe_arguments(self) -> None:
+        tool = BashTool(RecordingShellExecutor(completed_result()))
+
+        properties = tool.definition.input_schema["properties"]
+
+        self.assertEqual(
+            set(properties),
+            {"command", "workdir", "timeout_seconds"},
+        )
+        self.assertEqual(tool.definition.name, "bash")
+        self.assertTrue(tool.definition.requires_approval)
+        self.assertEqual(tool.definition.side_effects, "write")
+
+    async def test_resolves_named_arguments_and_reports_nonzero_exit(self) -> None:
+        executor = RecordingShellExecutor(
+            completed_result(
+                exit_code=2,
+                stdout=ShellCollectedOutput("collected output\n"),
+                stderr=ShellCollectedOutput("tests failed\n"),
+                sandbox=ShellSandboxInfo(
+                    mode="workspace-write",
+                    enforcement="full",
+                ),
+            )
+        )
+        tool = BashTool(executor, requires_approval=False)
+        arguments = {
+            "command": "pytest -q",
+            "workdir": "python-pi-agent",
+            "timeout_seconds": 30,
+        }
+        context = ToolExecutionContext(
+            call=ToolCall("call-1", "bash", arguments),
+            definition=tool.definition,
+            request_number=1,
+            call_index=1,
+        )
+
+        output = await tool.execute(arguments, context)
+
+        self.assertEqual(
+            executor.requests,
+            [
+                ShellExecRequest(
+                    command="pytest -q",
+                    workdir="python-pi-agent",
+                    timeout_seconds=30,
+                )
+            ],
+        )
+        self.assertEqual(executor.specs[0].workdir, "python-pi-agent")
+        self.assertIn("[stderr]\ntests failed", output.content)
+        self.assertIn("[exit code: 2]", output.content)
+        self.assertFalse(output.is_error)
+        assert isinstance(output.structured_content, dict)
+        self.assertEqual(output.structured_content["exit_code"], 2)
+        self.assertEqual(output.structured_content["workdir"], "python-pi-agent")
+        self.assertEqual(output.structured_content["timeout_seconds"], 30)
+
+    async def test_renders_independent_timeout_truncation_and_sandbox_facts(
+        self,
+    ) -> None:
+        executor = RecordingShellExecutor(
+            completed_result(
+                exit_code=0,
+                timed_out=True,
+                stdout=ShellCollectedOutput("tail", truncated=True),
+                sandbox=ShellSandboxInfo(
+                    mode="read-only",
+                    enforcement="full",
+                    denied=True,
+                ),
+            )
+        )
+        tool = BashTool(executor, requires_approval=False)
+        arguments = {"command": "write-and-trap"}
+        context = ToolExecutionContext(
+            call=ToolCall("call-2", "bash", arguments),
+            definition=tool.definition,
+            request_number=1,
+            call_index=1,
+        )
+
+        output = await tool.execute(arguments, context)
+
+        self.assertIn("[stdout truncated]", output.content)
+        self.assertIn(
+            "[sandbox: file access denied under read-only mode]",
+            output.content,
+        )
+        self.assertIn("[timed out after 120s]", output.content)
+
+    async def test_cancelled_execution_propagates_cancellation(self) -> None:
+        executor = RecordingShellExecutor(completed_result(cancelled=True))
+        tool = BashTool(executor, requires_approval=False)
+        arguments = {"command": "sleep 10"}
+        context = ToolExecutionContext(
+            call=ToolCall("call-3", "bash", arguments),
+            definition=tool.definition,
+            request_number=1,
+            call_index=1,
+        )
+
+        with self.assertRaises(asyncio.CancelledError):
+            await tool.execute(arguments, context)
+
+    async def test_agent_runs_bash_through_approval_gate_and_executor(self) -> None:
+        executor = RecordingShellExecutor(
+            completed_result(stdout=ShellCollectedOutput("tests passed\n"))
+        )
+        bash = BashTool(executor)
+        provider = FakeProvider(
+            [
+                [
+                    ToolCall("call-bash", "bash", {"command": "pytest -q"}),
+                    Finish("tool_calls"),
+                ],
+                [TextDelta("done"), Finish()],
+            ]
+        )
+        agent = Agent(
+            provider,
+            tools=(bash,),
+            approval_policy=StaticApprovalPolicy(True),
+            execution_gate=DeclaredSideEffectGate(
+                allowed_side_effects=("none", "write"),
+                allowed_tools=("bash",),
+            ),
+        )
+
+        result = await agent.run("run tests")
+
+        self.assertEqual(result.messages[2].content, "tests passed\n")
+        self.assertEqual(result.message.content, "done")
+        self.assertEqual(executor.requests[0].command, "pytest -q")
+
+
+class ShellContractTests(unittest.TestCase):
+    def test_request_rejects_unusable_command_workdir_and_timeout(self) -> None:
+        for request in (
+            lambda: ShellExecRequest(command=" "),
+            lambda: ShellExecRequest(command="echo ok\x00"),
+            lambda: ShellExecRequest(command="echo ok", workdir=" "),
+            lambda: ShellExecRequest(command="echo ok", timeout_seconds=0),
+            lambda: ShellExecRequest(command="echo ok", timeout_seconds=True),
+            lambda: ShellExecRequest(command="echo ok", timeout_seconds=float("inf")),
+        ):
+            with self.subTest(request=request):
+                with self.assertRaises((TypeError, ValueError)):
+                    request()
+
+    def test_result_rejects_ambiguous_interruption_cause(self) -> None:
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            completed_result(timed_out=True, cancelled=True)
+
+
+if __name__ == "__main__":
+    unittest.main()

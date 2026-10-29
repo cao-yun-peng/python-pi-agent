@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from time import time
 from typing import Literal, Mapping, TypeAlias
 from uuid import uuid4
@@ -135,6 +136,142 @@ class ToolOutput:
     content: str
     structured_content: JSONValue = None
     is_error: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ShellCollectedOutput:
+    """One bounded shell stream plus optional recovery evidence."""
+
+    text: str
+    truncated: bool = False
+    spill_path: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str):
+            raise TypeError("shell output text must be a string")
+        if type(self.truncated) is not bool:
+            raise TypeError("shell output truncated must be a boolean")
+        if self.spill_path is not None:
+            if not isinstance(self.spill_path, str):
+                raise TypeError("shell output spill_path must be a string or None")
+            if not self.spill_path.strip():
+                raise ValueError("shell output spill_path must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ShellExecRequest:
+    """Caller-facing Bash request before implementation defaults are resolved."""
+
+    command: str
+    workdir: str | None = None
+    timeout_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.command, str) or not self.command.strip():
+            raise ValueError("shell command must not be empty")
+        if "\x00" in self.command:
+            raise ValueError("shell command must not contain NUL")
+        if self.workdir is not None:
+            if not isinstance(self.workdir, str) or not self.workdir.strip():
+                raise ValueError("shell workdir must not be empty")
+            if "\x00" in self.workdir:
+                raise ValueError("shell workdir must not contain NUL")
+        if self.timeout_seconds is not None:
+            _validate_shell_timeout(self.timeout_seconds, "shell timeout_seconds")
+
+
+@dataclass(frozen=True, slots=True)
+class ShellExecSpec:
+    """Fully resolved execution settings accepted by a ShellExecutor."""
+
+    command: str
+    workdir: str
+    timeout_seconds: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.command, str) or not self.command.strip():
+            raise ValueError("resolved shell command must not be empty")
+        if "\x00" in self.command:
+            raise ValueError("resolved shell command must not contain NUL")
+        if not isinstance(self.workdir, str) or not self.workdir.strip():
+            raise ValueError("resolved shell workdir must not be empty")
+        if "\x00" in self.workdir:
+            raise ValueError("resolved shell workdir must not contain NUL")
+        _validate_shell_timeout(
+            self.timeout_seconds,
+            "resolved shell timeout_seconds",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ShellSandboxInfo:
+    """Independent confinement facts for one shell execution."""
+
+    mode: WorkspaceAccessMode
+    enforcement: SandboxEnforcement
+    denied: bool = False
+    runner_failed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("read-only", "workspace-write"):
+            raise ValueError("unknown shell sandbox mode")
+        if self.enforcement not in ("full", "partial"):
+            raise ValueError("unknown shell sandbox enforcement level")
+        if type(self.denied) is not bool:
+            raise TypeError("shell sandbox denied must be a boolean")
+        if type(self.runner_failed) is not bool:
+            raise TypeError("shell sandbox runner_failed must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
+class ShellRunResult:
+    """Settled shell outcome with command, cancellation, and sandbox facts."""
+
+    exit_code: int | None
+    signal: str | None
+    timed_out: bool
+    cancelled: bool
+    timeout_seconds: float
+    stdout: ShellCollectedOutput
+    stderr: ShellCollectedOutput
+    sandbox: ShellSandboxInfo | None = None
+
+    def __post_init__(self) -> None:
+        if self.exit_code is not None and (
+            not isinstance(self.exit_code, int) or isinstance(self.exit_code, bool)
+        ):
+            raise TypeError("shell exit_code must be an integer or None")
+        if self.signal is not None and (
+            not isinstance(self.signal, str) or not self.signal.strip()
+        ):
+            raise ValueError("shell signal must be a non-empty string or None")
+        if type(self.timed_out) is not bool or type(self.cancelled) is not bool:
+            raise TypeError("shell interruption facts must be booleans")
+        if self.timed_out and self.cancelled:
+            raise ValueError("shell timeout and cancellation are mutually exclusive")
+        _validate_shell_timeout(
+            self.timeout_seconds,
+            "shell result timeout_seconds",
+        )
+        if not isinstance(self.stdout, ShellCollectedOutput):
+            raise TypeError("shell stdout must be ShellCollectedOutput")
+        if not isinstance(self.stderr, ShellCollectedOutput):
+            raise TypeError("shell stderr must be ShellCollectedOutput")
+        if self.sandbox is not None and not isinstance(
+            self.sandbox,
+            ShellSandboxInfo,
+        ):
+            raise TypeError("shell sandbox must be ShellSandboxInfo or None")
+
+
+def _validate_shell_timeout(value: object, label: str) -> None:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(f"{label} must be positive and finite")
 
 
 @dataclass(frozen=True, slots=True)
