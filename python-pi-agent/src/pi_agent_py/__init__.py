@@ -123,7 +123,6 @@ from .errors import (
     RuntimeCloseError,
     RuntimeStateError,
     SandboxError,
-    SandboxOutputLimitError,
     SandboxTimeoutError,
     SandboxUnavailableError,
     SessionConflictError,
@@ -193,7 +192,7 @@ from .ports import (
 from .profiles import AgentProfile, minimal_profile
 from .runtime import Agent, AgentSession
 from .sandbox import DockerProcessSandbox
-from .shell import BashTool
+from .shell import BashTool, SandboxedBashExecutor
 from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
 from .session_transitions import (
@@ -342,11 +341,11 @@ __all__ = [
     "ProcessSandbox",
     "SandboxError",
     "SandboxEnforcement",
-    "SandboxOutputLimitError",
     "SandboxProcessRequest",
     "SandboxProcessResult",
     "SandboxTimeoutError",
     "SandboxUnavailableError",
+    "SandboxedBashExecutor",
     "SandboxedShellTool",
     "ShellCollectedOutput",
     "ShellExecRequest",

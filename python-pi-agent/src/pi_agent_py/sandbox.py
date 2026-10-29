@@ -12,7 +12,6 @@ from uuid import uuid4
 
 from .domain import SandboxProcessRequest, SandboxProcessResult
 from .errors import (
-    SandboxOutputLimitError,
     SandboxTimeoutError,
     SandboxUnavailableError,
 )
@@ -48,7 +47,7 @@ _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class DockerProcessSandbox:
-    """Runs shell commands in a locked-down Docker workspace container.
+    """Runs exact argv in a locked-down Docker workspace container.
 
     The harness stays on the host. Only the configured workspace is mounted,
     the container root is read-only, Linux capabilities are dropped, and
@@ -130,19 +129,20 @@ class DockerProcessSandbox:
 
         try:
             if request.timeout_seconds is None:
-                stdout, stderr = await _capture_output(
-                    process,
-                    self._max_output_bytes,
-                )
-            else:
-                async with asyncio.timeout(request.timeout_seconds):
-                    stdout, stderr = await _capture_output(
+                stdout, stderr, stdout_truncated, stderr_truncated = (
+                    await _capture_output(
                         process,
                         self._max_output_bytes,
                     )
-        except SandboxOutputLimitError:
-            await self._stop_container(container_name, process)
-            raise
+                )
+            else:
+                async with asyncio.timeout(request.timeout_seconds):
+                    stdout, stderr, stdout_truncated, stderr_truncated = (
+                        await _capture_output(
+                            process,
+                            self._max_output_bytes,
+                        )
+                    )
         except TimeoutError as error:
             await self._stop_container(container_name, process)
             raise SandboxTimeoutError(
@@ -165,6 +165,8 @@ class DockerProcessSandbox:
             stdout=stdout.decode("utf-8", errors="replace"),
             stderr=stderr.decode("utf-8", errors="replace"),
             enforcement="full",
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
         )
 
     def build_command(
@@ -206,13 +208,14 @@ class DockerProcessSandbox:
             "--mount",
             mount,
             "--workdir",
-            "/workspace",
+            request.workdir,
             "--network",
             "bridge" if self._network_enabled else "none",
         ]
         for name in sorted(self._environment):
             arguments.extend(("--env", name))
-        arguments.extend((self._image, "/bin/sh", "-lc", request.command))
+        arguments.append(self._image)
+        arguments.extend(request.argv)
         return tuple(arguments)
 
     async def _stop_container(
@@ -242,7 +245,7 @@ class DockerProcessSandbox:
 async def _capture_output(
     process: _RunningProcess,
     limit: int,
-) -> tuple[bytes, bytes]:
+) -> tuple[bytes, bytes, bool, bool]:
     if process.stdout is None or process.stderr is None:
         raise SandboxUnavailableError("sandbox process pipes are unavailable")
     queue: asyncio.Queue[tuple[str, bytes | None]] = asyncio.Queue(maxsize=4)
@@ -260,7 +263,7 @@ async def _capture_output(
         asyncio.create_task(pump("stderr", process.stderr)),
     )
     outputs = {"stdout": bytearray(), "stderr": bytearray()}
-    total = 0
+    truncated = {"stdout": False, "stderr": False}
     completed = 0
     try:
         while completed < 2:
@@ -268,15 +271,19 @@ async def _capture_output(
             if chunk is None:
                 completed += 1
                 continue
-            total += len(chunk)
-            if total > limit:
-                raise SandboxOutputLimitError(
-                    "sandboxed command exceeded its output limit"
-                )
-            outputs[label].extend(chunk)
+            output = outputs[label]
+            output.extend(chunk)
+            if len(output) > limit:
+                del output[: len(output) - limit]
+                truncated[label] = True
     finally:
         for task in pumps:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*pumps, return_exceptions=True)
-    return bytes(outputs["stdout"]), bytes(outputs["stderr"])
+    return (
+        bytes(outputs["stdout"]),
+        bytes(outputs["stderr"]),
+        truncated["stdout"],
+        truncated["stderr"],
+    )

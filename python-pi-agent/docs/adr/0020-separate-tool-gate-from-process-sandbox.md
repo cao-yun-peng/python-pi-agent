@@ -10,10 +10,10 @@ ADR 0014 引入的 `DeclaredSideEffectSandbox` 能消费工具声明、审批决
 
 1. 将通用工具策略端口命名为 `ToolExecutionGate`；默认实现为 `DeclaredSideEffectGate`，可信工具的显式宽松实现为 `TrustedToolExecutionGate`。
 2. Gate 只回答“是否允许调用这个 Python Tool”，不承诺文件、进程或网络隔离。拒绝事件改为 `tool_execution_denied`。
-3. 新增独立 `ProcessSandbox` 端口。它只接收 `SandboxProcessRequest` 并返回带 `full/partial` enforcement evidence 的 `SandboxProcessResult`。
-4. 首个 Provider 是 `DockerProcessSandbox`：Harness 留在宿主；仅挂载规范化 workspace；容器根文件系统只读；默认关闭网络；丢弃 Linux capabilities；启用 `no-new-privileges`、内存、CPU、进程数、临时目录和输出捕获上限。
+3. 新增独立 `ProcessSandbox` 端口。它只接收包含精确 argv 和容器工作目录的 `SandboxProcessRequest`，并返回带 `full/partial` enforcement evidence 的 `SandboxProcessResult`；Shell 选择属于上层 Consumer/Executor。
+4. 首个 Provider 是 `DockerProcessSandbox`：Harness 留在宿主；仅挂载规范化 workspace；容器根文件系统只读；默认关闭网络；丢弃 Linux capabilities；启用 `no-new-privileges`、内存、CPU、进程数、临时目录和每流有界输出尾部。
 5. Docker 或镜像不可用、Docker 自身返回运行错误、Provider 只能提供 partial enforcement 时默认 fail closed，绝不回退到宿主 Shell。
-6. `SandboxedShellTool` 是第一个 Consumer。它把模型命令交给 `ProcessSandbox`，不直接调用本机 Shell；取消和超时会强制移除容器并终止 Docker 客户端进程。
+6. `SandboxedShellTool` 是第一个兼容 Consumer，显式生成 `/bin/sh -lc` argv，不直接调用本机 Shell；ADR 0025/0026 后由 `BashTool -> SandboxedBashExecutor` 成为新应用路径。取消和超时会强制移除容器并终止 Docker 客户端进程。
 7. V1 只提供 `read-only` 与 `workspace-write`。`danger-full-access` 不是沙箱模式；未来若加入，必须作为显式可信执行器并通过单次升级审批暴露，不能在 Docker Provider 内伪造其语义。
 
 ## 备选方案
@@ -36,7 +36,7 @@ ADR 0014 引入的 `DeclaredSideEffectSandbox` 能消费工具声明、审批决
 ## 验证
 
 - 纯函数命令构造测试证明只挂载一个 workspace、默认网络关闭、容器根只读、环境变量仅来自显式配置。
-- Fake process 测试覆盖成功、Docker runtime 失败、输出超限终止、零等待超时和外部取消。
+- Fake process 测试覆盖成功、Docker runtime 失败、每流有界尾部、零等待超时和外部取消。
 - 超时和取消测试证明会执行 `docker rm --force <container>` 并终止 Docker 客户端。
 - Fake `ProcessSandbox` 证明 `SandboxedShellTool` 传递 mode/timeout，并默认拒绝 partial enforcement。
 - 显式启用的 Docker 集成测试验证 workspace-write 成功、read-only 拒绝和 `/workspace/..` 逃逸拒绝；默认测试不依赖 Docker。

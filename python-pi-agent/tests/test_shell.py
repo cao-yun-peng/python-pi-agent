@@ -10,11 +10,16 @@ from pi_agent_py import (
     DeclaredSideEffectGate,
     FakeProvider,
     Finish,
+    SandboxProcessRequest,
+    SandboxProcessResult,
+    SandboxTimeoutError,
+    SandboxUnavailableError,
     ShellCollectedOutput,
     ShellExecRequest,
     ShellExecSpec,
     ShellRunResult,
     ShellSandboxInfo,
+    SandboxedBashExecutor,
     StaticApprovalPolicy,
     TextDelta,
     ToolCall,
@@ -40,6 +45,25 @@ class RecordingShellExecutor:
     async def execute(self, spec: ShellExecSpec) -> ShellRunResult:
         self.specs.append(spec)
         return replace(self.result, timeout_seconds=spec.timeout_seconds)
+
+
+class RecordingProcessSandbox:
+    def __init__(
+        self,
+        result: SandboxProcessResult | None = None,
+        *,
+        error: BaseException | None = None,
+    ) -> None:
+        self.result = result
+        self.error = error
+        self.requests: list[SandboxProcessRequest] = []
+
+    async def run(self, request: SandboxProcessRequest) -> SandboxProcessResult:
+        self.requests.append(request)
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None
+        return self.result
 
 
 def completed_result(
@@ -219,6 +243,116 @@ class ShellContractTests(unittest.TestCase):
     def test_result_rejects_ambiguous_interruption_cause(self) -> None:
         with self.assertRaisesRegex(ValueError, "mutually exclusive"):
             completed_result(timed_out=True, cancelled=True)
+
+
+class SandboxedBashExecutorTests(unittest.IsolatedAsyncioTestCase):
+    def test_resolve_maps_workspace_relative_workdir_and_caps_timeout(self) -> None:
+        executor = SandboxedBashExecutor(
+            RecordingProcessSandbox(),
+            default_timeout_seconds=30,
+            max_timeout_seconds=60,
+        )
+
+        spec = executor.resolve(
+            ShellExecRequest(
+                command="pytest -q",
+                workdir="packages/core",
+                timeout_seconds=90,
+            )
+        )
+
+        self.assertEqual(spec.workdir, "/workspace/packages/core")
+        self.assertEqual(spec.timeout_seconds, 60)
+
+    def test_resolve_rejects_workdir_escape_or_host_path_syntax(self) -> None:
+        executor = SandboxedBashExecutor(RecordingProcessSandbox())
+
+        for workdir in ("../outside", "/tmp", "packages\\core"):
+            with self.subTest(workdir=workdir):
+                with self.assertRaises(ValueError):
+                    executor.resolve(
+                        ShellExecRequest(command="pwd", workdir=workdir)
+                    )
+
+    async def test_executes_exact_bash_argv_and_maps_bounded_output(self) -> None:
+        sandbox = RecordingProcessSandbox(
+            SandboxProcessResult(
+                exit_code=2,
+                stdout="stdout tail",
+                stderr="stderr tail",
+                enforcement="full",
+                stdout_truncated=True,
+                stderr_truncated=True,
+            )
+        )
+        executor = SandboxedBashExecutor(
+            sandbox,
+            mode="read-only",
+            default_timeout_seconds=45,
+        )
+        spec = executor.resolve(ShellExecRequest(command="pytest -q"))
+
+        result = await executor.execute(spec)
+
+        self.assertEqual(
+            sandbox.requests,
+            [
+                SandboxProcessRequest(
+                    argv=("/bin/bash", "-lc", "pytest -q"),
+                    workdir="/workspace",
+                    mode="read-only",
+                    timeout_seconds=45,
+                )
+            ],
+        )
+        self.assertEqual(result.exit_code, 2)
+        self.assertTrue(result.stdout.truncated)
+        self.assertTrue(result.stderr.truncated)
+        self.assertEqual(
+            result.sandbox,
+            ShellSandboxInfo(mode="read-only", enforcement="full"),
+        )
+
+    async def test_timeout_becomes_a_result_but_partial_enforcement_fails(self) -> None:
+        timeout_executor = SandboxedBashExecutor(
+            RecordingProcessSandbox(error=SandboxTimeoutError("expired")),
+            mode="workspace-write",
+        )
+        timed_out = await timeout_executor.execute(
+            timeout_executor.resolve(ShellExecRequest(command="sleep 10"))
+        )
+
+        self.assertTrue(timed_out.timed_out)
+        self.assertIsNone(timed_out.exit_code)
+        self.assertEqual(
+            timed_out.sandbox,
+            ShellSandboxInfo(mode="workspace-write", enforcement=None),
+        )
+
+        partial_executor = SandboxedBashExecutor(
+            RecordingProcessSandbox(
+                SandboxProcessResult(
+                    exit_code=0,
+                    stdout="",
+                    stderr="",
+                    enforcement="partial",
+                )
+            )
+        )
+        with self.assertRaises(SandboxUnavailableError):
+            await partial_executor.execute(
+                partial_executor.resolve(ShellExecRequest(command="true"))
+            )
+
+    async def test_process_sandbox_cancellation_propagates(self) -> None:
+        executor = SandboxedBashExecutor(
+            RecordingProcessSandbox(error=asyncio.CancelledError())
+        )
+
+        with self.assertRaises(asyncio.CancelledError):
+            await executor.execute(
+                executor.resolve(ShellExecRequest(command="sleep 10"))
+            )
 
 
 if __name__ == "__main__":

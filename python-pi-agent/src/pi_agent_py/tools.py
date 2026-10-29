@@ -193,7 +193,7 @@ class SandboxedShellTool:
             raise TypeError("validated shell command must be a string")
         result = await self._sandbox.run(
             SandboxProcessRequest(
-                command=command,
+                argv=("/bin/sh", "-lc", command),
                 mode=self._mode,
                 timeout_seconds=self._timeout_seconds,
             )

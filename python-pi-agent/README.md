@@ -26,7 +26,7 @@ AgentEventEnvelope -> version/time/source/correlation -> spans -> durable event 
 ToolCall -> ToolExecutionContext -> ApprovalPolicy -> ToolExecutionGate -> ToolOutput
 DurableSessionEvent -> event/run/turn identity -> provenance -> schema v4 replay
 AgentSession -> dispatcher -> steer / follow-up / abort -> settled / idle
-Shell Tool -> ProcessSandbox -> Docker workspace -> bounded result
+BashTool -> SandboxedBashExecutor -> exact argv ProcessSandbox -> Docker workspace
 ```
 
 它同时提供脚本化 `FakeProvider`，以及 DeepSeek、Kimi、GLM Chat Completions 和 TiMi Codex/GPT/Grok Responses API 适配器。默认测试仍然确定、离线且不会产生 API 费用。
@@ -61,6 +61,8 @@ Shell Tool -> ProcessSandbox -> Docker workspace -> bounded result
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\22_provider_configuration.py --help
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\23_provider_resilience.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\24_application_runtime.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\26_bash_tool_contract.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\27_docker_bash_executor.py --help
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：
@@ -134,8 +136,8 @@ live    run_settled
 11. `src/pi_agent_py/assembly.py`：显式 Catalog、事务化 Builder 与失败回滚
 12. `src/pi_agent_py/app_runtime.py`：应用 facade、Session lease、容量和关闭状态机
 13. `src/pi_agent_py/lifecycle.py`：owned/borrowed 资源与逆序释放
-14. `src/pi_agent_py/tools.py`：工具定义、审批策略、执行 Gate 与沙箱化 Shell consumer
-15. `src/pi_agent_py/sandbox.py`：真正的进程隔离 Provider 与 fail-closed 生命周期
+14. `src/pi_agent_py/tools.py`：工具定义、审批策略、执行 Gate 与兼容期 Shell consumer
+15. `src/pi_agent_py/shell.py` 与 `sandbox.py`：BashTool、ShellExecutor 组装、workspace 路径解析和 exact-argv 进程隔离
 16. [教程：工具调用系统](tutorials/03-tool-calling.md)
 17. [教程：会话存储与 AgentSession](tutorials/04-session-runtime.md)
 18. [教程：Durable Event Log 与 Replay](tutorials/05-durable-event-log.md)
@@ -159,5 +161,7 @@ live    run_settled
 36. [教程：TiMi Codex/GPT/Grok Responses API 适配](tutorials/23-timicc-responses-api.md)
 37. [教程：Provider Retry、Backoff、Router 与 Fallback](tutorials/24-provider-resilience.md)
 38. [教程：AgentRuntime、Profile 与统一生命周期](tutorials/25-application-runtime-assembly.md)
+39. [教程：BashTool 与 ShellExecutor 契约](tutorials/26-bash-tool-contract.md)
+40. [教程：Docker-backed BashExecutor](tutorials/27-docker-bash-executor.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。

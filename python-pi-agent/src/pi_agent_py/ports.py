@@ -256,7 +256,7 @@ class ShellExecutor(Protocol):
 
 
 class ProcessSandbox(Protocol):
-    """Runs commands behind an enforceable process and workspace boundary."""
+    """Runs exact argv behind an enforceable process/workspace boundary."""
 
     async def run(self, request: SandboxProcessRequest) -> SandboxProcessResult:
         """Execute one command or fail closed when isolation is unavailable."""

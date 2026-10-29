@@ -127,10 +127,6 @@ class SandboxTimeoutError(SandboxError):
     """A sandboxed process exceeded its deadline and was terminated."""
 
 
-class SandboxOutputLimitError(SandboxError):
-    """A sandboxed process exceeded its bounded output allowance."""
-
-
 class PluginError(AgentError):
     """A plugin could not be loaded, executed, or released safely."""
 

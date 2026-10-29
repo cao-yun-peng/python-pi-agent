@@ -15,7 +15,6 @@ from pi_agent_py import (
     JSONObject,
     SandboxProcessRequest,
     SandboxProcessResult,
-    SandboxOutputLimitError,
     SandboxTimeoutError,
     SandboxUnavailableError,
     SandboxedShellTool,
@@ -133,7 +132,7 @@ class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
         )
 
         arguments = sandbox.build_command(
-            SandboxProcessRequest("python -V", mode="read-only"),
+            SandboxProcessRequest(("python", "-V"), mode="read-only"),
             container_name="sandbox-test",
         )
 
@@ -146,7 +145,28 @@ class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SAFE_FLAG", arguments)
         self.assertNotIn("SAFE_FLAG=1", arguments)
         self.assertNotIn("PATH=", " ".join(arguments))
-        self.assertEqual(arguments[-3:], ("/bin/sh", "-lc", "python -V"))
+        self.assertEqual(arguments[-2:], ("python", "-V"))
+
+    def test_request_rejects_ambiguous_argv_workdir_and_timeout(self) -> None:
+        invalid_requests = (
+            lambda: SandboxProcessRequest([]),
+            lambda: SandboxProcessRequest((" ",)),
+            lambda: SandboxProcessRequest(("echo", "bad\x00arg")),
+            lambda: SandboxProcessRequest(("pwd",), workdir="/tmp"),
+            lambda: SandboxProcessRequest(
+                ("pwd",),
+                workdir="/workspace/../tmp",
+            ),
+            lambda: SandboxProcessRequest(("sleep", "1"), timeout_seconds=True),
+            lambda: SandboxProcessRequest(
+                ("sleep", "1"),
+                timeout_seconds=float("inf"),
+            ),
+        )
+        for make_request in invalid_requests:
+            with self.subTest(make_request=make_request):
+                with self.assertRaises((TypeError, ValueError)):
+                    make_request()
 
     def test_workspace_write_changes_only_the_workspace_mount_mode(self) -> None:
         sandbox = DockerProcessSandbox(
@@ -156,13 +176,20 @@ class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
         )
 
         arguments = sandbox.build_command(
-            SandboxProcessRequest("touch result.txt"),
+            SandboxProcessRequest(
+                ("touch", "result.txt"),
+                workdir="/workspace/subdir",
+            ),
             container_name="sandbox-test",
         )
 
         mount = arguments[arguments.index("--mount") + 1]
         self.assertNotIn("readonly", mount)
         self.assertIn("--read-only", arguments)
+        self.assertEqual(
+            arguments[arguments.index("--workdir") + 1],
+            "/workspace/subdir",
+        )
 
     async def test_returns_enforcement_evidence_and_explicit_environment(
         self,
@@ -177,7 +204,7 @@ class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
             launcher=launcher,
         )
 
-        result = await sandbox.run(SandboxProcessRequest("run tests"))
+        result = await sandbox.run(SandboxProcessRequest(("run", "tests")))
 
         self.assertEqual(result.stdout, "12345")
         self.assertEqual(result.stderr, "67890")
@@ -189,22 +216,27 @@ class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(launched_environment["SAFE_FLAG"], "1")
         self.assertNotIn("SAFE_FLAG=1", launcher.calls[0])
 
-    async def test_output_limit_terminates_the_container(self) -> None:
-        process = FakeProcess(returncode=None, stdout=b"12345", stderr=b"67890")
-        cleanup = FakeProcess()
-        launcher = QueueLauncher(process, cleanup)
+    async def test_output_limit_retains_bounded_stream_tails(self) -> None:
+        process = FakeProcess(stdout=b"12345", stderr=b"67890")
+        launcher = QueueLauncher(process)
         sandbox = DockerProcessSandbox(
             self.workspace,
             image="local/python-agent:test",
-            max_output_bytes=7,
+            max_output_bytes=3,
             launcher=launcher,
         )
 
-        with self.assertRaises(SandboxOutputLimitError):
-            await sandbox.run(SandboxProcessRequest("print forever"))
+        result = await sandbox.run(
+            SandboxProcessRequest(("print", "a-lot"))
+        )
 
-        self.assertTrue(process.killed)
-        self.assertEqual(launcher.calls[1][1:3], ("rm", "--force"))
+        self.assertEqual(result.stdout, "345")
+        self.assertEqual(result.stderr, "890")
+        self.assertTrue(result.stdout_truncated)
+        self.assertTrue(result.stderr_truncated)
+        self.assertTrue(result.output_truncated)
+        self.assertFalse(process.killed)
+        self.assertEqual(len(launcher.calls), 1)
 
     async def test_docker_runtime_failure_is_not_treated_as_command_failure(
         self,
@@ -219,7 +251,9 @@ class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with self.assertRaises(SandboxUnavailableError):
-            await sandbox.run(SandboxProcessRequest("echo never-ran"))
+            await sandbox.run(
+                SandboxProcessRequest(("echo", "never-ran"))
+            )
 
     async def test_timeout_force_removes_container_and_kills_client(self) -> None:
         process = FakeProcess(returncode=None, block=True)
@@ -233,7 +267,7 @@ class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(SandboxTimeoutError):
             await sandbox.run(
-                SandboxProcessRequest("block", timeout_seconds=0)
+                SandboxProcessRequest(("block",), timeout_seconds=0)
             )
 
         self.assertTrue(process.killed)
@@ -255,7 +289,7 @@ class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
             launcher=launcher,
         )
         task = asyncio.create_task(
-            sandbox.run(SandboxProcessRequest("block"))
+            sandbox.run(SandboxProcessRequest(("block",)))
         )
         await process.started.wait()
 
@@ -301,7 +335,10 @@ class SandboxedShellToolTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.messages[2].content, "tests passed")
         self.assertEqual(result.message.content, "done")
-        self.assertEqual(sandbox.requests[0].command, "pytest -q")
+        self.assertEqual(
+            sandbox.requests[0].argv,
+            ("/bin/sh", "-lc", "pytest -q"),
+        )
 
     async def test_shell_tool_delegates_to_process_sandbox(self) -> None:
         sandbox = RecordingSandbox(

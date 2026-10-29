@@ -27,7 +27,7 @@
 - Docker、远程 worker 或未来的可信本地实现可以替换 Executor，而不改变模型 schema；
 - request/spec 分离为工作目录规范化、超时封顶和精确 argv 留出单一解析点；
 - 公共 API 暂时同时存在 `SandboxedShellTool` 和 `BashTool`，迁移完成后再单独决定旧接口的弃用策略；
-- 第一批尚不能真实执行 Bash，正式应用不得把 FakeExecutor 当成执行 Provider。
+- 第一批本身不真实执行 Bash；后续 ADR 0026 已提供 `SandboxedBashExecutor`，正式应用仍不得把 FakeExecutor 当成执行 Provider。
 
 ## 验证方式
 
@@ -36,3 +36,7 @@
 - 结果测试覆盖非零退出、timeout、截断、沙箱拒绝和取消；
 - Agent 集成测试覆盖 ApprovalPolicy、ToolExecutionGate、BashTool 与 Executor 的完整调用链；
 - 旧 sandbox 测试保持通过，证明本批未改变 Docker 安全边界。
+
+## 后续状态
+
+ADR 0026 已实现 Docker-backed Provider、workspace 工作目录规范化、超时封顶、固定 Bash argv 和每流有界输出尾部；本 ADR 的模型 schema 与 request/spec 契约保持不变。

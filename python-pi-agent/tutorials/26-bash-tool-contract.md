@@ -4,7 +4,7 @@
 
 目标是给模型一个稳定的 `bash` 工具，同时不让工具 schema、Bash 默认值和 Docker 细节绑定在同一个类里。
 
-本章建立 Definition、Consumer 和 Fake Provider。真实 Docker Provider 在下一阶段接入，因此本章示例不会启动进程、访问网络或调用付费模型。
+本章先用 Fake Provider 建立 Definition 和 Consumer，便于只观察接口。第 27 章再把同一个 `BashTool` 接到真实 Docker Provider；本章示例仍不会启动进程、访问网络或调用付费模型。
 
 ## 2. 能力位置
 
@@ -17,7 +17,7 @@ ToolCall
   -> DemoShellExecutor        Provider：本章的确定性替身
 ```
 
-旧的 `SandboxedShellTool -> ProcessSandbox` 仍然可用。本章先建立新接缝，避免在同一个提交中同时改变 Docker argv、输出收集和既有示例。
+旧的 `SandboxedShellTool -> ProcessSandbox` 仍然可用。本章只聚焦新接缝；精确 Docker argv、输出收集和 workspace 路径边界见第 27 章。
 
 ## 3. Request 和 Spec 为什么分开
 
@@ -80,5 +80,7 @@ Provider 的 `resolve()` 负责填充默认工作目录、默认超时并施加�
 - Pi 提供小 Agent loop、工具 schema 和执行 context，本项目继续让 runtime 只认识通用 `Tool`。
 - DeepSeek Harness 把 model-facing bash tool、ShellExecutor、subprocess 和 sandbox 拆成独立 capability；本项目借鉴 request/spec 和 Definition/Provider/Consumer，但继续使用单一 Python 包。
 - 本阶段主动省略后台 job、持久 PTY、host-local Bash、环境透传和单次权限升级。
+
+后续实现：`SandboxedBashExecutor` 已在第 27 章把该端口接到 `DockerProcessSandbox`，不需要修改本章的 `BashTool` schema。
 
 掌握标准：能够替换 `ShellExecutor` 而不修改 `BashTool`，并能解释命令失败、执行环境失败和 run 取消为什么是三种不同结果。

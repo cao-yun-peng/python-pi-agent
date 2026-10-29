@@ -52,7 +52,7 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 - `providers/deepseek.py`、`providers/kimi.py` 与 `providers/glm.py` 分别隔离各自 HTTP 认证、模型参数、完成判据、错误体解析和供应商特例，并组合共享 wire codec/support；它们不是继承同一个可变大基类。GLM 适配器还负责标准 API 的 `request_id`、`tool_stream`、模型级 thinking/reasoning 约束和业务错误码映射。
 - `providers/timicc_responses.py` 独立实现 Responses API 的 typed SSE、扁平 function tool、output item 与 usage 语义，只复用 SSE framing 和基础配置/HTTP 分类。它固定发送 `store: false`，将 completed output item 保存为 provider-owned opaque state，以支持 Codex/GPT/Grok reasoning/tool 续轮；不把两套 wire format 塞进 Chat Completions codec，也不引入 `BaseOpenAIProvider`。
 - `tools.py` 提供 `FunctionTool`、审批策略、声明式副作用 Gate、兼容期 `SandboxedShellTool` 和可替换的 schema 校验边界。
-- `shell.py` 提供模型侧 `BashTool` Consumer；它只把命名后的 `command/workdir/timeout_seconds` 交给 `ShellExecutor`，并把命令结果、超时、取消、截断与沙箱事实分开投影。
+- `shell.py` 提供模型侧 `BashTool` Consumer 和 `SandboxedBashExecutor` Provider；前者只投影命名后的 `command/workdir/timeout_seconds`，后者把工作目录限制在 `/workspace`、施加超时上限，并以固定 `/bin/bash -lc` argv 消费 `ProcessSandbox`。
 - `sandbox.py` 提供真正的 `ProcessSandbox` Provider；首个实现通过 Docker 隔离 workspace Shell。
 - `plugins.py` 提供显式、事务化的 `PluginHost`，把 Tool、Hook 与 cleanup 组合成不可变能力快照。
 
@@ -70,7 +70,7 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 
 runtime 只通过 `ToolExecutionGate.execute()` 调度工具，不再直接调用 `Tool.execute()`。默认 `DeclaredSideEffectGate` 只允许 `side_effects="none"`，应用必须显式允许 read/write/external，并可叠加工具名 allowlist；Gate 还会二次确认受保护调用携带批准决定。`TrustedToolExecutionGate` 只适用于已经信任的 Python Tool。两者都不构成 OS 隔离，拒绝产生 `tool_execution_denied` 和模型可见 error tool result；timeout 包围 Gate/Tool 调用，取消继续传播。
 
-Shell 语义与进程隔离是两个 capability。`BashTool` 消费 `ShellExecutor`，调用方必须先把可选 request 解析成默认值和上限完整的 spec，Executor 才能执行；当前第一批只有 FakeExecutor 证据，尚未替代正式 Docker 路径。兼容期 `SandboxedShellTool` 仍直接消费 `ProcessSandbox`，`DockerProcessSandbox` 把规范化 workspace 作为唯一宿主挂载，容器根只读、默认网络关闭、不向容器转发未显式声明的宿主环境变量，并施加 capability、CPU、内存、进程数、tmpfs 和输出捕获限制。Docker 或镜像不可用时 fail closed，不回退到宿主 Shell；timeout/取消由 Provider 强制删除容器并终止客户端。当前只支持 `read-only` 与 `workspace-write`，不把 `danger-full-access` 伪装成沙箱模式。下一批用 Sandboxed Bash Executor 把两条接缝组合起来。
+Shell 语义与进程隔离是两个 capability。`BashTool` 消费 `ShellExecutor`，调用方先把可选 request 解析成默认值和上限完整的 spec，Executor 才能执行。正式 `SandboxedBashExecutor` 把模型工作目录作为 workspace 相对 POSIX 路径解析，拒绝绝对路径、`..` 和 Windows 反斜杠，再固定生成 `("/bin/bash", "-lc", command)`；`ProcessSandbox` 本身只接收精确 argv，不再偷偷决定 Shell。兼容期 `SandboxedShellTool` 仍直接消费该端口，并显式生成 `/bin/sh -lc`。`DockerProcessSandbox` 把规范化 workspace 作为唯一宿主挂载，容器根只读、默认网络关闭、不向容器转发未显式声明的宿主环境变量，并施加 capability、CPU、内存、进程数、tmpfs 和每流输出捕获限制。stdout/stderr 超限时分别保留有界尾部并报告截断，不因日志量改变命令控制流。Docker 或镜像不可用时 fail closed，不回退到宿主 Shell；timeout/取消由 Provider 强制删除容器并终止客户端。当前只支持 `read-only` 与 `workspace-write`，不把 `danger-full-access` 伪装成沙箱模式。
 
 逐消息提交允许取消或进程退出发生在一个工具批次中间。`AgentSession` 每次继续运行或手动压缩前都会校验工具调用/结果序列：若会话尾部存在未决调用，就为每个缺失结果追加一个 `is_error=True` 的恢复 tool message，明确记录“外部副作用结果未知，不得自动重试”，然后才允许追加新的用户消息。已经完成的 tool result 不会重复生成。若未决调用之后已经存在其他 user/assistant 消息，append-only 日志无法在原位置安全修补，session 会以 `SessionValidationError` 拒绝继续，而不是把错误结果追加到错误位置。恢复消息本身是普通 `message_committed` durable fact，因此内存、JSONL、fork 和 replay 使用同一语义；`tool_call_recovered` capability event 提供恢复证据。
 

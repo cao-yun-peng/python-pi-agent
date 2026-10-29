@@ -12,8 +12,9 @@
 ToolCall
   -> ApprovalPolicy             是否获得用户许可
   -> ToolExecutionGate         该 Tool/effect 是否允许进入
-  -> SandboxedShellTool         Shell capability consumer
-  -> ProcessSandbox             命令实际上在哪里运行
+  -> BashTool / legacy SandboxedShellTool
+  -> ShellExecutor              Bash 语义、工作目录和超时策略
+  -> ProcessSandbox             exact argv 实际在哪里运行
   -> Docker container
 ```
 
@@ -31,9 +32,10 @@ class ProcessSandbox(Protocol):
     ) -> SandboxProcessResult: ...
 ```
 
-请求只有三个核心字段：
+请求有四个核心字段：
 
-- `command`：在隔离环境中执行的 Shell 文本；
+- `argv`：在隔离环境中执行的精确参数元组，`ProcessSandbox` 不隐式选择 Shell；
+- `workdir`：必须位于容器内 `/workspace` 下的绝对 POSIX 路径；
 - `mode`：`read-only` 或 `workspace-write`；
 - `timeout_seconds`：进程沙箱自己的终止期限。
 
@@ -54,7 +56,7 @@ V1 没有 `danger-full-access`。该模式的真实含义是“不要隔离”�
 - 显式 CPU、内存和进程数上限；
 - 不把宿主环境传进容器，只有构造时显式给出的键值进入；值通过 Docker client 环境转交，不拼进命令行参数；
 - `--pull never`，运行过程中不下载镜像；
-- stdout/stderr 总量有硬上限；超过时强制终止容器并返回 `SandboxOutputLimitError`，避免先把无限输出全部读入内存。
+- stdout/stderr 分别保留有界尾部；超过上限时丢弃该流头部并设置独立 truncation fact，不因为日志量改变命令退出语义。
 
 Docker 可执行文件不存在或 Docker 返回 runtime exit code 125 时，Provider 抛出 `SandboxUnavailableError`。没有宿主执行 fallback。
 
@@ -81,23 +83,23 @@ process_sandbox = DockerProcessSandbox(
     image="my-agent-image:locked",
     network_enabled=False,
 )
-shell = SandboxedShellTool(
+executor = SandboxedBashExecutor(
     process_sandbox,
     mode="workspace-write",
-    requires_approval=True,
 )
+bash = BashTool(executor, requires_approval=True)
 agent = Agent(
     provider,
-    tools=(shell,),
+    tools=(bash,),
     approval_policy=my_policy,
     execution_gate=DeclaredSideEffectGate(
         allowed_side_effects=("none", "write"),
-        allowed_tools=("shell",),
+        allowed_tools=("bash",),
     ),
 )
 ```
 
-镜像必须预先存在并包含 `/bin/sh`。建议使用固定 tag 或 digest，并只安装任务真正需要的编译器和工具链。
+新路径的镜像必须预先存在并包含 `/bin/bash`。兼容期 `SandboxedShellTool` 会显式使用 `/bin/sh -lc`。建议使用固定 tag 或 digest，并只安装任务真正需要的编译器和工具链。
 
 可运行示例：
 
@@ -128,7 +130,7 @@ agent = Agent(
 - `danger-full-access` 的单次升级审批；
 - Docker 镜像供应链安全。
 
-对未知 Python 插件或高风险仓库，应把整个 Harness 放入容器、MicroVM 或远端 worker，而不是只使用 `SandboxedShellTool`。
+对未知 Python 插件或高风险仓库，应把整个 Harness 放入容器、MicroVM 或远端 worker，而不是只隔离 Bash 子进程。
 
 ## 8. 与 Codex、DeepSeek Harness、Pi 的映射
 

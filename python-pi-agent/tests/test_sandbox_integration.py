@@ -26,19 +26,19 @@ class DockerSandboxIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
             write_result = await sandbox.run(
                 SandboxProcessRequest(
-                    "printf 'inside' > result.txt",
+                    ("/bin/sh", "-lc", "printf 'inside' > result.txt"),
                     mode="workspace-write",
                 )
             )
             escape_result = await sandbox.run(
                 SandboxProcessRequest(
-                    "touch /workspace/../escaped.txt",
+                    ("/bin/sh", "-lc", "touch /workspace/../escaped.txt"),
                     mode="workspace-write",
                 )
             )
             read_only_result = await sandbox.run(
                 SandboxProcessRequest(
-                    "touch forbidden.txt",
+                    ("/bin/sh", "-lc", "touch forbidden.txt"),
                     mode="read-only",
                 )
             )

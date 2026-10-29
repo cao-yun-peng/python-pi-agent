@@ -3,19 +3,144 @@
 from __future__ import annotations
 
 import asyncio
+from math import isfinite
+from pathlib import PurePosixPath
 
 from .domain import (
     JSONObject,
     JSONValue,
     ShellCollectedOutput,
     ShellExecRequest,
+    ShellExecSpec,
     ShellRunResult,
     ShellSandboxInfo,
+    SandboxProcessRequest,
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
+    WorkspaceAccessMode,
 )
-from .ports import ShellExecutor
+from .errors import SandboxTimeoutError, SandboxUnavailableError
+from .ports import ProcessSandbox, ShellExecutor
+
+
+class SandboxedBashExecutor:
+    """Maps one-shot Bash semantics onto an injected process sandbox."""
+
+    def __init__(
+        self,
+        sandbox: ProcessSandbox,
+        *,
+        mode: WorkspaceAccessMode = "workspace-write",
+        default_timeout_seconds: float = 120.0,
+        max_timeout_seconds: float = 600.0,
+        require_full_enforcement: bool = True,
+    ) -> None:
+        if mode not in ("read-only", "workspace-write"):
+            raise ValueError("unknown workspace access mode")
+        _validate_positive_finite_timeout(
+            default_timeout_seconds,
+            "default_timeout_seconds",
+        )
+        _validate_positive_finite_timeout(
+            max_timeout_seconds,
+            "max_timeout_seconds",
+        )
+        if default_timeout_seconds > max_timeout_seconds:
+            raise ValueError(
+                "default_timeout_seconds must not exceed max_timeout_seconds"
+            )
+        if type(require_full_enforcement) is not bool:
+            raise TypeError("require_full_enforcement must be a boolean")
+
+        self._sandbox = sandbox
+        self._mode = mode
+        self._default_timeout_seconds = default_timeout_seconds
+        self._max_timeout_seconds = max_timeout_seconds
+        self._require_full_enforcement = require_full_enforcement
+
+    def resolve(self, request: ShellExecRequest) -> ShellExecSpec:
+        """Resolve model-facing options to a bounded container execution spec."""
+        timeout_seconds = request.timeout_seconds
+        if timeout_seconds is None:
+            timeout_seconds = self._default_timeout_seconds
+        timeout_seconds = min(timeout_seconds, self._max_timeout_seconds)
+
+        relative_workdir = request.workdir or "."
+        if "\\" in relative_workdir:
+            raise ValueError("shell workdir must use POSIX path separators")
+        path = PurePosixPath(relative_workdir)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError("shell workdir must stay inside the workspace")
+        workdir = "/workspace"
+        if path.parts:
+            workdir = f"/workspace/{path.as_posix()}"
+
+        return ShellExecSpec(
+            command=request.command,
+            workdir=workdir,
+            timeout_seconds=timeout_seconds,
+        )
+
+    async def execute(self, spec: ShellExecSpec) -> ShellRunResult:
+        """Run Bash through the sandbox and preserve orthogonal result facts."""
+        request = SandboxProcessRequest(
+            argv=("/bin/bash", "-lc", spec.command),
+            workdir=spec.workdir,
+            mode=self._mode,
+            timeout_seconds=spec.timeout_seconds,
+        )
+        try:
+            result = await self._sandbox.run(request)
+        except SandboxTimeoutError:
+            return ShellRunResult(
+                exit_code=None,
+                signal=None,
+                timed_out=True,
+                cancelled=False,
+                timeout_seconds=spec.timeout_seconds,
+                stdout=ShellCollectedOutput(""),
+                stderr=ShellCollectedOutput(""),
+                sandbox=ShellSandboxInfo(
+                    mode=self._mode,
+                    enforcement=None,
+                ),
+            )
+
+        if self._require_full_enforcement and result.enforcement != "full":
+            raise SandboxUnavailableError(
+                "process sandbox reported partial enforcement; refusing Bash run"
+            )
+
+        return ShellRunResult(
+            exit_code=result.exit_code,
+            signal=None,
+            timed_out=False,
+            cancelled=False,
+            timeout_seconds=spec.timeout_seconds,
+            stdout=ShellCollectedOutput(
+                result.stdout,
+                truncated=result.stdout_truncated,
+            ),
+            stderr=ShellCollectedOutput(
+                result.stderr,
+                truncated=result.stderr_truncated,
+            ),
+            sandbox=ShellSandboxInfo(
+                mode=self._mode,
+                enforcement=result.enforcement,
+            ),
+        )
+
+
+def _validate_positive_finite_timeout(value: object, label: str) -> None:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(f"{label} must be positive and finite")
 
 
 class BashTool:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import isfinite
+from pathlib import PurePosixPath
 from time import time
 from typing import Literal, Mapping, TypeAlias
 from uuid import uuid4
@@ -208,14 +209,17 @@ class ShellSandboxInfo:
     """Independent confinement facts for one shell execution."""
 
     mode: WorkspaceAccessMode
-    enforcement: SandboxEnforcement
+    enforcement: SandboxEnforcement | None = None
     denied: bool = False
     runner_failed: bool = False
 
     def __post_init__(self) -> None:
         if self.mode not in ("read-only", "workspace-write"):
             raise ValueError("unknown shell sandbox mode")
-        if self.enforcement not in ("full", "partial"):
+        if self.enforcement is not None and self.enforcement not in (
+            "full",
+            "partial",
+        ):
             raise ValueError("unknown shell sandbox enforcement level")
         if type(self.denied) is not bool:
             raise TypeError("shell sandbox denied must be a boolean")
@@ -276,21 +280,49 @@ def _validate_shell_timeout(value: object, label: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class SandboxProcessRequest:
-    """One command requested inside a workspace process sandbox."""
+    """One exact argv requested inside a workspace process sandbox."""
 
-    command: str
+    argv: tuple[str, ...]
+    workdir: str = "/workspace"
     mode: WorkspaceAccessMode = "workspace-write"
     timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
-        if not self.command.strip():
-            raise ValueError("sandbox command must not be empty")
-        if "\x00" in self.command:
-            raise ValueError("sandbox command must not contain NUL")
+        if not isinstance(self.argv, tuple):
+            raise TypeError("sandbox argv must be a tuple")
+        if (
+            not self.argv
+            or not isinstance(self.argv[0], str)
+            or not self.argv[0].strip()
+        ):
+            raise ValueError("sandbox argv must contain a non-empty program")
+        if any(not isinstance(item, str) for item in self.argv):
+            raise TypeError("sandbox argv entries must be strings")
+        if any("\x00" in item for item in self.argv):
+            raise ValueError("sandbox argv entries must not contain NUL")
+        if not isinstance(self.workdir, str) or not self.workdir.strip():
+            raise ValueError("sandbox workdir must not be empty")
+        if "\x00" in self.workdir:
+            raise ValueError("sandbox workdir must not contain NUL")
+        workdir = PurePosixPath(self.workdir)
+        if (
+            not workdir.is_absolute()
+            or workdir.parts[:2] != ("/", "workspace")
+            or ".." in workdir.parts
+        ):
+            raise ValueError("sandbox workdir must stay under /workspace")
         if self.mode not in ("read-only", "workspace-write"):
             raise ValueError("unknown workspace access mode")
-        if self.timeout_seconds is not None and self.timeout_seconds < 0:
-            raise ValueError("sandbox timeout_seconds must not be negative")
+        if self.timeout_seconds is not None:
+            if (
+                not isinstance(self.timeout_seconds, (int, float))
+                or isinstance(self.timeout_seconds, bool)
+                or not isfinite(self.timeout_seconds)
+                or self.timeout_seconds < 0
+            ):
+                raise ValueError(
+                    "sandbox timeout_seconds must be non-negative and finite"
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,11 +333,28 @@ class SandboxProcessResult:
     stdout: str
     stderr: str
     enforcement: SandboxEnforcement
-    output_truncated: bool = False
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.exit_code, int) or isinstance(
+            self.exit_code,
+            bool,
+        ):
+            raise TypeError("sandbox exit_code must be an integer")
+        if not isinstance(self.stdout, str) or not isinstance(self.stderr, str):
+            raise TypeError("sandbox stdout and stderr must be strings")
         if self.enforcement not in ("full", "partial"):
             raise ValueError("unknown sandbox enforcement level")
+        if type(self.stdout_truncated) is not bool:
+            raise TypeError("stdout_truncated must be a boolean")
+        if type(self.stderr_truncated) is not bool:
+            raise TypeError("stderr_truncated must be a boolean")
+
+    @property
+    def output_truncated(self) -> bool:
+        """Whether either captured stream dropped bytes from its head."""
+        return self.stdout_truncated or self.stderr_truncated
 
 
 @dataclass(frozen=True, slots=True)
