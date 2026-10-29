@@ -13,6 +13,7 @@ from pi_agent_py import (
     Finish,
     JsonlSessionStore,
     Message,
+    ProviderState,
     QueuedControl,
     SessionEventContext,
     SessionCompaction,
@@ -68,6 +69,16 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
                     content="",
                     thinking="先查天气",
                     tool_calls=(ToolCall("call-1", "weather", {"city": "成都"}),),
+                    provider_state=(
+                        ProviderState(
+                            provider="timicc-responses",
+                            item={
+                                "type": "reasoning",
+                                "id": "rs_1",
+                                "encrypted_content": "ciphertext",
+                            },
+                        ),
+                    ),
                 ),
                 Message(
                     role="tool",
@@ -89,7 +100,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             ]
             self.assertEqual(
                 [record["schema_version"] for record in records],
-                [5, 5],
+                [6, 6],
             )
             self.assertEqual([record["sequence"] for record in records], [1, 2])
 

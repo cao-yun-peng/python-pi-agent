@@ -190,6 +190,8 @@ def _message_character_count(message: Message) -> int:
     for call in message.tool_calls:
         count += len(call.id) + len(call.name)
         count += len(_compact_json(call.arguments))
+    for state in message.provider_state:
+        count += len(state.provider) + len(_compact_json(state.item))
     if message.tool_call_id is not None:
         count += len(message.tool_call_id)
     if message.tool_name is not None:

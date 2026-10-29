@@ -12,6 +12,7 @@ from pi_agent_py import (
     Finish,
     InMemoryEventSink,
     Message,
+    ProviderState,
     TextDelta,
     TokenBudgetContextStrategy,
     ToolCall,
@@ -154,6 +155,26 @@ class TokenBudgetContextTests(unittest.IsolatedAsyncioTestCase):
         tokens = estimator.estimate((Message(role="user", content="ab"),))
 
         self.assertEqual(tokens, len("user") + len("ab"))
+
+    def test_character_estimator_counts_provider_continuity_state(self) -> None:
+        estimator = CharacterTokenEstimator(
+            characters_per_token=1,
+            per_message_overhead=0,
+        )
+        item = {"encrypted_content": "abc", "type": "reasoning"}
+        message = Message(
+            role="assistant",
+            content="",
+            provider_state=(ProviderState("timicc-responses", item),),
+        )
+
+        tokens = estimator.estimate((message,))
+
+        compact_item = '{"encrypted_content":"abc","type":"reasoning"}'
+        self.assertEqual(
+            tokens,
+            len("assistant") + len("timicc-responses") + len(compact_item),
+        )
 
     def test_character_estimator_ignores_programmatic_structured_content(self) -> None:
         estimator = CharacterTokenEstimator(

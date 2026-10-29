@@ -11,6 +11,7 @@ from pi_agent_py import (
     Message,
     ModelProtocolError,
     ProviderError,
+    ProviderState,
     TextDelta,
     WaitUntilCancelled,
 )
@@ -89,6 +90,27 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             [event.kind for event in events.events[-2:]],
             ["run_failed", "run_settled"],
         )
+
+    async def test_commits_provider_state_without_exposing_it_to_observers(self) -> None:
+        state = ProviderState(
+            provider="timicc-responses",
+            item={
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "opaque-secret-state",
+            },
+        )
+        events = InMemoryEventSink()
+        agent = Agent(FakeProvider([[state, TextDelta("完成"), Finish()]]), event_sink=events)
+
+        result = await agent.run("继续")
+
+        self.assertEqual(result.message.provider_state, (state,))
+        committed = [
+            event for event in events.events if event.kind == "message_committed"
+        ][-1]
+        self.assertNotIn("provider_state", committed.payload)
+        self.assertNotIn("opaque-secret-state", repr(events.events))
 
     async def test_missing_finish_is_a_protocol_error(self) -> None:
         provider = FakeProvider([[TextDelta("没有结束事件")]])

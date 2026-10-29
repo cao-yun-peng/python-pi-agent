@@ -1,42 +1,48 @@
 """DeepSeek Chat Completions adapter.
 
-This module owns DeepSeek-specific HTTP, authentication, and SSE parsing. The
-runtime sees only provider-neutral model events.
+This module owns DeepSeek-specific HTTP, authentication, error mapping, and
+model options. Shared OpenAI-compatible wire codecs stay internal.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Literal, TypeAlias, cast
-from urllib.parse import urlparse
+from typing import Literal, TypeAlias
 
 import httpx
 
 from ..domain import (
-    Finish,
-    JSONObject,
     Message,
     ModelStreamEvent,
     ProviderRequestContext,
-    TextDelta,
-    ThinkingDelta,
-    TokenUsage,
-    ToolCall,
     ToolDefinition,
 )
 from ..errors import (
     ConfigurationError,
-    ProviderAuthenticationError,
-    ProviderBalanceError,
     ProviderError,
-    ProviderHTTPError,
-    ProviderRateLimitError,
     ProviderResponseError,
     ProviderTimeoutError,
+    ProviderTransportError,
+)
+from ._openai_compat import (
+    ToolCallAccumulator,
+    iter_sse,
+    normalize_chunk,
+    serialize_message,
+    serialize_tool,
+)
+from ._provider_support import (
+    DEEPSEEK_DEFAULT_BASE_URL,
+    DEEPSEEK_DEFAULT_MODEL,
+    DEEPSEEK_DEFAULT_THINKING,
+    DEFAULT_TIMEOUT_SECONDS,
+    classify_http_error,
+    parse_retry_after_seconds,
+    validate_openai_compatible_config,
 )
 
 ThinkingMode: TypeAlias = Literal["enabled", "disabled"]
@@ -59,26 +65,23 @@ class DeepSeekConfig:
     """Validated configuration for one DeepSeek provider instance."""
 
     api_key: str = field(repr=False)
-    model: str = "deepseek-flash"
-    base_url: str = "https://api.deepseek.com"
-    timeout_seconds: float = 120.0
-    thinking: ThinkingMode = "disabled"
+    model: str = DEEPSEEK_DEFAULT_MODEL
+    base_url: str = DEEPSEEK_DEFAULT_BASE_URL
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    thinking: ThinkingMode = DEEPSEEK_DEFAULT_THINKING
     reasoning_effort: ReasoningEffort | None = None
     max_tokens: int | None = None
     user_id: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.api_key.strip():
-            raise ConfigurationError("DeepSeek API key must not be empty")
-        if not self.model.strip():
-            raise ConfigurationError("DeepSeek model must not be empty")
-        parsed_url = urlparse(self.base_url)
-        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
-            raise ConfigurationError("DeepSeek base_url must be an absolute HTTP(S) URL")
-        if self.timeout_seconds <= 0:
-            raise ConfigurationError("DeepSeek timeout_seconds must be greater than zero")
-        if self.max_tokens is not None and self.max_tokens <= 0:
-            raise ConfigurationError("DeepSeek max_tokens must be greater than zero")
+        validate_openai_compatible_config(
+            provider_name="DeepSeek",
+            api_key=self.api_key,
+            model=self.model,
+            base_url=self.base_url,
+            timeout_seconds=self.timeout_seconds,
+            max_tokens=self.max_tokens,
+        )
         if self.thinking not in _THINKING_MODES:
             raise ConfigurationError("DeepSeek thinking must be 'enabled' or 'disabled'")
         if (
@@ -168,11 +171,15 @@ class DeepSeekProvider:
                         "DeepSeek streaming response is not text/event-stream"
                     )
 
-                tool_calls = _ToolCallAccumulator()
-                async for data in _iter_sse_data(response):
+                tool_calls = ToolCallAccumulator("DeepSeek")
+                async for _event_name, data in iter_sse(response):
                     if data == "[DONE]":
                         return
-                    for event in _normalize_chunk(data, tool_calls):
+                    for event in normalize_chunk(
+                        data,
+                        tool_calls,
+                        provider_name="DeepSeek",
+                    ):
                         yield event
         except ProviderError:
             raise
@@ -181,7 +188,9 @@ class DeepSeekProvider:
                 f"DeepSeek request timed out after {self._config.timeout_seconds:g}s"
             ) from error
         except httpx.HTTPError as error:
-            raise ProviderError(f"DeepSeek transport failed: {type(error).__name__}") from error
+            raise ProviderTransportError(
+                f"DeepSeek transport failed: {type(error).__name__}"
+            ) from error
 
     def _build_payload(
         self,
@@ -194,9 +203,10 @@ class DeepSeekProvider:
         payload: dict[str, object] = {
             "model": self._config.model,
             "messages": [
-                _serialize_message(
+                serialize_message(
                     message,
                     include_reasoning_content=include_reasoning_content,
+                    include_empty_reasoning_content=True,
                 )
                 for message in messages
             ],
@@ -211,262 +221,20 @@ class DeepSeekProvider:
         if self._config.user_id is not None:
             payload["user_id"] = self._config.user_id
         if tools:
-            payload["tools"] = [_serialize_tool(definition) for definition in tools]
+            payload["tools"] = [serialize_tool(definition) for definition in tools]
         return payload
-
-
-def _serialize_message(
-    message: Message,
-    *,
-    include_reasoning_content: bool,
-) -> dict[str, object]:
-    if message.role == "assistant" and message.tool_calls:
-        serialized: dict[str, object] = {
-            "role": "assistant",
-            "content": message.content or None,
-            "tool_calls": [
-                {
-                    "id": call.id,
-                    "type": "function",
-                    "function": {
-                        "name": call.name,
-                        "arguments": json.dumps(
-                            call.arguments,
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                        ),
-                    },
-                }
-                for call in message.tool_calls
-            ],
-        }
-        if include_reasoning_content:
-            serialized["reasoning_content"] = message.thinking
-        return serialized
-    if message.role == "tool":
-        return {
-            "role": "tool",
-            "content": message.content,
-            "tool_call_id": message.tool_call_id,
-        }
-    serialized = {"role": message.role, "content": message.content}
-    if message.role == "assistant" and include_reasoning_content:
-        serialized["reasoning_content"] = message.thinking
-    return serialized
-
-
-def _serialize_tool(definition: ToolDefinition) -> dict[str, object]:
-    return {
-        "type": "function",
-        "function": {
-            "name": definition.name,
-            "description": definition.description,
-            "parameters": dict(definition.input_schema),
-        },
-    }
-
-
-async def _iter_sse_data(response: httpx.Response) -> AsyncIterator[str]:
-    """Yield complete SSE data fields while ignoring comments and keep-alives."""
-    data_lines: list[str] = []
-    async for line in response.aiter_lines():
-        if line == "":
-            if data_lines:
-                yield "\n".join(data_lines)
-                data_lines.clear()
-            continue
-        if line.startswith(":"):
-            continue
-        if line.startswith("data:"):
-            data_lines.append(line[5:].lstrip())
-
-    if data_lines:
-        yield "\n".join(data_lines)
-
-
-@dataclass(slots=True)
-class _ToolCallParts:
-    id: str | None = None
-    name: str | None = None
-    argument_chunks: list[str] = field(default_factory=list)
-
-
-class _ToolCallAccumulator:
-    def __init__(self) -> None:
-        self._calls: dict[int, _ToolCallParts] = {}
-
-    @property
-    def has_calls(self) -> bool:
-        return bool(self._calls)
-
-    def add(self, raw: object) -> None:
-        if not isinstance(raw, dict):
-            raise ProviderResponseError("DeepSeek tool call delta must be an object")
-        index = raw.get("index")
-        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
-            raise ProviderResponseError("DeepSeek tool call index must be an integer")
-        parts = self._calls.setdefault(index, _ToolCallParts())
-
-        call_id = raw.get("id")
-        if call_id is not None:
-            if not isinstance(call_id, str) or not call_id:
-                raise ProviderResponseError("DeepSeek tool call id must be a string")
-            if parts.id is not None and parts.id != call_id:
-                raise ProviderResponseError("DeepSeek changed a streamed tool call id")
-            parts.id = call_id
-
-        function = raw.get("function")
-        if function is None:
-            return
-        if not isinstance(function, dict):
-            raise ProviderResponseError("DeepSeek tool call function must be an object")
-        name = function.get("name")
-        if name is not None:
-            if not isinstance(name, str) or not name:
-                raise ProviderResponseError("DeepSeek tool name must be a string")
-            if parts.name is not None and parts.name != name:
-                raise ProviderResponseError("DeepSeek changed a streamed tool name")
-            parts.name = name
-        arguments = function.get("arguments")
-        if arguments is not None:
-            if not isinstance(arguments, str):
-                raise ProviderResponseError(
-                    "DeepSeek streamed tool arguments must be text"
-                )
-            parts.argument_chunks.append(arguments)
-
-    def build(self) -> list[ToolCall]:
-        calls: list[ToolCall] = []
-        for index in sorted(self._calls):
-            parts = self._calls[index]
-            if parts.id is None or parts.name is None:
-                raise ProviderResponseError(
-                    "DeepSeek tool call is missing id or function name"
-                )
-            raw_arguments = "".join(parts.argument_chunks) or "{}"
-            try:
-                arguments = json.loads(raw_arguments)
-            except json.JSONDecodeError as error:
-                raise ProviderResponseError(
-                    "DeepSeek tool arguments are not valid JSON"
-                ) from error
-            if not isinstance(arguments, dict):
-                raise ProviderResponseError(
-                    "DeepSeek tool arguments must decode to an object"
-                )
-            calls.append(
-                ToolCall(
-                    id=parts.id,
-                    name=parts.name,
-                    arguments=cast(JSONObject, arguments),
-                )
-            )
-        return calls
-
-
-def _normalize_chunk(
-    data: str,
-    tool_calls: _ToolCallAccumulator,
-) -> Iterator[ModelStreamEvent]:
-    try:
-        chunk = json.loads(data)
-    except json.JSONDecodeError as error:
-        raise ProviderResponseError("DeepSeek returned malformed SSE JSON") from error
-
-    if not isinstance(chunk, dict):
-        raise ProviderResponseError("DeepSeek SSE payload must be a JSON object")
-
-    api_error = chunk.get("error")
-    if isinstance(api_error, dict):
-        message = api_error.get("message")
-        detail = message if isinstance(message, str) else "unknown streaming error"
-        raise ProviderResponseError(f"DeepSeek stream failed: {detail}")
-
-    choices = chunk.get("choices")
-    if choices is not None and not isinstance(choices, list):
-        raise ProviderResponseError("DeepSeek choices must be a list")
-    if choices:
-        choice = choices[0]
-        if not isinstance(choice, dict):
-            raise ProviderResponseError("DeepSeek choice must be an object")
-        delta = choice.get("delta")
-        if delta is not None and not isinstance(delta, dict):
-            raise ProviderResponseError("DeepSeek delta must be an object")
-        if isinstance(delta, dict):
-            reasoning = delta.get("reasoning_content")
-            if isinstance(reasoning, str) and reasoning:
-                yield ThinkingDelta(reasoning)
-            content = delta.get("content")
-            if isinstance(content, str) and content:
-                yield TextDelta(content)
-            raw_tool_calls = delta.get("tool_calls")
-            if raw_tool_calls is not None:
-                if not isinstance(raw_tool_calls, list):
-                    raise ProviderResponseError(
-                        "DeepSeek delta.tool_calls must be a list"
-                    )
-                for raw_tool_call in raw_tool_calls:
-                    tool_calls.add(raw_tool_call)
-
-        finish_reason = choice.get("finish_reason")
-        if finish_reason is not None:
-            if tool_calls.has_calls:
-                yield from tool_calls.build()
-            if finish_reason == "stop":
-                yield Finish("stop")
-            elif finish_reason == "length":
-                yield Finish("length")
-            elif finish_reason == "tool_calls":
-                yield Finish("tool_calls")
-            else:
-                raise ProviderResponseError(
-                    f"DeepSeek finish reason is not supported yet: {finish_reason}"
-                )
-
-    usage = chunk.get("usage")
-    if isinstance(usage, dict):
-        yield _normalize_usage(usage)
-
-
-def _normalize_usage(usage: dict[object, object]) -> TokenUsage:
-    input_tokens = _required_int(usage, "prompt_tokens")
-    output_tokens = _required_int(usage, "completion_tokens")
-    total_tokens = _required_int(usage, "total_tokens")
-    cached_input_tokens: int | None = None
-    details = usage.get("prompt_tokens_details")
-    if isinstance(details, dict):
-        cached = details.get("cached_tokens")
-        if isinstance(cached, int) and not isinstance(cached, bool):
-            cached_input_tokens = cached
-    return TokenUsage(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=total_tokens,
-        cached_input_tokens=cached_input_tokens,
-    )
-
-
-def _required_int(values: dict[object, object], key: str) -> int:
-    value = values.get(key)
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ProviderResponseError(f"DeepSeek usage.{key} must be an integer")
-    return value
 
 
 async def _http_error(response: httpx.Response) -> ProviderError:
     body = await response.aread()
     detail = _extract_error_message(body)
-    message = f"DeepSeek HTTP {response.status_code}: {detail}"
-    if response.status_code in {401, 403}:
-        return ProviderAuthenticationError(message)
-    if response.status_code == 402:
-        return ProviderBalanceError(message)
-    if response.status_code == 429:
-        return ProviderRateLimitError(message)
-    return ProviderHTTPError(
-        response.status_code,
-        message,
-        retryable=response.status_code >= 500,
+    return classify_http_error(
+        provider_name="DeepSeek",
+        status_code=response.status_code,
+        detail=detail,
+        retry_after_seconds=parse_retry_after_seconds(
+            response.headers.get("Retry-After")
+        ),
     )
 
 

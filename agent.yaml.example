@@ -1,0 +1,45 @@
+version: 1
+
+# Keep non-secret provider settings here. Copy this file to agent.yaml and
+# switch name/model as needed. Never add an inline api_key field.
+provider:
+  name: kimi
+  api_key_env: MOONSHOT_API_KEY
+  model: kimi-k2.6
+  base_url: https://api.moonshot.cn/v1
+  timeout_seconds: 120
+  thinking: enabled
+  thinking_keep: all
+  max_tokens: 16000
+
+# Optional retry/backoff limits for ResilientModelRuntime. Fallback providers are
+# still assembled explicitly so each credential and compatibility rule is clear.
+resilience:
+  enabled: false
+  max_attempts_per_provider: 2
+  max_total_attempts: 4
+  max_elapsed_seconds: 30
+  base_delay_seconds: 0.25
+  max_delay_seconds: 8
+
+# GLM standard API alternative:
+# provider:
+#   name: glm
+#   api_key_env: ZAI_API_KEY
+#   model: glm-5.3
+#   base_url: https://open.bigmodel.cn/api/paas/v4
+#   timeout_seconds: 120
+#   thinking: enabled
+#   reasoning_effort: high
+#   max_tokens: 16000
+
+# TiMi CC Responses API alternative (Codex / GPT / Grok):
+# provider:
+#   name: timicc
+#   api_key_env: TIMI_CC_API_KEY
+#   model: gpt-6-astra
+#   base_url: https://timicc.com/v1
+#   timeout_seconds: 120
+#   reasoning_effort: high
+#   reasoning_summary: auto
+#   max_output_tokens: 16000

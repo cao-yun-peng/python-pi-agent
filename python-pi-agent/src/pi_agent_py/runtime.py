@@ -33,6 +33,7 @@ from .domain import (
     Message,
     NextTurnContext,
     ProviderRequestContext,
+    ProviderState,
     QueuedControl,
     SessionCompaction,
     SessionEventContext,
@@ -372,22 +373,23 @@ class Agent:
             request_number,
             request_context,
         )
-        span_id = request_context.attempt_id
+        # This span represents the logical request. A resilient model runtime
+        # emits child attempt spans with distinct attempt identities.
+        span_id = request_context.request_id
         started_at = time.perf_counter()
         self._emit(
             "model_request_started",
             "live",
             request_number=request_number,
             request_id=request_context.request_id,
-            attempt_id=request_context.attempt_id,
             span_id=span_id,
             purpose=request_context.purpose,
-            attempt=request_context.attempt,
         )
         partial_text: list[str] = []
         partial_thinking: list[str] = []
         tool_calls: list[ToolCall] = []
         tool_call_ids: set[str] = set()
+        provider_state: list[ProviderState] = []
         usage: TokenUsage | None = None
         finish: Finish | None = None
 
@@ -404,7 +406,6 @@ class Agent:
                         "thinking_delta",
                         "live",
                         request_id=request_context.request_id,
-                        attempt_id=request_context.attempt_id,
                         parent_span_id=span_id,
                         text=event.text,
                     )
@@ -415,7 +416,6 @@ class Agent:
                         "text_delta",
                         "live",
                         request_id=request_context.request_id,
-                        attempt_id=request_context.attempt_id,
                         parent_span_id=span_id,
                         text=event.text,
                     )
@@ -429,19 +429,20 @@ class Agent:
                         "tool_call_received",
                         "capability",
                         request_id=request_context.request_id,
-                        attempt_id=request_context.attempt_id,
                         parent_span_id=span_id,
                         tool_call_id=event.id,
                         tool_name=event.name,
                         arguments=event.arguments,
                     )
+                elif isinstance(event, ProviderState):
+                    _require_unfinished(finish, "provider state")
+                    provider_state.append(deepcopy(event))
                 elif isinstance(event, TokenUsage):
                     usage = event
                     self._emit(
                         "model_usage",
                         "live",
                         request_id=request_context.request_id,
-                        attempt_id=request_context.attempt_id,
                         parent_span_id=span_id,
                         input_tokens=event.input_tokens,
                         output_tokens=event.output_tokens,
@@ -472,7 +473,6 @@ class Agent:
                 "model_request_failed",
                 "live",
                 request_id=request_context.request_id,
-                attempt_id=request_context.attempt_id,
                 span_id=span_id,
                 duration_ms=_duration_ms(started_at),
                 request_number=request_number,
@@ -485,7 +485,6 @@ class Agent:
                 "model_request_failed",
                 "live",
                 request_id=request_context.request_id,
-                attempt_id=request_context.attempt_id,
                 span_id=span_id,
                 duration_ms=_duration_ms(started_at),
                 request_number=request_number,
@@ -498,7 +497,6 @@ class Agent:
             "model_request_finished",
             "live",
             request_id=request_context.request_id,
-            attempt_id=request_context.attempt_id,
             span_id=span_id,
             duration_ms=_duration_ms(started_at),
             request_number=request_number,
@@ -512,6 +510,7 @@ class Agent:
                 content="".join(partial_text),
                 thinking="".join(partial_thinking),
                 tool_calls=tuple(tool_calls),
+                provider_state=tuple(provider_state),
             ),
             finish=finish,
             usage=usage,
@@ -1048,6 +1047,30 @@ class _SessionNextTurnHook:
         return self._writer.snapshot.messages
 
 
+class _ChainedNextTurnHook:
+    """Compose runtime-owned hooks without exposing assembly to Agent."""
+
+    def __init__(self, hooks: tuple[NextTurnHook, ...]) -> None:
+        if not hooks:
+            raise ValueError("at least one next-turn hook is required")
+        self._hooks = hooks
+
+    async def prepare(
+        self,
+        messages: Sequence[Message],
+        *,
+        context: NextTurnContext,
+    ) -> Sequence[Message]:
+        prepared = tuple(messages)
+        for hook in self._hooks:
+            prepared = tuple(await hook.prepare(prepared, context=context))
+            if any(not isinstance(message, Message) for message in prepared):
+                raise ContextPreparationError(
+                    "next-turn hook must return only Message values"
+                )
+        return prepared
+
+
 @dataclass(slots=True)
 class _QueuedSessionRun:
     run_id: str
@@ -1077,6 +1100,7 @@ class AgentSession:
         system_prompt: str | None = None,
         max_model_requests: int = 8,
         plugin_host: PluginHost | None = None,
+        next_turn_hook: NextTurnHook | None = None,
         control_claim_lease_seconds: float = 30.0,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -1100,6 +1124,7 @@ class AgentSession:
         self._max_model_requests = max_model_requests
         self._plugin_host = plugin_host
         self._plugin_lease: PluginSessionLease | None = None
+        self._next_turn_hook = next_turn_hook
         self._control_claim_lease_seconds = control_claim_lease_seconds
         self._clock = clock
         self._owner_id = uuid4().hex
@@ -1637,11 +1662,25 @@ class AgentSession:
                 message_committer=writer.commit,
                 steering_committer=writer.deliver_control,
                 next_turn_hook=(
-                    _SessionNextTurnHook(
-                        writer,
-                        self._maybe_auto_compact,
+                    _ChainedNextTurnHook(
+                        tuple(
+                            hook
+                            for hook in (
+                                (
+                                    _SessionNextTurnHook(
+                                        writer,
+                                        self._maybe_auto_compact,
+                                    )
+                                    if self._compaction_policy is not None
+                                    else None
+                                ),
+                                self._next_turn_hook,
+                            )
+                            if hook is not None
+                        )
                     )
                     if self._compaction_policy is not None
+                    or self._next_turn_hook is not None
                     else None
                 ),
                 steering_receiver=self._receive_steering,
@@ -1946,13 +1985,12 @@ class AgentSession:
             run_id=event_context.run_id,
             turn_id=event_context.turn_id,
         )
-        span_id = request_context.attempt_id
+        span_id = request_context.request_id
         started_at = time.perf_counter()
         self._emit(
             "compaction_started",
             event_context=event_context,
             request_id=request_context.request_id,
-            attempt_id=request_context.attempt_id,
             span_id=span_id,
             automatic=automatic,
             source_version=source_version,
@@ -1985,7 +2023,6 @@ class AgentSession:
                 "compaction_cancelled",
                 event_context=event_context,
                 request_id=request_context.request_id,
-                attempt_id=request_context.attempt_id,
                 span_id=span_id,
                 duration_ms=_duration_ms(started_at),
                 automatic=automatic,
@@ -1996,7 +2033,6 @@ class AgentSession:
                 "compaction_failed",
                 event_context=event_context,
                 request_id=request_context.request_id,
-                attempt_id=request_context.attempt_id,
                 span_id=span_id,
                 duration_ms=_duration_ms(started_at),
                 error=type(error).__name__,
@@ -2010,7 +2046,6 @@ class AgentSession:
                 "compaction_failed",
                 event_context=event_context,
                 request_id=request_context.request_id,
-                attempt_id=request_context.attempt_id,
                 span_id=span_id,
                 duration_ms=_duration_ms(started_at),
                 error=type(wrapped).__name__,
@@ -2023,7 +2058,6 @@ class AgentSession:
             "compaction_completed",
             event_context=event_context,
             request_id=request_context.request_id,
-            attempt_id=request_context.attempt_id,
             span_id=span_id,
             duration_ms=_duration_ms(started_at),
             durable_event_id=_latest_durable_identity(compacted).event_id,
@@ -2117,6 +2151,8 @@ def _tool_execution_context(
 
 
 def _message_payload(message: Message) -> dict[str, object]:
+    # Provider-owned continuation state is durable but deliberately excluded
+    # from best-effort observer events because it may contain encrypted state.
     return {
         "role": message.role,
         "content": message.content,

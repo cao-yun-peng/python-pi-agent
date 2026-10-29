@@ -19,6 +19,7 @@ from .domain import (
     JSONObject,
     JSONValue,
     Message,
+    ProviderState,
     QueuedControl,
     Role,
     SessionCompaction,
@@ -42,8 +43,8 @@ from .session_transitions import (
     validate_session_id,
 )
 
-_SCHEMA_VERSION = 5
-_SUPPORTED_SCHEMA_VERSIONS = {1, 2, 3, 4, 5}
+_SCHEMA_VERSION = 6
+_SUPPORTED_SCHEMA_VERSIONS = {1, 2, 3, 4, 5, 6}
 _LEGACY_EVENT_KEYS = {
     "schema_version",
     "session_id",
@@ -70,6 +71,8 @@ _MESSAGE_KEYS_V1 = {
     "structured_content",
 }
 _MESSAGE_KEYS_V2 = {*_MESSAGE_KEYS_V1, "thinking"}
+_MESSAGE_KEYS_V6 = {*_MESSAGE_KEYS_V2, "provider_state"}
+_PROVIDER_STATE_KEYS = {"provider", "item"}
 _TOOL_CALL_KEYS = {"id", "name", "arguments"}
 _COMPACTION_KEYS = {
     "replace_start",
@@ -321,7 +324,7 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
 
         expected_event_keys = (
             _EVENT_KEYS_V5
-            if schema_version == 5
+            if schema_version >= 5
             else _EVENT_KEYS_V4
             if schema_version == 4
             else _EVENT_KEYS_V3
@@ -346,7 +349,10 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
             turn_id = None
             provenance = EventProvenance(source="legacy")
         control = (
-            _decode_control(_require_object(record["control"], "control"))
+            _decode_control(
+                _require_object(record["control"], "control"),
+                schema_version,
+            )
             if schema_version >= 5 and record["control"] is not None
             else None
         )
@@ -382,7 +388,7 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
                 session_id=session_id,
                 sequence=sequence,
                 kind="context_compacted",
-                compaction=_decode_compaction(compaction_record),
+                compaction=_decode_compaction(compaction_record, schema_version),
                 event_id=event_id,
                 run_id=run_id,
                 turn_id=turn_id,
@@ -451,7 +457,10 @@ def _encode_control(control: ControlTransition | None) -> object:
     return record
 
 
-def _decode_control(record: Mapping[str, object]) -> ControlTransition:
+def _decode_control(
+    record: Mapping[str, object],
+    schema_version: int,
+) -> ControlTransition:
     _require_exact_keys(record, _CONTROL_KEYS, "control")
     payload_type = _require_string(record["type"], "control.type")
     control_id = _require_string(record["control_id"], "control.control_id")
@@ -487,7 +496,7 @@ def _decode_control(record: Mapping[str, object]) -> ControlTransition:
             claim_id=_require_string(record["claim_id"], "control.claim_id"),
             message=_decode_message(
                 _require_object(record["message"], "control.message"),
-                5,
+                schema_version,
             ),
         )
     if payload_type == "cancellation":
@@ -503,7 +512,11 @@ def _decode_message(
     schema_version: int,
 ) -> Message:
     expected_keys = (
-        _MESSAGE_KEYS_V2 if schema_version >= 2 else _MESSAGE_KEYS_V1
+        _MESSAGE_KEYS_V6
+        if schema_version >= 6
+        else _MESSAGE_KEYS_V2
+        if schema_version >= 2
+        else _MESSAGE_KEYS_V1
     )
     _require_exact_keys(record, expected_keys, "message")
     role_text = _require_string(record["role"], "message.role")
@@ -537,6 +550,18 @@ def _decode_message(
         ),
         is_error=_require_bool(record["is_error"], "message.is_error"),
         structured_content=cast(JSONValue, record["structured_content"]),
+        provider_state=(
+            tuple(
+                _decode_provider_state(
+                    _require_object(raw_state, "message.provider_state item")
+                )
+                for raw_state in _require_array(
+                    record["provider_state"], "message.provider_state"
+                )
+            )
+            if schema_version >= 6
+            else ()
+        ),
     )
 
 
@@ -557,10 +582,17 @@ def _encode_message(message: Message) -> dict[str, object]:
         "tool_name": message.tool_name,
         "is_error": message.is_error,
         "structured_content": message.structured_content,
+        "provider_state": [
+            {"provider": state.provider, "item": state.item}
+            for state in message.provider_state
+        ],
     }
 
 
-def _decode_compaction(record: Mapping[str, object]) -> SessionCompaction:
+def _decode_compaction(
+    record: Mapping[str, object],
+    schema_version: int,
+) -> SessionCompaction:
     _require_exact_keys(record, _COMPACTION_KEYS, "compaction")
     summary_record = _require_object(
         record["summary_message"],
@@ -575,7 +607,18 @@ def _decode_compaction(record: Mapping[str, object]) -> SessionCompaction:
             record["replaced_message_count"],
             "compaction.replaced_message_count",
         ),
-        summary_message=_decode_message(summary_record, 3),
+        summary_message=_decode_message(summary_record, schema_version),
+    )
+
+
+def _decode_provider_state(record: Mapping[str, object]) -> ProviderState:
+    _require_exact_keys(record, _PROVIDER_STATE_KEYS, "provider_state")
+    return ProviderState(
+        provider=_require_string(record["provider"], "provider_state.provider"),
+        item=cast(
+            JSONObject,
+            _require_object(record["item"], "provider_state.item"),
+        ),
     )
 
 
@@ -646,6 +689,12 @@ def _require_object(value: object, name: str) -> dict[str, object]:
     ):
         raise TypeError(f"{name} must be an object")
     return cast(dict[str, object], value)
+
+
+def _require_array(value: object, name: str) -> list[object]:
+    if not isinstance(value, list):
+        raise TypeError(f"{name} must be an array")
+    return value
 
 
 def _require_exact_keys(

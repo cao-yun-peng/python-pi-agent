@@ -39,6 +39,11 @@ EventSource: TypeAlias = Literal[
 ]
 SessionState: TypeAlias = Literal["idle", "running", "aborting", "settled"]
 EventKind: TypeAlias = Literal[
+    "runtime_started",
+    "runtime_closing",
+    "runtime_closed",
+    "runtime_session_opened",
+    "runtime_session_evicted",
     "run_started",
     "message_committed",
     "context_prepared",
@@ -51,6 +56,12 @@ EventKind: TypeAlias = Literal[
     "model_request_started",
     "model_request_finished",
     "model_request_failed",
+    "provider_route_selected",
+    "provider_attempt_started",
+    "provider_attempt_succeeded",
+    "provider_attempt_failed",
+    "provider_retry_scheduled",
+    "provider_fallback_selected",
     "thinking_delta",
     "text_delta",
     "model_usage",
@@ -261,6 +272,24 @@ class NextTurnContext:
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderState:
+    """Opaque provider-owned response item required for stateless continuation.
+
+    The runtime persists this value but never publishes it through observer
+    events. Providers must ignore state owned by another adapter.
+    """
+
+    provider: str
+    item: JSONObject = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.provider, str) or not self.provider.strip():
+            raise ValueError("provider state owner must not be empty")
+        if not isinstance(self.item, dict):
+            raise TypeError("provider state item must be a JSON object")
+
+
+@dataclass(frozen=True, slots=True)
 class Message:
     """A model-visible conversation entry."""
 
@@ -272,10 +301,17 @@ class Message:
     is_error: bool = False
     structured_content: JSONValue = None
     thinking: str = ""
+    provider_state: tuple[ProviderState, ...] = field(default=(), repr=False)
 
     def __post_init__(self) -> None:
         if self.thinking and self.role != "assistant":
             raise ValueError("only assistant messages may contain thinking")
+        if self.provider_state and self.role != "assistant":
+            raise ValueError("only assistant messages may contain provider state")
+        if not isinstance(self.provider_state, tuple) or not all(
+            isinstance(state, ProviderState) for state in self.provider_state
+        ):
+            raise TypeError("provider_state must be a tuple of ProviderState values")
         if self.tool_calls and self.role != "assistant":
             raise ValueError("only assistant messages may contain tool calls")
         if self.role == "tool":
@@ -636,7 +672,7 @@ class TokenUsage:
 
 
 ModelStreamEvent: TypeAlias = (
-    TextDelta | ThinkingDelta | ToolCall | TokenUsage | Finish
+    TextDelta | ThinkingDelta | ToolCall | ProviderState | TokenUsage | Finish
 )
 
 

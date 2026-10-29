@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from .model_runtime import (
+        AttemptFailure,
+        ProviderCandidate,
+        RetryDecision,
+    )
 
 from .domain import (
     AgentEvent,
@@ -41,6 +48,37 @@ class ModelProvider(Protocol):
         context: ProviderRequestContext,
     ) -> AsyncIterator[ModelStreamEvent]:
         """Stream one assistant response for the supplied model-visible history."""
+        ...
+
+
+class RetryPolicy(Protocol):
+    """Decides whether one failed provider attempt may be retried or routed."""
+
+    def decide(self, failure: "AttemptFailure") -> "RetryDecision":
+        """Return a deterministic action without sleeping or performing I/O."""
+        ...
+
+
+class BackoffStrategy(Protocol):
+    """Calculates the delay before a retry of the same provider."""
+
+    def delay_seconds(self, failure: "AttemptFailure") -> float:
+        """Return a finite, non-negative delay."""
+        ...
+
+
+class RoutePolicy(Protocol):
+    """Selects compatible provider candidates for one logical request."""
+
+    def select(
+        self,
+        candidates: Sequence["ProviderCandidate"],
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+        *,
+        context: ProviderRequestContext,
+    ) -> Sequence["ProviderCandidate"]:
+        """Return candidates in the exact order they should be attempted."""
         ...
 
 

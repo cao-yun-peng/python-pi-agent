@@ -12,6 +12,7 @@ from .domain import (
     CompactionDecision,
     Finish,
     Message,
+    ProviderState,
     ProviderRequestContext,
     TextDelta,
     ThinkingDelta,
@@ -166,7 +167,7 @@ class ModelCompactionStrategy:
                     if finish is not None:
                         raise CompactionError("summary text arrived after finish")
                     chunks.append(event.text)
-                elif isinstance(event, (ThinkingDelta, TokenUsage)):
+                elif isinstance(event, (ThinkingDelta, ProviderState, TokenUsage)):
                     if finish is not None:
                         raise CompactionError(
                             "summary metadata arrived after finish"

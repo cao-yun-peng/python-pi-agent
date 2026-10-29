@@ -24,9 +24,22 @@ class ProviderBalanceError(ProviderError):
 class ProviderRateLimitError(ProviderError):
     """The provider rejected a request because a rate limit was reached."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
 
 class ProviderTimeoutError(ProviderError):
     """The provider request exceeded its configured timeout."""
+
+
+class ProviderTransportError(ProviderError):
+    """The provider transport failed before a valid response completed."""
 
 
 class ProviderHTTPError(ProviderError):
@@ -40,6 +53,18 @@ class ProviderHTTPError(ProviderError):
 
 class ProviderResponseError(ProviderError):
     """The provider returned a response that could not be normalized."""
+
+
+class ProviderRoutingError(ProviderError):
+    """No configured provider route can satisfy a logical model request."""
+
+
+class ProviderExhaustedError(ProviderError):
+    """Every retryable provider attempt was exhausted without a response."""
+
+    def __init__(self, message: str, *, attempts: tuple[object, ...]) -> None:
+        super().__init__(message)
+        self.attempts = attempts
 
 
 class ModelProtocolError(AgentError):
@@ -128,6 +153,35 @@ class PluginCleanupError(PluginError):
 
 class AgentLoopLimitError(AgentError):
     """The run exceeded its configured number of model requests."""
+
+
+class AgentRuntimeError(AgentError):
+    """The application runtime could not be built, used, or closed safely."""
+
+
+class RuntimeBuildError(AgentRuntimeError):
+    """Application assembly failed and all created resources were rolled back."""
+
+
+class RuntimeStateError(AgentRuntimeError):
+    """An operation is not valid for the current application runtime state."""
+
+
+class RuntimeCapacityError(AgentRuntimeError):
+    """No inactive runtime session can be evicted to satisfy capacity."""
+
+
+class RuntimeCloseError(AgentRuntimeError):
+    """One or more resources failed while the runtime continued shutting down."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failures: tuple[BaseException, ...],
+    ) -> None:
+        super().__init__(message)
+        self.failures = failures
 
 
 class SessionConflictError(AgentError):

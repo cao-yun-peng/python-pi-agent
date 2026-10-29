@@ -17,6 +17,7 @@ from pi_agent_py import (
     Message,
     ProviderAuthenticationError,
     ProviderError,
+    ProviderHTTPError,
     ProviderRateLimitError,
     ProviderRequestContext,
     ProviderResponseError,
@@ -297,6 +298,7 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 429,
                 json={"error": {"message": "Rate Limit Reached"}},
+                headers={"Retry-After": "1.5"},
             )
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
@@ -306,8 +308,34 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
             client=client,
         )
 
-        with self.assertRaisesRegex(ProviderRateLimitError, "Rate Limit Reached"):
+        with self.assertRaisesRegex(
+            ProviderRateLimitError,
+            "Rate Limit Reached",
+        ) as raised:
             await _collect(provider, [Message(role="user", content="hello")])
+        self.assertEqual(raised.exception.retry_after_seconds, 1.5)
+
+    async def test_maps_server_error_as_retryable_http_error(self) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            del request
+            return httpx.Response(
+                503,
+                json={"error": {"message": "temporarily unavailable"}},
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        self.addAsyncCleanup(client.aclose)
+        provider = DeepSeekProvider(
+            DeepSeekConfig(api_key="test-key"),
+            client=client,
+        )
+
+        with self.assertRaises(ProviderHTTPError) as raised:
+            await _collect(provider, [Message(role="user", content="hello")])
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertTrue(raised.exception.retryable)
+        self.assertIn("DeepSeek HTTP 503", str(raised.exception))
 
     async def test_maps_timeout_to_provider_timeout_error(self) -> None:
         def handle(request: httpx.Request) -> httpx.Response:
