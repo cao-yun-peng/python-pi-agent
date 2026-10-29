@@ -8,10 +8,15 @@ DeepSeek Harness 沙箱概念对照 `v0.2.1-rc.2`（release commit `687f282`）�
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
 | `Agent.run()` | `packages/agent/src/agent-loop.ts` 的 agent/tool loop | Runtime 消费已注册能力 | 已有顺序工具循环，尚无并行 batch |
-| `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 每次调用显式携带 ProviderRequestContext；已有 DeepSeek Chat Completions，待多供应商 router |
-| `ProviderRequestContext` | coding-agent provider hooks 的 session/model 调用上下文 | invocation-scoped identity seam | 强类型 request/attempt/purpose/session/run/turn，不含凭据或 payload；待 retry/fallback 消费 attempt |
-| `DeepSeekProvider` | `pi-ai` provider adapter / stream function | Provider + Lifecycle + Evidence | 可聚合流式 tool call 并回传 thinking reasoning，尚无 retry 与通用 signature 兼容层 |
-| `Message.thinking` | assistant `ThinkingContent` / `thinkingSignature` | model-visible provider continuity state | 已持久化并供 DeepSeek tool turn 重放；尚无独立内容块、签名和跨模型转换 |
+| `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 每次调用显式携带 ProviderRequestContext；原始 Provider 与 resilience 组合层满足同一端口 |
+| `ProviderRequestContext` | coding-agent provider hooks 的 session/model 调用上下文 | invocation-scoped identity seam | 强类型 request/attempt/purpose/session/run/turn，不含凭据或 payload；retry/fallback 保持 request ID 并为每次物理调用更新 attempt identity |
+| `DirectModelRuntime` / `ResilientModelRuntime` / 三个策略端口 | Pi 的 model registry/runtime 与 provider selection | 显式 capability composition + invocation evidence | direct 保留一次调用的原始错误；resilient 实现能力路由、pre-output retry、backoff、兼容 fallback 和 attempt trace；主动省略动态 registry、circuit breaker 与健康/成本评分 |
+| `_openai_compat` + `DeepSeekProvider` / `KimiProvider` / `GLMProvider` | `packages/ai/src/api/openai-completions.ts` 被多个 provider descriptor 复用 | 共享协议机制 + 独立 Provider policy/lifecycle | 共享消息、SSE、usage 和 tool-call fold；认证、错误分类、thinking 能力与完成判据仍留在具体适配器，retry/fallback 位于其上层组合而非 wire codec |
+| `TimiccResponsesProvider` + `_sse` | Pi 的 Responses/stream 抽象与 provider-specific assistant state | 同一领域端口下的独立 wire Provider | 解析 typed SSE、output item、扁平 tools 与 Responses usage；不与 Chat Completions 共用消息/tool codec，尚无 server-side conversation |
+| `AppConfigSpec` / `LoadedAppConfig` | `ModelRuntime` 的模型目录、环境认证与 runtime override | config definition + credential resolution seam | 显式 YAML 路径、override → process env → dotenv；当前覆盖 DeepSeek/Kimi/GLM/TiMi API key，不复制 OAuth、用户级 auth.json 或动态 provider registry |
+| `AgentProfile` / `AgentRuntimeBuilder` / `ProviderCatalog` | coding-agent 的 `createAgentSession()` 组装边界与 model registry | explicit composition + transactional lifecycle | Profile 只含默认值/factory，Catalog 显式传入，Builder 失败逆序回滚；不使用全局 registry，尚无 CLI override 与动态发现 |
+| `AgentRuntime` / `RuntimeSession` | `AgentSessionRuntime` 与应用侧 session 管理 | stable facade + resource ownership + session lease | 复用 AgentSession controller、惰性 TTL/LRU 驱逐、统一关闭 owned 资源；主动省略 EventHub、RunHandle、多租户 namespace 和 Web transport |
+| `Message.thinking` / `Message.provider_state` | assistant `ThinkingContent` / `thinkingSignature` | model-visible provider continuity state | 可读 thinking 与 provider-owned item 分离持久化；TiMi `store:false` 原样回放 encrypted reasoning/output item，观察事件不暴露，尚无跨模型转换 |
 | `ToolDefinition` / `Tool` | `AgentTool`、参数 schema 与 execute context | Capability Definition / Provider / Consumer | 使用教学型 JSON Schema 子集；handler 接收隔离快照 context |
 | `ToolExecutionContext` | core toolCallId/params/signal + coding-agent `ExtensionToolContext` / `BeforeToolCallContext` | invocation-scoped capability context | 已含 call/definition、session、request/call index 与审批决定；待 signal API、cwd、identity、nested calls 和 progress |
 | `ApprovalPolicy` | `beforeToolCall` block hook | 独立策略 capability | 使用完整 context，异常/错误返回值 fail-closed；默认拒绝受保护工具，尚无身份策略与 durable approval |
@@ -24,7 +29,7 @@ DeepSeek Harness 沙箱概念对照 `v0.2.1-rc.2`（release commit `687f282`）�
 | `AgentEventEnvelope` / observer span | run/turn/model/tool lifecycle event | versioned telemetry schema + trace correlation | 公共字段移出 payload；模型/工具/压缩/Hook 有 started/terminal span 与 monotonic duration，尚无 OpenTelemetry exporter 和指标聚合 |
 | `DurableEventIdentity` | session entry identity 与运行时 committed notification | observer-to-fact join | AgentSession 的 message notification 指回 durable event；standalone Agent 无 Store 时允许为空 |
 | `AgentSession` | Pi `AgentSession` 的 prompt/steer/followUp/abort、状态与 compaction 编排 | Consumer 组合 Provider、存储与控制 capability | 已支持 FIFO dispatcher、durable steer/follow-up、claim lease、abort、settled/idle、恢复和压缩；JSONL 尚无跨进程文件锁 |
-| `NextTurnHook` / `NextTurnContext` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | Agent 保持单插槽，PluginHost 可在插槽外组合多个 Hook；context 显式携带 session/run/turn/request number，仍无队列与模型路由 |
+| `NextTurnHook` / `NextTurnContext` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | Agent 保持单插槽；AgentSession 先执行 durable compaction，再执行应用/插件 Hook；context 显式携带 session/run/turn/request number，尚无运行中热重载 |
 | `PluginFactory` / `PluginAPI` | `ExtensionFactory` / `ExtensionAPI` | 显式 capability registration | 注册 Tool、NextTurnHook、SessionPluginFactory 与 cleanup；不含 UI/命令/MCP |
 | `PluginHost` / `PluginSessionLease` | extension loader + session-bound ExtensionRunner | Provider lifecycle + evidence | staging 后原子发布；每 Session 独立实例，请求 Hook 只改投影，后台 settled observer 隔离；不做目录发现与热重载 |
 | plugin hook chain | ExtensionRunner 的顺序 handler dispatch | ordered interceptor pipeline | 使用 priority + 注册顺序、逐 Hook 超时和 fail-closed；Pi 的许多 handler 会记录错误后继续 |
@@ -37,7 +42,7 @@ DeepSeek Harness 沙箱概念对照 `v0.2.1-rc.2`（release commit `687f282`）�
 | `SessionCompaction` / `context_compacted` | `CompactionEntry` 与 session context reconstruction | durable capability evidence | 保存前缀替换操作并由 replay 应用；当前不支持 split-turn 和文件跟踪 |
 | `SessionStore` / `SessionSnapshot` | `SessionManager` 与 session entries | Definition / Provider / Consumer / Evidence | 内存与单写者 JSONL Provider 均支持持久化 fork 和尾部未决工具调用恢复，待 durable tool-started 事实与多进程事务 |
 | `prepare_session_append` / `prepare_session_compaction` / `fork_session_events` | session append / compaction / fork rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一套 replay、append、compact 与 fork 规则 |
-| `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | schema v5 支持压缩、控制 transition、event/run/turn/provenance、严格格式、刷盘和 v1-v4 兼容读取，尚无跨进程文件锁与迁移工具 |
+| `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | schema v6 支持压缩、控制 transition、event/run/turn/provenance、provider-owned state、严格格式、刷盘和 v1-v5 兼容读取，尚无跨进程文件锁与迁移工具 |
 | `DurableSessionEvent` | session entries + run/turn lifecycle correlation | append-only facts + replayable projection | 每个事实有稳定 event ID、run/turn 和来源；fork 通过 copied_from_event_id 保留来源 |
 | committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 文本、tool call、tool result 与 assistant thinking 已能回放；损坏序号会被拒绝 |
 | `run_settled` / `AgentSession.wait_until_idle()` | Pi `agent_settled` / `waitForIdle()` | per-run lifecycle + session control barrier | 明确区分单 run settled 与无活动/无 follow-up 的 session idle |

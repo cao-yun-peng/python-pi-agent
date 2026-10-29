@@ -6,7 +6,11 @@
 
 ```text
 用户输入 -> 消息历史 -> ModelProvider -> 流式事件 -> Assistant 消息 -> settled
-DeepSeek HTTPS/SSE -> DeepSeekProvider -> 通用模型事件 -> Agent Loop
+逻辑模型请求 -> RoutePolicy -> retry/backoff -> compatible fallback -> attempt trace
+DeepSeek/Kimi/GLM Chat Completions -> Provider adapter -> 通用模型事件 -> Agent Loop
+TiMi Codex/GPT/Grok Responses -> typed SSE + opaque state -> Agent Loop
+agent.yaml + api_key_env -> process env / .env -> 强类型 Provider config
+Loaded config + AgentProfile -> AgentRuntimeBuilder -> AgentRuntime -> RuntimeSession lease
 模型 ToolCall -> schema 校验 -> 权限审批 -> 工具执行 -> ToolResult -> 模型续写
 SessionStore -> 加载历史 -> Agent Loop -> 逐消息提交 -> 下一轮恢复
 消息提交 -> DurableSessionEvent -> 有序事件日志 -> replay -> SessionSnapshot
@@ -25,7 +29,7 @@ AgentSession -> dispatcher -> steer / follow-up / abort -> settled / idle
 Shell Tool -> ProcessSandbox -> Docker workspace -> bounded result
 ```
 
-它同时提供脚本化 `FakeProvider` 和真实 `DeepSeekProvider`。默认测试仍然确定、离线且不会产生 API 费用。
+它同时提供脚本化 `FakeProvider`，以及 DeepSeek、Kimi、GLM Chat Completions 和 TiMi Codex/GPT/Grok Responses API 适配器。默认测试仍然确定、离线且不会产生 API 费用。
 
 ## 快速开始
 
@@ -54,6 +58,9 @@ Shell Tool -> ProcessSandbox -> Docker workspace -> bounded result
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\19_session_aware_plugin.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\20_docker_workspace_sandbox.py --help
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\21_minimal_http_sse.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\22_provider_configuration.py --help
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\23_provider_resilience.py
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\24_application_runtime.py
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：
@@ -72,6 +79,17 @@ $env:DEEPSEEK_API_KEY = "你的密钥"
 ```
 
 默认使用当前官方模型名 `deepseek-flash`，可通过 `DEEPSEEK_MODEL` 修改。详见[第二章：DeepSeekProvider](tutorials/02-deepseek-provider.md)。
+
+使用仓库顶层 YAML + `.env` 统一配置 DeepSeek/Kimi/GLM/TiMi：
+
+```powershell
+Copy-Item .\agent.yaml.example .\agent.yaml
+$env:PYTHONPATH = (Resolve-Path .\python-pi-agent\src).Path
+python .\python-pi-agent\examples\22_provider_configuration.py set-key
+python .\python-pi-agent\examples\22_provider_configuration.py check
+```
+
+YAML 只保存 `api_key_env`，真实密钥写入被 Git 忽略的 `.env`；`check` 只打印脱敏值和来源。TiMi 使用 `name: timicc`、`TIMI_CC_API_KEY`，并要求显式填写 key 分组实际可用的 Codex/GPT/Grok 模型名。详见[顶层 Provider 配置教程](tutorials/21-provider-configuration.md)、[GLM 标准 API 适配教程](tutorials/22-glm-standard-api.md)与 [TiMi Responses API 适配教程](tutorials/23-timicc-responses-api.md)。
 
 想先看清“线路上到底传了什么”，可以运行不依赖 Agent 框架的最小客户端：
 
@@ -111,26 +129,35 @@ live    run_settled
 6. `src/pi_agent_py/testing.py`：如何不用真实模型验证循环
 7. `tests/test_minimal_loop.py`：公开行为契约
 8. `src/pi_agent_py/providers/deepseek.py`：真实 SSE Provider 适配器
-9. `src/pi_agent_py/tools.py`：工具定义、审批策略、执行 Gate 与沙箱化 Shell consumer
-10. `src/pi_agent_py/sandbox.py`：真正的进程隔离 Provider 与 fail-closed 生命周期
-11. [教程：工具调用系统](tutorials/03-tool-calling.md)
-12. [教程：会话存储与 AgentSession](tutorials/04-session-runtime.md)
-13. [教程：Durable Event Log 与 Replay](tutorials/05-durable-event-log.md)
-14. [教程：JSONL 持久化](tutorials/06-jsonl-persistence.md)
-15. [教程：持久化会话分叉](tutorials/07-session-fork.md)
-16. [教程：ContextStrategy 接缝](tutorials/08-context-strategy.md)
-17. [教程：Token Budget 与完整消息组](tutorials/09-token-budget-context.md)
-18. [教程：Durable Compaction](tutorials/10-durable-compaction.md)
-19. [教程：Token Threshold 自动压缩与 NextTurnHook](tutorials/11-automatic-compaction.md)
-20. [教程：显式、可释放的插件系统](tutorials/12-plugin-system.md)
-21. [教程：隔离 EventSink 与安全日志](tutorials/13-safe-event-observation.md)
-22. [教程：ToolExecutionContext、审批与执行 Gate](tutorials/14-tool-execution-security.md)
-23. [教程：Durable Event 的 Run、Turn 与 Provenance](tutorials/15-durable-event-provenance.md)
-24. [教程：AgentSession 控制状态机](tutorials/16-agent-session-control.md)
-25. [教程：Steer 与 Follow-up 的持久化恢复](tutorials/17-durable-session-controls.md)
-26. [教程：ProviderRequestContext](tutorials/18-provider-request-context.md)
-27. [教程：Session-aware 插件与生命周期租约](tutorials/19-session-aware-plugins.md)
-28. [教程：Docker Workspace Process Sandbox](tutorials/20-workspace-process-sandbox.md)
-29. [Compaction 质量评测方案](docs/compaction-evaluation.md)
+9. `src/pi_agent_py/model_runtime.py`：retry、backoff、能力路由、fallback 与 attempt trace
+10. `src/pi_agent_py/profiles.py`：产品默认值为何只保存 factory、不持有活 I/O
+11. `src/pi_agent_py/assembly.py`：显式 Catalog、事务化 Builder 与失败回滚
+12. `src/pi_agent_py/app_runtime.py`：应用 facade、Session lease、容量和关闭状态机
+13. `src/pi_agent_py/lifecycle.py`：owned/borrowed 资源与逆序释放
+14. `src/pi_agent_py/tools.py`：工具定义、审批策略、执行 Gate 与沙箱化 Shell consumer
+15. `src/pi_agent_py/sandbox.py`：真正的进程隔离 Provider 与 fail-closed 生命周期
+16. [教程：工具调用系统](tutorials/03-tool-calling.md)
+17. [教程：会话存储与 AgentSession](tutorials/04-session-runtime.md)
+18. [教程：Durable Event Log 与 Replay](tutorials/05-durable-event-log.md)
+19. [教程：JSONL 持久化](tutorials/06-jsonl-persistence.md)
+20. [教程：持久化会话分叉](tutorials/07-session-fork.md)
+21. [教程：ContextStrategy 接缝](tutorials/08-context-strategy.md)
+22. [教程：Token Budget 与完整消息组](tutorials/09-token-budget-context.md)
+23. [教程：Durable Compaction](tutorials/10-durable-compaction.md)
+24. [教程：Token Threshold 自动压缩与 NextTurnHook](tutorials/11-automatic-compaction.md)
+25. [教程：显式、可释放的插件系统](tutorials/12-plugin-system.md)
+26. [教程：隔离 EventSink 与安全日志](tutorials/13-safe-event-observation.md)
+27. [教程：ToolExecutionContext、审批与执行 Gate](tutorials/14-tool-execution-security.md)
+28. [教程：Durable Event 的 Run、Turn 与 Provenance](tutorials/15-durable-event-provenance.md)
+29. [教程：AgentSession 控制状态机](tutorials/16-agent-session-control.md)
+30. [教程：Steer 与 Follow-up 的持久化恢复](tutorials/17-durable-session-controls.md)
+31. [教程：ProviderRequestContext](tutorials/18-provider-request-context.md)
+32. [教程：Session-aware 插件与生命周期租约](tutorials/19-session-aware-plugins.md)
+33. [教程：Docker Workspace Process Sandbox](tutorials/20-workspace-process-sandbox.md)
+34. [Compaction 质量评测方案](docs/compaction-evaluation.md)
+35. [教程：GLM 标准 API 适配](tutorials/22-glm-standard-api.md)
+36. [教程：TiMi Codex/GPT/Grok Responses API 适配](tutorials/23-timicc-responses-api.md)
+37. [教程：Provider Retry、Backoff、Router 与 Fallback](tutorials/24-provider-resilience.md)
+38. [教程：AgentRuntime、Profile 与统一生命周期](tutorials/25-application-runtime-assembly.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。

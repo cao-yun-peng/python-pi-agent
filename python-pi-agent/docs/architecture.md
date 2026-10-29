@@ -3,24 +3,39 @@
 ## 当前边界
 
 ```text
-domain.py <- ports.py <- runtime.py <- examples / future apps
-               ^           |
+domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
+               ^           |             ^
                |           ├── context.py implements ContextStrategy
                |           ├── compaction.py implements CompactionStrategy
                |           ├── plugins.py assembles Tool / NextTurnHook
                |           ├── tools.py provides tools, approval, and execution gates
                |           └── sandbox.py implements ProcessSandbox
+               |                         ├── profiles.py defines product defaults
+               |                         ├── lifecycle.py owns explicit cleanup
+               |                         └── assembly.py builds AgentRuntime
                ├── events.py implements isolation, redaction, and buffering
+               ├── configuration.py parses explicit YAML and secret references
+               ├── model_runtime.py composes routing, retry, backoff, and fallback
                ├── session_transitions.py provides pure state transitions
                ├── session.py implements SessionStore
                ├── session_jsonl.py implements persistent SessionStore
                ├── testing.py implements ModelProvider
-               └── providers/deepseek.py implements ModelProvider
+               ├── providers/_sse.py provides protocol-neutral SSE framing
+               ├── providers/_openai_compat.py provides Chat Completions codecs
+               ├── providers/_provider_support.py provides shared defaults and validation
+               ├── providers/deepseek.py implements ModelProvider
+               ├── providers/kimi.py implements ModelProvider
+               ├── providers/glm.py implements ModelProvider
+               └── providers/timicc_responses.py implements Responses ModelProvider
 ```
 
 - `domain.py` 只包含无 I/O 的值对象。
 - `ports.py` 定义核心运行时所需能力，不提供供应商实现。
 - `runtime.py` 消费端口并维护已提交消息。
+- `app_runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
+- `profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O。
+- `lifecycle.py` 明确区分 owned/borrowed 资源，在关闭或构造回滚时逆序尝试全部 cleanup。
+- `assembly.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
 - `context.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。
 - `compaction.py` 提供 token threshold policy、选择可安全替换的完整旧 turn，并通过可替换模型 Provider 生成摘要。
 - `runtime.AgentSession` 加载会话历史，并通过逐消息异步提交把 Agent loop 连接到 `SessionStore`。
@@ -28,15 +43,20 @@ domain.py <- ports.py <- runtime.py <- examples / future apps
 - `session.py` 提供 `InMemorySessionStore`，只负责内存事件容器。
 - `session_jsonl.py` 提供带格式版本、严格解码和刷盘语义的 `JsonlSessionStore`。
 - `events.py` 提供同步观察适配器、runtime 失败隔离、日志脱敏和显式关闭的有界后台投递。
+- `configuration.py` 是应用组装边界：把显式 YAML 解析成不含密钥的强类型 spec，再按 override → process env → 指定 dotenv 解析凭据；它不搜索父目录、不修改进程环境，并只暴露脱敏诊断。
+- `model_runtime.py` 在原始 `ModelProvider` 之上提供一次调用且保留原始错误的 `DirectModelRuntime`，以及组合 `RoutePolicy`、`RetryPolicy` 和 `BackoffStrategy` 的 `ResilientModelRuntime`。它不解析供应商 wire protocol，也不改变 Agent loop 的逻辑请求计数。
 - `testing.py` 是确定性 Provider 实现，也是 Provider 契约的第一份证据。
-- `providers/deepseek.py` 隔离 DeepSeek 的 HTTP、认证、SSE 和错误格式。
+- `providers/_sse.py` 只处理 SSE event/data framing；`providers/_openai_compat.py` 只处理 OpenAI-compatible Chat Completions 的消息/工具序列化、tool call 分片与 usage 归一化。二者都不拥有认证、URL 或模型能力。
+- `providers/_provider_support.py` 集中一等 Provider 的默认模型/端点、基础配置校验和通用 HTTP 状态分类；它不读取配置文件、不拥有流式控制流，也不形成 Provider 基类。
+- `providers/deepseek.py`、`providers/kimi.py` 与 `providers/glm.py` 分别隔离各自 HTTP 认证、模型参数、完成判据、错误体解析和供应商特例，并组合共享 wire codec/support；它们不是继承同一个可变大基类。GLM 适配器还负责标准 API 的 `request_id`、`tool_stream`、模型级 thinking/reasoning 约束和业务错误码映射。
+- `providers/timicc_responses.py` 独立实现 Responses API 的 typed SSE、扁平 function tool、output item 与 usage 语义，只复用 SSE framing 和基础配置/HTTP 分类。它固定发送 `store: false`，将 completed output item 保存为 provider-owned opaque state，以支持 Codex/GPT/Grok reasoning/tool 续轮；不把两套 wire format 塞进 Chat Completions codec，也不引入 `BaseOpenAIProvider`。
 - `tools.py` 提供 `FunctionTool`、审批策略、声明式副作用 Gate、`SandboxedShellTool` 和可替换的 schema 校验边界。
 - `sandbox.py` 提供真正的 `ProcessSandbox` Provider；首个实现通过 Docker 隔离 workspace Shell。
 - `plugins.py` 提供显式、事务化的 `PluginHost`，把 Tool、Hook 与 cleanup 组合成不可变能力快照。
 
 ## 状态模型
 
-当前 durable event log 是会话事实来源，`SessionSnapshot.messages` 是通过 replay 得到的模型可见状态投影。用户消息在请求前提交；assistant 消息只有在收到明确的 `Finish` 后才提交。流式文本和 thinking delta 立即通过 live event 暴露；完成后的 thinking 单独保存在 `Message.thinking`，不混入面向用户的正文，但可供供应商协议在后续请求中重放。
+当前 durable event log 是会话事实来源，`SessionSnapshot.messages` 是通过 replay 得到的模型可见状态投影。用户消息在请求前提交；assistant 消息只有在收到明确的 `Finish` 后才提交。流式文本和 thinking delta 立即通过 live event 暴露；完成后的 thinking 单独保存在 `Message.thinking`。`Message.provider_state` 保存 provider-owned JSON item，用于 `store: false` 的协议续接；runtime 深拷贝并持久化它，但不把它放入 observer payload，避免 encrypted reasoning content 进入普通日志。其他 Provider 必须忽略不属于自己的 state。
 
 每个 durable event 具有稳定的 `event_id=<session_id>:<sequence>`、可选 `run_id`、可选 `turn_id` 和强类型 `EventProvenance`。一次排队任务对应一个 run；每次模型请求及其工具结果对应 `<run_id>:turn:<request_number>`。user/model/tool/recovery/compaction 的来源在提交边界声明。fork 为目标会话重新生成 event ID，并用 `copied_from_event_id` 保留源事件关系。
 
@@ -54,9 +74,13 @@ runtime 只通过 `ToolExecutionGate.execute()` 调度工具，不再直接调�
 
 `AgentSession` 通过 `SessionStore.load()` 恢复历史，并在每条完整消息进入 Agent 内存和触发 `message_committed` 前先调用 `SessionStore.append()`。两个 Store 都调用 `prepare_session_append()` 获得不可变 `SessionAppendPlan`，其中包含待保存事件和保存后的 snapshot；Provider 只负责提交计划。序号断裂或混入其他 session 的事件会导致 `SessionReplayError`，避免从损坏日志静默恢复。`SessionSnapshot.version` 始终表示已应用 durable event 数量，不等于压缩后消息数量。
 
-每次模型调用都显式携带不可变 `ProviderRequestContext`。普通请求以 `purpose="agent_turn"` 关联 session/run/turn/request number；压缩请求使用 `purpose="compaction"`，没有活动 run 的手动压缩允许 run/turn 为空。`request_id` 表示逻辑请求，`attempt_id` 表示物理尝试，后续 retry/fallback 通过递增 attempt 复用该契约。Context 不携带凭据、header 或 prompt 副本；messages/tools 仍是独立参数。
+每次模型调用都显式携带不可变 `ProviderRequestContext`。普通请求以 `purpose="agent_turn"` 关联 session/run/turn/request number；压缩请求使用 `purpose="compaction"`，没有活动 run 的手动压缩允许 run/turn 为空。`request_id` 表示逻辑请求；`ResilientModelRuntime` 为每次物理调用分配独立 `attempt_id` 并递增 attempt，同一逻辑请求只占一个 Agent model-request budget。Context 不携带凭据、header 或 prompt 副本；messages/tools 仍是独立参数。
+
+Provider resilience 是显式组合层。`CapabilityRoutePolicy` 先按 purpose、tool capability 和最近 provider-owned state 的 owner 过滤候选；`DefaultRetryPolicy` 只重试 rate limit、timeout、transport 和明确 retryable 的 HTTP 错误；`FullJitterBackoff` 支持有上限的指数 full jitter 与数字 `Retry-After`。只要某次 attempt 已交付任意流事件，就立即 fail closed，不自动 retry 或 fallback。候选耗尽后抛出只含脱敏 `AttemptSummary` 的 `ProviderExhaustedError`，真实末因保留在异常链中。route/attempt/retry/fallback 通过 capability events 观察，不成为 durable session facts。
 
 `AgentSession` 的控制面使用显式 FIFO dispatcher，而不是把并发请求隐式阻塞在互斥锁上。公开状态为 idle/running/aborting/settled；`run()` 等待自己的排队任务，`follow_up()` 返回新 run ID 并在前序 run settled 后执行，`wait_until_idle()` 等待活动任务和 follow-up 队列都清空。`steer()` 只在活动 run 的接收窗口开放时成功，在当前模型/工具 turn 的安全边界提交为 user message后继续同一 run。最终 turn 检查空队列与关闭接收窗口共用控制锁，保证成功入队的 steer 不会因结束竞态丢失。`abort()` 默认取消活动任务、清理 steer/follow-up 并等待 idle；已提交 durable facts 不回滚。
+
+`AgentRuntime` 位于单 Session 编排之上，不复制 Agent loop。`open_session()` 为同一 session ID 复用一个 `AgentSession` controller，并返回必须释放的 `RuntimeSession` lease；容量或 TTL 驱逐只选择无 lease、已 restore 且 idle 的 controller，durable history 仍留在 `SessionStore`。Runtime 关闭时依次拒绝新工作、在 grace period 内等待 idle、关闭所有 Session、逆序关闭 PluginHost/Provider/Store，发出 `runtime_closed` 后最后关闭 observer。Builder 构造失败使用相同所有权规则回滚，borrowed 资源永远不由 Runtime 关闭。
 
 每次模型请求前，runtime 把完整 committed history 交给 `ContextStrategy`，并只把返回的 `ContextPlan.messages` 发送给 `ModelProvider`。默认策略不省略消息。`context_prepared` capability event 暴露源消息数、选中数和省略数，但不复制消息正文。策略投影不会删除或改写 `Agent.messages` 与 durable log。
 
@@ -66,7 +90,7 @@ durable compaction 可由 `AgentSession.compact()` 显式触发，也可在配�
 
 `SessionStore.fork()` 从源日志的指定 version 创建一个新的目标 session。两个 Store 都调用 `fork_session_events()` 复制经过 replay 校验的历史前缀，拒绝覆盖已有目标，并允许源和目标在分叉后独立追加。当前事件模型没有 `session_created` 元数据，因此持久化 fork 必须至少包含一个事件。
 
-`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。schema v2 加入 assistant thinking，schema v3 加入 message/compaction 互斥 payload，schema v4 加入 event/run/turn/provenance，schema v5 加入 typed control transition；解码器仍可读取 v1-v4 日志并标记 legacy provenance。读取、反序列化和 replay 使用相同领域对象，因此 runtime 无需感知存储变化。append、compact、record_control 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
+`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。schema v2 加入 assistant thinking，v3 加入 message/compaction 互斥 payload，v4 加入 event/run/turn/provenance，v5 加入 typed control transition，v6 加入 provider-owned opaque state；解码器仍可读取 v1-v5 日志。读取、反序列化和 replay 使用相同领域对象，因此 runtime 无需感知存储变化。append、compact、record_control 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
 
 steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写 `control_enqueued`，dispatcher 写带 lease 的 `control_claimed`，安全边界用一个携带 user message 的 `control_delivered` 同时完成消息提交与消费；abort 或失效目标写 `control_cancelled`。Replay 由这些事实重建 `SessionSnapshot.pending_controls`。steer 绑定原 run，重启后没有活动目标就取消；follow-up 预留独立 run ID，未 claim 或 lease 已过期时由 `AgentSession.restore()` 恢复。该语义保证 durable history 中同一 control 只投递一次，但不把外部工具副作用宣传为 exactly-once。
 
@@ -83,6 +107,12 @@ steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写
 - domain 不依赖 ports 或 runtime。
 - ports 只依赖 domain。
 - runtime 依赖 domain 和 ports，不依赖具体 Provider。
+- app_runtime 依赖 runtime 与 ports，只编排会话、租约和生命周期，不解释供应商 wire protocol。
+- profiles 只依赖稳定端口并保存 factory；不得持有密钥、连接、后台任务或可变进程级注册表。
+- assembly 可以依赖具体 Provider/configuration，但只能在应用边界解析与创建它们，并向内组装为稳定端口。
+- OpenAI-compatible codec 只依赖 domain 与稳定错误；具体 Provider 可以组合它，但 codec 不反向识别供应商配置或认证。
+- Provider support 只依赖稳定错误，集中无状态默认值、校验和状态码映射；供应商响应体解析、配额特例及 stream 生命周期仍留在具体适配器。
+- model_runtime 只消费 `ModelProvider` 与三个策略端口；它不依赖具体供应商类，候选及 capability/state-owner 元数据由 apps 显式组装。
 - runtime 消费 `ContextStrategy` 端口；默认实现位于 context，策略不得反向修改 durable history。
 - runtime 消费 `CompactionStrategy` 端口；策略只生成摘要，持久化由 `SessionStore` 控制。
 - runtime 消费 `CompactionPolicy` 端口；policy 只决定何时触发，不生成摘要或写存储。
@@ -90,7 +120,8 @@ steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写
 - session_transitions 只依赖领域对象和稳定错误，不依赖存储 Provider。
 - session_transitions 校验 tool call/result 批次，只把尾部缺失结果暴露为可追加恢复项；非尾部缺口显式失败。
 - session 与 session_jsonl 实现 ports 中的 `SessionStore`，ports 不依赖具体存储。
-- apps 负责显式组装，不通过 import 副作用注册。
+- apps 消费 `AgentRuntimeBuilder`/`AgentRuntime`，仍须显式选择 Profile、Catalog 与资源所有权，不通过 import 副作用注册。
+- 配置文件只在 apps 边界解析一次；runtime/ports/Provider 不读取 YAML 或 `.env`。YAML 只引用密钥变量名，原始密钥只进入冻结的 Provider config 且不进入 repr/诊断。
 - PluginHost 只组合端口实现，Agent/runtime 不反向依赖插件容器。
 - 插件拦截 Hook 失败关闭；观察型 EventSink 由 runtime 隔离失败，不得改变控制流。
 - 日志适配器只能消费事件副本；脱敏不得修改模型可见消息或 durable state。

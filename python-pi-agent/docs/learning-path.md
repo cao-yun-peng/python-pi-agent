@@ -3,7 +3,7 @@
 每一阶段都必须形成可运行的纵向切片，而不是先造一批空接口。
 
 1. **消息、流和最小循环**：理解一次 Agent run 如何开始、提交和 settled。
-2. **真实 Provider 适配**：DeepSeek SSE、认证、错误映射、usage、thinking replay 和生命周期。
+2. **真实 Provider 适配与组装**：DeepSeek/Kimi/GLM Chat Completions 与 TiMi Responses 的认证、错误映射、模型能力、续接状态和生命周期，以及显式 YAML/dotenv 配置边界。
 3. **工具调用**：schema、调度、tool result、失败和权限。
 4. **会话与事件日志**：追加式存储、回放、恢复和分叉。
 5. **上下文策略**：资源加载、token budget、裁剪与压缩。
@@ -15,13 +15,15 @@
 
 ## 当前进度
 
-- 阶段 1、2、3 已完成：最小循环、DeepSeek Provider 和顺序工具调用已经形成可运行纵向切片。
-- 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v5、durable event log、replay、持久化 fork、compaction event，以及 steer/follow-up 的 enqueue/claim/deliver/cancel 恢复语义。多进程文件锁和数据库事务留给后续存储 Provider。
+- 阶段 1、2、3 已完成：最小循环、DeepSeek/Kimi/GLM Chat Completions、TiMi Codex/GPT/Grok Responses、共享 SSE framing、强类型 YAML/dotenv 组装和顺序工具调用已经形成可运行纵向切片。
+- 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v6、durable event log、replay、持久化 fork、compaction event、provider-owned state，以及 steer/follow-up 的 enqueue/claim/deliver/cancel 恢复语义。多进程文件锁和数据库事务留给后续存储 Provider。
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。
+- 阶段 6 已完成第一条 Provider resilience 纵向切片：显式候选、能力与 provider-state 路由、pre-output retry、full-jitter/Retry-After backoff、兼容 fallback、总 attempt/elapsed budget、取消传播和 attempt trace。Circuit breaker、健康/成本/延迟加权与跨模型 state 转换留给有运行数据后的迭代。
 - 阶段 7 已完成显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销、SessionPluginFactory/Lease、请求投影 Hook、后台 settled observer 和逆序 cleanup。资源发现、durable control port 与安全热重载仍未开始。
 - 阶段 8 已完成两条安全执行纵向切片：第一条由 ToolExecutionContext、ApprovalPolicy 与 ToolExecutionGate 提供声明式默认拒绝；第二条由 SandboxedShellTool、ProcessSandbox 与 Docker Provider 提供真实 workspace 进程隔离、最小环境/网络/资源配置、enforcement evidence 和取消清理。文件 read/search/patch 的统一 workspace port、单次权限升级和身份化授权仍未开始。
 - 阶段 9 已完成两条观察纵向切片：第一条统一隔离 EventSink 异常、入队前脱敏和有界 worker 生命周期；第二条增加 versioned AgentEventEnvelope、固定 JSON record、模型/工具/压缩/Hook span duration，以及 observer message 到 durable event 的 identity join。低基数指标聚合、采样/exporter 和 durable 审计 sink 仍未开始。
-- Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；普通推理与 compaction 不再只能靠 payload 猜测。下一步的多 Provider router、retry 和 session-aware 插件应复用该上下文。
+- 阶段 10 已完成第一条应用组装纵向切片：`AgentProfile`、显式 `ProviderCatalog`、事务化 `AgentRuntimeBuilder`、owned/borrowed 生命周期、`AgentRuntime` facade、可复用 `RuntimeSession` lease，以及惰性 TTL/LRU controller 驱逐。正式 CLI、EventHub/RunHandle、多租户 SessionRef 与 Web/SSE 尚未开始。
+- Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；Chat Completions 三适配器复用内部 wire codec，Responses 仅复用 SSE framing，并通过 provider-owned state 完成无服务端存储的续轮。`ResilientModelRuntime` 已在 wire adapter 之上复用这些边界，不合并两套协议。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 
@@ -124,7 +126,9 @@ runtime event
 
 ## 下一步
 
-控制队列已经用 queued/claimed/delivered/cancelled 事实、lease 和 replay 实现 durability。下一步应给 Provider 请求增加 session/run/turn/purpose 身份，再让 session-aware 插件复用同一控制端口；不要让插件直接写 deque 或 canonical history。
+应用层下一步先做正式 CLI，验证配置覆盖、Profile 选择、信号取消、退出码和 Runtime 关闭契约；之后再抽取 EventHub、RunHandle 与多租户 `SessionRef`，最后让 Web/SSE 只依赖这些稳定接口。HTTP handler 不得直接持有 `AgentSession`，断线也不能隐式删除 durable session。
+
+Provider resilience 的下一步不是继续堆策略，而是先用现有 attempt trace 建立低基数成功率、错误率和延迟证据，再决定是否引入 circuit breaker、健康/成本加权及半开探测。Partial stream 仍然 fail closed；在定义客户端 reset 协议前不自动续跑。
 
 插件方向下一步若需要主动控制能力，应给 SessionPluginContext 注入受限 control port，并复用 durable enqueue/claim/deliver/cancel；不得暴露 AgentSession、Store 或内存 deque。之后再考虑资源发现与安全热重载，不应直接做目录自动扫描。
 
