@@ -37,7 +37,7 @@ select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
 python_version = "3.11"
-modules = ["pi_agent_py.domain", "pi_agent_py.ports"]
+modules = ["pi_agent_py.api", "pi_agent_py.domain", "pi_agent_py.ports"]
 mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
 strict = true
 follow_imports = "silent"

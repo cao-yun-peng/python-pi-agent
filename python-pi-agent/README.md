@@ -42,7 +42,13 @@ python -m ruff check src tests
 python -m mypy
 ```
 
-GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包并执行离线测试。静态检查使用 Python 3.11，Ruff 检查源码与测试，mypy 以 strict 模式检查 `pi_agent_py.domain` 和 `pi_agent_py.ports`。常规 CI 中 Docker 集成测试保持跳过，本地可通过 `PI_AGENT_DOCKER_IMAGE` 显式启用。
+GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包并执行离线测试。静态检查使用 Python 3.11，Ruff 检查源码与测试，mypy 以 strict 模式检查 `pi_agent_py.api`、`pi_agent_py.domain` 和 `pi_agent_py.ports`。常规 CI 中 Docker 集成测试保持跳过，本地可通过 `PI_AGENT_DOCKER_IMAGE` 显式启用。
+
+## 稳定应用入口
+
+下游应用通过 `pi_agent_py.api` 导入 Builder、Runtime、组件规格和扩展端口。稳定导出清单见 [api.py](src/pi_agent_py/api.py)。应用可用 `AgentRuntimeBuilder.with_provider()` 注入自己的 `ModelProvider`，通过 `PluginAPI` 注册工具和 Hook，并通过 `EventSink` 观察运行。
+
+[应用组装示例](examples/24_application_runtime.py) 演示同一 Session 的复用和独立 Agent。离线测试替身由 `pi_agent_py.testing` 提供。
 
 ## 快速开始
 

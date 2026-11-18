@@ -27,6 +27,7 @@
 
 - 基座路线图 A1/A2 已落地。用 [run 失败分类练习](../tutorials/13-safe-event-observation.md#8-run-失败分类) 跟踪 Store 失败从原生异常到调用方错误和 live 事件的过程，再观察 Session 如何继续处理后续 run。
 - 基座阶段 1 的组装链路已接入 `AgentComponents`。用 [Profile 与统一生命周期](../tutorials/25-application-runtime-assembly.md#3-builder-与-profile-的区别) 跟踪组件如何从 factory 解析到 Agent 实际消费，并比较常驻 Runtime 和独立 Agent 的入口。
+- 下游应用从 `pi_agent_py.api` 导入组装与扩展契约。阅读 [稳定入口回归](../tests/test_api.py)，练习只通过公开导入接入自定义 Provider 和工具插件。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 

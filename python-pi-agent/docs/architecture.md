@@ -33,6 +33,7 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 
 - `domain.py` 只包含无 I/O 的值对象。
 - `ports.py` 定义核心运行时所需能力，不提供供应商实现。
+- `api.py` 是下游应用和扩展的稳定导入入口。`__all__` 显式声明组装入口、能力端口、领域类型、事件与错误。它直接导出定义模块中的对象，根包为已有调用提供兼容导入。
 - `runtime.py` 消费端口并维护已提交消息。
 - `app_runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
 - `profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 只提供默认拒绝审批与 bash-only Gate，不创建 Docker。
@@ -129,7 +130,7 @@ steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写
 - session_transitions 只依赖领域对象和稳定错误，不依赖存储 Provider。
 - session_transitions 校验 tool call/result 批次，只把尾部缺失结果暴露为可追加恢复项；非尾部缺口显式失败。
 - session 与 session_jsonl 实现 ports 中的 `SessionStore`，ports 不依赖具体存储。
-- apps 消费 `AgentRuntimeBuilder`/`AgentRuntime`，仍须显式选择 Profile、Catalog 与资源所有权，不通过 import 副作用注册。
+- apps 从 `pi_agent_py.api` 导入 `AgentRuntimeBuilder` 和 `AgentRuntime`，并显式选择 Profile、Catalog 与资源所有权。能力注册发生在组装阶段。
 - 配置文件只在 apps 边界解析一次；runtime/ports/Provider 不读取 YAML 或 `.env`。YAML 只引用密钥变量名，原始密钥只进入冻结的 Provider config 且不进入 repr/诊断。
 - PluginHost 只组合端口实现，Agent/runtime 不反向依赖插件容器。
 - 插件拦截 Hook 失败关闭；观察型 EventSink 由 runtime 隔离失败，不得改变控制流。

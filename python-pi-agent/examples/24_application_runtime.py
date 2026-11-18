@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import asyncio
 
-from pi_agent_py import (
+from pi_agent_py.api import (
     Agent,
     AgentProfile,
     AgentRuntimeBuilder,
-    FakeProvider,
     Finish,
     InMemoryEventSink,
     TextDelta,
 )
+from pi_agent_py.testing import FakeProvider
 
 
 async def main() -> None:

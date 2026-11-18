@@ -1,4 +1,7 @@
-"""Teaching-first building blocks for a modular Python agent harness."""
+"""Teaching-first building blocks for a modular Python agent harness.
+
+Application and extension contracts are documented in :mod:`pi_agent_py.api`.
+"""
 
 from .app_runtime import (
     AgentRuntime,

@@ -33,6 +33,8 @@ python .\python-pi-agent\examples\24_application_runtime.py
 
 ## 3. Builder 与 Profile 的区别
 
+应用从 `pi_agent_py.api` 导入组装入口和能力类型，稳定清单由该模块的 `__all__` 定义。已有代码可继续使用根包导入。示例从 `pi_agent_py.testing` 获取离线测试替身。可以参考 [下游应用回归](../tests/test_api.py)，用同一导入面实现自己的流式 Provider、注册工具插件并消费事件。
+
 `AgentProfile` 是代码拥有的产品默认值：system prompt、工具 factory、策略 factory 和请求上限。它不保存 API key，也不打开 HTTP client。
 
 `AgentRuntimeBuilder` 消费 Profile、配置和显式依赖，完成一次事务化组装。Builder 只能 build 一次；任何 factory/plugin 初始化失败都会关闭已经创建的 owned resources。
@@ -44,6 +46,8 @@ python .\python-pi-agent\examples\24_application_runtime.py
 配置驱动组装仍要求显式 Catalog：
 
 ```python
+from pi_agent_py.api import AgentProfile, AgentRuntimeBuilder, default_provider_catalog
+
 runtime = await (
     AgentRuntimeBuilder.from_loaded_config(
         loaded,
