@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from pi_agent_py import (
+    Agent,
     AgentProfile,
     AgentRuntimeBuilder,
     FakeProvider,
@@ -16,6 +17,10 @@ from pi_agent_py import (
 
 async def main() -> None:
     events = InMemoryEventSink()
+    profile = AgentProfile(
+        name="teaching-assistant",
+        system_prompt="Answer briefly and preserve session context.",
+    )
     provider = FakeProvider(
         [
             [TextDelta("first answer"), Finish()],
@@ -25,12 +30,7 @@ async def main() -> None:
     runtime = await (
         AgentRuntimeBuilder()
         .with_provider(provider)
-        .with_profile(
-            AgentProfile(
-                name="teaching-assistant",
-                system_prompt="Answer briefly and preserve session context.",
-            )
-        )
+        .with_profile(profile)
         .with_event_sink(events)
         .build()
     )
@@ -47,6 +47,13 @@ async def main() -> None:
     for event in events.events:
         if event.kind.startswith("runtime_"):
             print(event.kind, event.envelope.session_id or "-")
+
+    standalone_provider = FakeProvider([[TextDelta("standalone answer"), Finish()]])
+    components = profile.build_components(standalone_provider).replace(
+        max_model_requests=1
+    )
+    standalone = await Agent(components).run("one request")
+    print("\nstandalone:", standalone.message.content)
 
 
 if __name__ == "__main__":

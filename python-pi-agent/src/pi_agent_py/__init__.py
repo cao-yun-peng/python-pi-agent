@@ -14,6 +14,7 @@ from .assembly import (
     default_provider_catalog,
 )
 
+from .components import AgentComponents, CompactionComponents
 from .compaction import (
     CompactionPreparation,
     ModelCompactionStrategy,
@@ -222,6 +223,7 @@ __all__ = [
     "AGENT_EVENT_SCHEMA_VERSION",
     "Agent",
     "AgentError",
+    "AgentComponents",
     "AgentEvent",
     "AgentEventEnvelope",
     "AgentLoopLimitError",
@@ -249,6 +251,7 @@ __all__ = [
     "CompactionPolicy",
     "CompactionPolicyError",
     "CompactionPreparation",
+    "CompactionComponents",
     "CompactionStrategy",
     "ControlCancellation",
     "ControlClaim",

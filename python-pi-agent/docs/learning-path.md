@@ -26,6 +26,7 @@
 - Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；Chat Completions 三适配器复用内部 wire codec，Responses 仅复用 SSE framing，并通过 provider-owned state 完成无服务端存储的续轮。`ResilientModelRuntime` 已在 wire adapter 之上复用这些边界，不合并两套协议。
 
 - 基座路线图 A1/A2 已落地。用 [run 失败分类练习](../tutorials/13-safe-event-observation.md#8-run-失败分类) 跟踪 Store 失败从原生异常到调用方错误和 live 事件的过程，再观察 Session 如何继续处理后续 run。
+- 基座阶段 1 的组装链路已接入 `AgentComponents`。用 [Profile 与统一生命周期](../tutorials/25-application-runtime-assembly.md#3-builder-与-profile-的区别) 跟踪组件如何从 factory 解析到 Agent 实际消费，并比较常驻 Runtime 和独立 Agent 的入口。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 

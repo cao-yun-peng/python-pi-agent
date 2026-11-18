@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import asyncio
 
-from pi_agent_py import Agent, AgentEvent, CallbackEventSink, FakeProvider, Finish, TextDelta
+from pi_agent_py import (
+    Agent,
+    AgentComponents,
+    AgentEvent,
+    CallbackEventSink,
+    FakeProvider,
+    Finish,
+    TextDelta,
+)
 
 
 async def main() -> None:
@@ -16,11 +24,11 @@ async def main() -> None:
     provider = FakeProvider(
         [[TextDelta("你好，"), TextDelta("我是最小 Agent。"), Finish()]]
     )
-    agent = Agent(
+    components = AgentComponents(
         provider,
-        event_sink=CallbackEventSink(observe),
         system_prompt="你是一个用于学习 Agent 原理的助手。",
     )
+    agent = Agent(components, event_sink=CallbackEventSink(observe))
 
     await agent.run("介绍一下自己")
 

@@ -13,11 +13,11 @@ Loaded config + AgentProfile + explicit catalogs
            AgentRuntimeBuilder
                     |
                     v
-              AgentRuntime
+      AgentComponents -> AgentRuntime
                     |
              RuntimeSession lease
                     |
-                AgentSession
+               AgentSession -> Agent
 ```
 
 ## 2. 最小离线示例
@@ -29,13 +29,17 @@ $env:PYTHONPATH = (Resolve-Path .\python-pi-agent\src).Path
 python .\python-pi-agent\examples\24_application_runtime.py
 ```
 
-示例使用 `FakeProvider` 连续运行同一 session。第二次请求能看到第一次的 durable history，退出 `async with runtime` 后会统一关闭 owned resources。
+示例使用 `FakeProvider` 连续运行同一 session。第二次请求能看到第一次的 durable history，退出 `async with runtime` 后会统一关闭 owned resources。末尾用同一个 Profile 和另一份 FakeProvider 直接组装独立 Agent。
 
 ## 3. Builder 与 Profile 的区别
 
 `AgentProfile` 是代码拥有的产品默认值：system prompt、工具 factory、策略 factory 和请求上限。它不保存 API key，也不打开 HTTP client。
 
 `AgentRuntimeBuilder` 消费 Profile、配置和显式依赖，完成一次事务化组装。Builder 只能 build 一次；任何 factory/plugin 初始化失败都会关闭已经创建的 owned resources。
+
+`AgentProfile.build_components(provider)` 把产品默认值解析为冻结的 `AgentComponents`。Builder 将显式覆盖应用到 factory 层，因此被覆盖的 factory 不会执行。组合完成后，Runtime、Session 和 Agent 共用已解析的组件，Store、事件 sink 与插件 lease 仍由各自所有者管理。`replace()` 返回独立的配置对象并重新检查请求上限和工具名称。手动压缩提供摘要策略即可，自动压缩还需要触发策略。
+
+独立入口见示例中的 `Agent(components)`。已有调用可以继续使用 Provider 和逐项关键字一个 minor 版本，直接构造时发出 `DeprecationWarning`。组件路径加载已有历史时沿用已提交的 system message。
 
 配置驱动组装仍要求显式 Catalog：
 

@@ -4,7 +4,9 @@ import asyncio
 from collections.abc import Sequence
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
+    CompactionComponents,
     FakeCompactionStrategy,
     FakeProvider,
     Finish,
@@ -75,20 +77,20 @@ async def main() -> None:
         ),
         load_notes,
     )
-    session = AgentSession(
-        "lesson",
-        store,
+    components = AgentComponents(
         provider,
-        tools=[tool],
-        compaction_policy=TokenThresholdCompactionPolicy(
-            7,
-            estimator=MessageCountEstimator(),
+        tools=(tool,),
+        compaction=CompactionComponents(
+            policy=TokenThresholdCompactionPolicy(
+                7,
+                estimator=MessageCountEstimator(),
+            ),
+            strategy=FakeCompactionStrategy(
+                ["The user learned append-only logs and replayed snapshots."]
+            ),
         ),
-        compaction_strategy=FakeCompactionStrategy(
-            ["The user learned append-only logs and replayed snapshots."]
-        ),
-        event_sink=events,
     )
+    session = AgentSession("lesson", store, components, event_sink=events)
 
     await session.run("Load the notes, then explain the trigger point.")
     decisions = [

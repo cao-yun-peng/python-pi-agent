@@ -5,6 +5,7 @@
 ```text
 domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
                ^           |             ^
+               |           ├── components.py resolves model-visible configuration
                |           ├── context.py implements ContextStrategy
                |           ├── compaction.py implements CompactionStrategy
                |           ├── plugins.py assembles Tool / NextTurnHook
@@ -35,6 +36,8 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 - `runtime.py` 消费端口并维护已提交消息。
 - `app_runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
 - `profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 只提供默认拒绝审批与 bash-only Gate，不创建 Docker。
+- `AgentProfile.build_components(provider)` 解析出冻结的 `AgentComponents`。Builder 先应用显式覆盖，再组合已解析的 Provider、部署配置和插件能力。Runtime、Session 和 Agent 传递同一个组件对象。Store、EventSink、PluginHost 及资源所有权由应用组装层独立管理。
+- `CompactionComponents` 始终携带摘要策略，可选自动触发策略。Session 通过模块内接线连接 durable 提交、steer 和 per-session Provider Hook。新构造入口接收组件对象，原有构造参数通过带弃用警告的适配层保留一个 minor 版本。
 - `lifecycle.py` 明确区分 owned/borrowed 资源，在关闭或构造回滚时逆序尝试全部 cleanup。
 - `assembly.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
 - `context.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。

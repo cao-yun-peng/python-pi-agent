@@ -6,17 +6,18 @@ import asyncio
 import time
 from collections import deque
 from copy import deepcopy
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import ParamSpec, TypeVar
 from uuid import uuid4
+from warnings import warn
 
 from .compaction import (
     CompactionPreparation,
     build_summary_message,
     prepare_compaction,
 )
-from .context import FullHistoryContextStrategy
+from .components import AgentComponents, _resolve_components
 from .domain import (
     AgentResult,
     ApprovalDecision,
@@ -86,11 +87,7 @@ from .ports import (
     ToolExecutionGate,
 )
 from .session_transitions import find_unresolved_tool_calls
-from .tools import (
-    DeclaredSideEffectGate,
-    DenyByDefaultApprovalPolicy,
-    validate_tool_arguments,
-)
+from .tools import validate_tool_arguments
 
 
 _INTERRUPTED_TOOL_RESULT = (
@@ -114,49 +111,44 @@ class _SteeringInstruction:
     claim_id: str
 
 
+_MessageCommitter = Callable[[Message, SessionEventContext], Awaitable[DurableEventIdentity]]
+_SteeringCommitter = Callable[
+    [Message, SessionEventContext, str, str], Awaitable[DurableEventIdentity]
+]
+_SteeringReceiver = Callable[[bool], Awaitable[tuple[_SteeringInstruction, ...]]]
+
+
+@dataclass(frozen=True, slots=True)
+class _AgentWiring:
+    message_committer: _MessageCommitter | None = None
+    steering_committer: _SteeringCommitter | None = None
+    provider_request_hook: ProviderRequestHook | None = None
+    steering_receiver: _SteeringReceiver | None = None
+
+
 class Agent:
     """A stateful, single-session agent with a serialized run loop."""
 
     def __init__(
         self,
-        provider: ModelProvider,
+        provider: AgentComponents | ModelProvider | None = None,
         *,
-        tools: Sequence[Tool] = (),
+        components: AgentComponents | None = None,
+        tools: Sequence[Tool] | None = None,
         approval_policy: ApprovalPolicy | None = None,
         execution_gate: ToolExecutionGate | None = None,
         context_strategy: ContextStrategy | None = None,
         event_sink: EventSink | None = None,
         initial_messages: Sequence[Message] = (),
-        message_committer: (
-            Callable[
-                [Message, SessionEventContext],
-                Awaitable[DurableEventIdentity],
-            ]
-            | None
-        ) = None,
-        steering_committer: (
-            Callable[
-                [Message, SessionEventContext, str, str],
-                Awaitable[DurableEventIdentity],
-            ]
-            | None
-        ) = None,
+        message_committer: _MessageCommitter | None = None,
+        steering_committer: _SteeringCommitter | None = None,
         next_turn_hook: NextTurnHook | None = None,
         provider_request_hook: ProviderRequestHook | None = None,
-        steering_receiver: (
-            Callable[[bool], Awaitable[tuple[_SteeringInstruction, ...]]] | None
-        ) = None,
+        steering_receiver: _SteeringReceiver | None = None,
         session_id: str | None = None,
         system_prompt: str | None = None,
-        max_model_requests: int = 8,
+        max_model_requests: int | None = None,
     ) -> None:
-        if max_model_requests <= 0:
-            raise ValueError("max_model_requests must be greater than zero")
-        definitions = [tool.definition for tool in tools]
-        duplicate_names = _duplicates(definition.name for definition in definitions)
-        if duplicate_names:
-            names = ", ".join(sorted(duplicate_names))
-            raise ValueError(f"duplicate tool names: {names}")
         if initial_messages and system_prompt is not None:
             raise ValueError(
                 "initial_messages and system_prompt cannot be supplied together"
@@ -164,34 +156,63 @@ class Agent:
         if session_id is not None and not session_id.strip():
             raise ValueError("session_id must not be empty")
 
-        self._provider = provider
-        self._tools = {tool.definition.name: tool for tool in tools}
-        self._tool_definitions = tuple(definitions)
-        self._approval_policy = (
-            approval_policy
-            if approval_policy is not None
-            else DenyByDefaultApprovalPolicy()
+        self._components = _resolve_components(
+            provider,
+            components,
+            tools=tools,
+            approval_policy=approval_policy,
+            execution_gate=execution_gate,
+            context_strategy=context_strategy,
+            next_turn_hook=next_turn_hook,
+            system_prompt=system_prompt,
+            max_model_requests=max_model_requests,
         )
-        self._execution_gate = (
-            execution_gate
-            if execution_gate is not None
-            else DeclaredSideEffectGate()
+        tool_entries = tuple(
+            (tool.definition, tool) for tool in self._components.tools
         )
-        self._context_strategy = context_strategy or FullHistoryContextStrategy()
+        self._tools = {definition.name: tool for definition, tool in tool_entries}
+        self._tool_definitions = tuple(definition for definition, _ in tool_entries)
         self._event_sink = ensure_isolated_event_sink(event_sink)
-        self._max_model_requests = max_model_requests
-        self._message_committer = message_committer
-        self._steering_committer = steering_committer
-        self._next_turn_hook = next_turn_hook
-        self._provider_request_hook = provider_request_hook
-        self._steering_receiver = steering_receiver
+        if any(
+            callback is not None
+            for callback in (
+                message_committer, steering_committer, provider_request_hook, steering_receiver
+            )
+        ):
+            warn("Agent wiring keywords are deprecated", DeprecationWarning, stacklevel=2)
+        self._wiring = _AgentWiring(
+            message_committer, steering_committer, provider_request_hook, steering_receiver
+        )
+        self._next_turn_hook = self._components.next_turn_hook
         self._session_id = session_id
         self._active_run_id: str | None = None
         self._active_turn_id: str | None = None
         self._messages = list(initial_messages)
-        if system_prompt is not None:
-            self._messages.append(Message(role="system", content=system_prompt))
+        initial_prompt = self._components.system_prompt
+        if not self._messages and initial_prompt is not None:
+            self._messages.append(Message(role="system", content=initial_prompt))
         self._run_lock = asyncio.Lock()
+
+    @classmethod
+    def _for_session(
+        cls,
+        components: AgentComponents,
+        *,
+        wiring: _AgentWiring,
+        event_sink: EventSink,
+        initial_messages: Sequence[Message],
+        session_id: str,
+        next_turn_hook: NextTurnHook | None,
+    ) -> Agent:
+        agent = cls(
+            components,
+            event_sink=event_sink,
+            initial_messages=initial_messages,
+            session_id=session_id,
+        )
+        agent._wiring = wiring
+        agent._next_turn_hook = next_turn_hook
+        return agent
 
     @property
     def messages(self) -> tuple[Message, ...]:
@@ -235,7 +256,8 @@ class Agent:
                             ),
                         ),
                     )
-                for request_number in range(1, self._max_model_requests + 1):
+                max_requests = self._components.max_model_requests
+                for request_number in range(1, max_requests + 1):
                     self._active_turn_id = _turn_id(
                         self._active_run_id,
                         request_number,
@@ -249,7 +271,7 @@ class Agent:
                             turn_id=self._active_turn_id,
                             provenance=EventProvenance(
                                 source="model",
-                                actor_id=type(self._provider).__name__,
+                                actor_id=type(self._components.provider).__name__,
                             ),
                         ),
                     )
@@ -289,11 +311,11 @@ class Agent:
                             )
 
                     if has_tool_calls or steering:
-                        if request_number < self._max_model_requests:
+                        if request_number < max_requests:
                             await self._prepare_next_turn(request_number + 1)
                             continue
                         raise AgentLoopLimitError(
-                            f"run exceeded {self._max_model_requests} model requests"
+                            f"run exceeded {max_requests} model requests"
                         )
 
                     self._emit(
@@ -310,7 +332,7 @@ class Agent:
                     )
 
                 raise AgentLoopLimitError(
-                    f"run exceeded {self._max_model_requests} model requests"
+                    f"run exceeded {max_requests} model requests"
                 )
             except asyncio.CancelledError:
                 self._emit("run_cancelled", "live")
@@ -332,7 +354,7 @@ class Agent:
         *,
         close_if_empty: bool,
     ) -> tuple[_SteeringInstruction, ...]:
-        receiver = self._steering_receiver
+        receiver = self._wiring.steering_receiver
         if receiver is None:
             return ()
         return await receiver(close_if_empty)
@@ -344,10 +366,11 @@ class Agent:
         control_id: str,
         claim_id: str,
     ) -> None:
-        if self._steering_committer is None:
+        committer = self._wiring.steering_committer
+        if committer is None:
             await self._commit(message, context)
             return
-        durable_identity = await self._steering_committer(
+        durable_identity = await committer(
             message,
             context,
             control_id,
@@ -523,7 +546,7 @@ class Agent:
         context: ProviderRequestContext,
     ) -> AsyncIterator[ModelStreamEvent]:
         try:
-            async for event in self._provider.stream(
+            async for event in self._components.provider.stream(
                 messages, self._tool_definitions, context=context
             ):
                 yield event
@@ -539,7 +562,7 @@ class Agent:
     ) -> ContextPlan:
         history = self.messages
         try:
-            context = await self._context_strategy.prepare(history)
+            context = await self._components.context_strategy.prepare(history)
         except asyncio.CancelledError:
             raise
         except ContextPreparationError:
@@ -555,7 +578,7 @@ class Agent:
             raise ContextPreparationError(
                 "context plan source_message_count does not match history"
             )
-        hook = self._provider_request_hook
+        hook = self._wiring.provider_request_hook
         if hook is not None:
             try:
                 context = await hook.prepare(request_context, context)
@@ -712,7 +735,7 @@ class Agent:
             session_id=context.session_id,
         )
         try:
-            decision = await self._approval_policy.review(context)
+            decision = await self._components.approval_policy.review(context)
             if not isinstance(decision, ApprovalDecision):
                 raise TypeError("approval policy did not return ApprovalDecision")
         except asyncio.CancelledError:
@@ -769,14 +792,14 @@ class Agent:
         try:
             timeout = tool.definition.timeout_seconds
             if timeout is None:
-                output = await self._execution_gate.execute(
+                output = await self._components.execution_gate.execute(
                     tool,
                     call.arguments,
                     context,
                 )
             else:
                 async with asyncio.timeout(timeout):
-                    output = await self._execution_gate.execute(
+                    output = await self._components.execution_gate.execute(
                         tool,
                         call.arguments,
                         context,
@@ -814,7 +837,7 @@ class Agent:
                 tool_call_id=call.id,
                 tool_name=call.name,
                 side_effects=context.definition.side_effects,
-                gate=type(self._execution_gate).__name__,
+                gate=type(self._components.execution_gate).__name__,
                 error=type(error).__name__,
                 request_number=context.request_number,
                 call_index=context.call_index,
@@ -907,8 +930,9 @@ class Agent:
             turn_id=self._active_turn_id,
         )
         durable_identity: DurableEventIdentity | None = None
-        if self._message_committer is not None:
-            durable_identity = await self._message_committer(message, context)
+        committer = self._wiring.message_committer
+        if committer is not None:
+            durable_identity = await committer(message, context)
 
         self._messages.append(message)
         self._emit(
@@ -1127,9 +1151,10 @@ class AgentSession:
         self,
         session_id: str,
         session_store: SessionStore,
-        provider: ModelProvider,
+        provider: AgentComponents | ModelProvider | None = None,
         *,
-        tools: Sequence[Tool] = (),
+        components: AgentComponents | None = None,
+        tools: Sequence[Tool] | None = None,
         approval_policy: ApprovalPolicy | None = None,
         execution_gate: ToolExecutionGate | None = None,
         compaction_policy: CompactionPolicy | None = None,
@@ -1137,33 +1162,32 @@ class AgentSession:
         context_strategy: ContextStrategy | None = None,
         event_sink: EventSink | None = None,
         system_prompt: str | None = None,
-        max_model_requests: int = 8,
+        max_model_requests: int | None = None,
         plugin_host: PluginHost | None = None,
         next_turn_hook: NextTurnHook | None = None,
         control_claim_lease_seconds: float = 30.0,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        if compaction_policy is not None and compaction_strategy is None:
-            raise ConfigurationError(
-                "compaction_policy requires a compaction_strategy"
-            )
         if control_claim_lease_seconds <= 0:
             raise ValueError("control_claim_lease_seconds must be greater than zero")
         self._session_id = session_id
         self._session_store = session_store
-        self._provider = provider
-        self._tools = tuple(tools)
-        self._approval_policy = approval_policy
-        self._execution_gate = execution_gate
-        self._compaction_policy = compaction_policy
-        self._compaction_strategy = compaction_strategy
-        self._context_strategy = context_strategy
+        self._components = _resolve_components(
+            provider,
+            components,
+            tools=tools,
+            approval_policy=approval_policy,
+            execution_gate=execution_gate,
+            context_strategy=context_strategy,
+            compaction_policy=compaction_policy,
+            compaction_strategy=compaction_strategy,
+            next_turn_hook=next_turn_hook,
+            system_prompt=system_prompt,
+            max_model_requests=max_model_requests,
+        )
         self._event_sink = ensure_isolated_event_sink(event_sink)
-        self._system_prompt = system_prompt
-        self._max_model_requests = max_model_requests
         self._plugin_host = plugin_host
         self._plugin_lease: PluginSessionLease | None = None
-        self._next_turn_hook = next_turn_hook
         self._control_claim_lease_seconds = control_claim_lease_seconds
         self._clock = clock
         self._owner_id = uuid4().hex
@@ -1688,9 +1712,11 @@ class AgentSession:
             )
             await self._recover_unresolved_tool_calls(writer, run_id=run_id)
 
-            if not writer.snapshot.messages and self._system_prompt is not None:
+            components = self._components
+            system_prompt = components.system_prompt
+            if not writer.snapshot.messages and system_prompt is not None:
                 await writer.commit(
-                    Message(role="system", content=self._system_prompt),
+                    Message(role="system", content=system_prompt),
                     SessionEventContext(
                         run_id=run_id,
                         provenance=EventProvenance(
@@ -1732,42 +1758,27 @@ class AgentSession:
                     queued.claim_id,
                 )
 
-            agent = Agent(
-                self._provider,
-                tools=self._tools,
-                approval_policy=self._approval_policy,
-                execution_gate=self._execution_gate,
-                context_strategy=self._context_strategy,
+            hook = components.next_turn_hook
+            compaction = components.compaction
+            if compaction is not None and compaction.policy is not None:
+                compaction_hook = _SessionNextTurnHook(writer, self._maybe_auto_compact)
+                hook = (
+                    _ChainedNextTurnHook((compaction_hook, hook))
+                    if hook is not None
+                    else compaction_hook
+                )
+            agent = Agent._for_session(
+                components,
                 event_sink=self._event_sink,
-                provider_request_hook=self._plugin_lease,
                 initial_messages=writer.snapshot.messages,
-                message_committer=writer.commit,
-                steering_committer=writer.deliver_control,
-                next_turn_hook=(
-                    _ChainedNextTurnHook(
-                        tuple(
-                            hook
-                            for hook in (
-                                (
-                                    _SessionNextTurnHook(
-                                        writer,
-                                        self._maybe_auto_compact,
-                                    )
-                                    if self._compaction_policy is not None
-                                    else None
-                                ),
-                                self._next_turn_hook,
-                            )
-                            if hook is not None
-                        )
-                    )
-                    if self._compaction_policy is not None
-                    or self._next_turn_hook is not None
-                    else None
+                wiring=_AgentWiring(
+                    message_committer=writer.commit,
+                    steering_committer=writer.deliver_control,
+                    provider_request_hook=self._plugin_lease,
+                    steering_receiver=self._receive_steering,
                 ),
-                steering_receiver=self._receive_steering,
+                next_turn_hook=hook,
                 session_id=self._session_id,
-                max_model_requests=self._max_model_requests,
             )
             queued.entered_agent_loop = True
             result = await agent.run(
@@ -1791,7 +1802,7 @@ class AgentSession:
         """Summarize old complete turns and durably append the replacement."""
         if self._closed:
             raise SessionControlError("agent session is closed")
-        if self._compaction_strategy is None:
+        if self._components.compaction is None:
             raise ConfigurationError(
                 "AgentSession.compact requires a compaction_strategy"
             )
@@ -1952,7 +1963,8 @@ class AgentSession:
         request_number: int = 1,
         event_context: SessionEventContext | None = None,
     ) -> None:
-        if self._compaction_policy is None:
+        compaction = self._components.compaction
+        if compaction is None or compaction.policy is None:
             return
 
         correlation_context = event_context or SessionEventContext(
@@ -1967,7 +1979,7 @@ class AgentSession:
             *pending_messages,
         )
         try:
-            decision = self._compaction_policy.evaluate(candidate_messages)
+            decision = compaction.policy.evaluate(candidate_messages)
             if not isinstance(decision, CompactionDecision):
                 raise CompactionPolicyError(
                     "compaction policy must return CompactionDecision"
@@ -2056,9 +2068,10 @@ class AgentSession:
         request_number: int,
         event_context: SessionEventContext,
     ) -> SessionSnapshot:
-        strategy = self._compaction_strategy
-        if strategy is None:
+        compaction = self._components.compaction
+        if compaction is None:
             raise ConfigurationError("compaction strategy is not configured")
+        strategy = compaction.strategy
 
         source_version = writer.snapshot.version
         request_context = ProviderRequestContext(
@@ -2277,16 +2290,6 @@ def _merge_usage(
         total_tokens=current.total_tokens + incoming.total_tokens,
         cached_input_tokens=cached_tokens,
     )
-
-
-def _duplicates(names: Iterable[str]) -> set[str]:
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for name in names:
-        if name in seen:
-            duplicates.add(name)
-        seen.add(name)
-    return duplicates
 
 
 def _consume_background_result(future: asyncio.Future[AgentResult]) -> None:

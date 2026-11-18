@@ -4,18 +4,28 @@ import asyncio
 import tempfile
 import unittest
 from collections.abc import Sequence
+from dataclasses import fields
 from pathlib import Path
+from typing import Never
 
 from pi_agent_py import (
+    AgentComponents,
     AgentEvent,
+    AgentLoopLimitError,
     AgentProfile,
     AgentRuntimeBuilder,
     AppConfigSpec,
     CredentialDiagnostic,
     DeepSeekSettings,
     DockerBashSettings,
+    DeclaredSideEffectGate,
+    FakeCompactionStrategy,
     FakeProvider,
     Finish,
+    FullHistoryContextStrategy,
+    FunctionTool,
+    JSONObject,
+    ContextPlan,
     LoadedAppConfig,
     InMemoryEventSink,
     Message,
@@ -26,6 +36,10 @@ from pi_agent_py import (
     SessionPoolPolicy,
     TextDelta,
     ToolCall,
+    ToolDefinition,
+    ToolExecutionContext,
+    ToolOutput,
+    TokenThresholdCompactionPolicy,
     StaticApprovalPolicy,
     WaitUntilCancelled,
     ProviderCatalog,
@@ -75,6 +89,154 @@ class _RecordingHook:
 
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_component_fields_are_consumed_through_the_builder(self) -> None:
+        approval_policy = StaticApprovalPolicy(True)
+        gate = DeclaredSideEffectGate(allowed_side_effects=("read",))
+        compactor = FakeCompactionStrategy(["earlier work"])
+        threshold = 1_000_000
+        policy = TokenThresholdCompactionPolicy(threshold)
+        hook = _RecordingHook()
+        events = InMemoryEventSink()
+        observed_contexts: list[tuple[Message, ...]] = []
+        executed: list[str] = []
+
+        class RecordingContext(FullHistoryContextStrategy):
+            async def prepare(self, messages: Sequence[Message]) -> ContextPlan:
+                observed_contexts.append(tuple(messages))
+                return await super().prepare(messages)
+
+        async def echo(arguments: JSONObject, context: ToolExecutionContext) -> ToolOutput:
+            executed.append(context.call.id)
+            return ToolOutput(content="echo result")
+
+        tool = FunctionTool(
+            ToolDefinition(
+                "echo",
+                "Echo a result",
+                {"type": "object"},
+                side_effects="read",
+                requires_approval=True,
+            ),
+            echo,
+        )
+        provider = FakeProvider(
+            [
+                [ToolCall("one", "echo", {}), Finish("tool_calls")],
+                [TextDelta("first"), Finish()],
+                [TextDelta("second"), Finish()],
+                [ToolCall("two", "echo", {}), Finish("tool_calls")],
+                [ToolCall("three", "echo", {}), Finish("tool_calls")],
+            ]
+        )
+        profile = AgentProfile(
+            "combined",
+            system_prompt="Be concise.",
+            tool_factories=(lambda: tool,),
+            approval_policy_factory=lambda: approval_policy,
+            execution_gate_factory=lambda: gate,
+            context_strategy_factory=RecordingContext,
+            compaction_policy_factory=lambda: policy,
+            compaction_strategy_factory=lambda: compactor,
+            next_turn_hook_factory=lambda: hook,
+            max_model_requests=2,
+        )
+        runtime = await (
+            AgentRuntimeBuilder()
+            .with_provider(provider)
+            .with_profile(profile)
+            .with_event_sink(events)
+            .build()
+        )
+        async with runtime, await runtime.open_session("components") as session:
+            result = await session.run("first turn")
+            await session.run("second turn")
+            await session.compact()
+            with self.assertRaisesRegex(AgentLoopLimitError, "exceeded 2"):
+                await session.run("reach request limit")
+
+        observations = {
+            "provider": (result.message.content, "first"),
+            "tools": (provider.requested_tools[0], (tool.definition,)),
+            "approval_policy": (len(approval_policy.requests), 3),
+            "execution_gate": (executed, ["one", "two", "three"]),
+            "context_strategy": (len(observed_contexts), 5),
+            "compaction": (
+                (
+                    next(
+                        event.payload["token_threshold"]
+                        for event in events.events
+                        if event.kind == "compaction_evaluated"
+                    ),
+                    len(compactor.requests),
+                ),
+                (threshold, 1),
+            ),
+            "next_turn_hook": (len(hook.calls), 2),
+            "system_prompt": (provider.requests[0][0].content, "Be concise."),
+            "max_model_requests": (len(provider.requests), 5),
+        }
+        self.assertEqual(set(observations), {field.name for field in fields(AgentComponents)})
+        for component, (actual, expected) in observations.items():
+            with self.subTest(component=component):
+                self.assertEqual(actual, expected)
+
+    async def test_builder_overrides_skip_replaced_factories(self) -> None:
+        def unexpected_factory() -> Never:
+            self.fail("an overridden profile factory was called")
+
+        profile = AgentProfile(
+            "defaults",
+            system_prompt="profile default",
+            tool_factories=(unexpected_factory,),
+            context_strategy_factory=unexpected_factory,
+            max_model_requests=3,
+        )
+        provider = FakeProvider(
+            [[ToolCall("first", "missing", {}), Finish("tool_calls")]]
+        )
+        runtime = await (
+            AgentRuntimeBuilder()
+            .with_provider(provider)
+            .with_profile(profile)
+            .with_tools(())
+            .with_context_strategy(FullHistoryContextStrategy())
+            .with_max_model_requests(1)
+            .with_system_prompt(None)
+            .build()
+        )
+        async with runtime:
+            with self.assertRaisesRegex(AgentLoopLimitError, "exceeded 1"):
+                await runtime.run("override", "question")
+        self.assertEqual(provider.requested_tools, [()])
+        self.assertEqual(provider.requests, [(Message(role="user", content="question"),)])
+
+    async def test_duplicate_profile_and_plugin_tools_roll_back_assembly(self) -> None:
+        trace: list[str] = []
+
+        async def echo(arguments: JSONObject, context: ToolExecutionContext) -> ToolOutput:
+            return ToolOutput(content="echo")
+
+        async def cleanup() -> None:
+            trace.append("plugin")
+
+        tool = FunctionTool(ToolDefinition("echo", "Echo", {"type": "object"}), echo)
+
+        def plugin(api: PluginAPI) -> None:
+            api.register_tool(tool)
+            api.register_cleanup(cleanup)
+
+        builder = (
+            AgentRuntimeBuilder()
+            .with_provider(_ClosableProvider([], trace), ownership="owned")
+            .with_profile(AgentProfile("duplicates", tool_factories=(lambda: tool,)))
+            .with_plugin("duplicate", plugin)
+        )
+        with self.assertRaises(RuntimeBuildError) as error:
+            await builder.build()
+
+        self.assertIn("duplicate tool names: echo", str(error.exception.__cause__))
+        self.assertEqual(trace, ["plugin", "provider"])
+
     async def test_configured_bash_missing_workspace_rolls_back_build(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

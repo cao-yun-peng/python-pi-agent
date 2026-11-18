@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from .components import AgentComponents, _resolve_components
 from .domain import AgentResult, EventKind, SessionSnapshot, SessionState
 from .errors import (
     RuntimeCapacityError,
@@ -147,18 +148,19 @@ class AgentRuntime:
 
     def __init__(
         self,
-        provider: ModelProvider,
-        session_store: SessionStore,
+        provider: AgentComponents | ModelProvider | None = None,
+        session_store: SessionStore | None = None,
         *,
+        components: AgentComponents | None = None,
         event_sink: EventSink | None = None,
-        tools: Sequence[Tool] = (),
+        tools: Sequence[Tool] | None = None,
         approval_policy: ApprovalPolicy | None = None,
         execution_gate: ToolExecutionGate | None = None,
         compaction_policy: CompactionPolicy | None = None,
         compaction_strategy: CompactionStrategy | None = None,
         context_strategy: ContextStrategy | None = None,
         system_prompt: str | None = None,
-        max_model_requests: int = 8,
+        max_model_requests: int | None = None,
         plugin_host: PluginHost | None = None,
         next_turn_hook: NextTurnHook | None = None,
         session_pool_policy: SessionPoolPolicy | None = None,
@@ -176,19 +178,24 @@ class AgentRuntime:
             raise ValueError(
                 "graceful_shutdown_seconds must be a finite non-negative number"
             )
-        self._provider = provider
+        if session_store is None:
+            raise TypeError("session_store is required")
+        self._components = _resolve_components(
+            provider,
+            components,
+            tools=tools,
+            approval_policy=approval_policy,
+            execution_gate=execution_gate,
+            context_strategy=context_strategy,
+            compaction_policy=compaction_policy,
+            compaction_strategy=compaction_strategy,
+            next_turn_hook=next_turn_hook,
+            system_prompt=system_prompt,
+            max_model_requests=max_model_requests,
+        )
         self._session_store = session_store
         self._event_sink = ensure_isolated_event_sink(event_sink)
-        self._tools = tuple(tools)
-        self._approval_policy = approval_policy
-        self._execution_gate = execution_gate
-        self._compaction_policy = compaction_policy
-        self._compaction_strategy = compaction_strategy
-        self._context_strategy = context_strategy
-        self._system_prompt = system_prompt
-        self._max_model_requests = max_model_requests
         self._plugin_host = plugin_host
-        self._next_turn_hook = next_turn_hook
         self._pool_policy = session_pool_policy or SessionPoolPolicy()
         self._graceful_shutdown_seconds = float(graceful_shutdown_seconds)
         self._lifecycle = lifecycle or LifecycleScope(name="runtime-components")
@@ -353,18 +360,9 @@ class AgentRuntime:
         return AgentSession(
             session_id,
             self._session_store,
-            self._provider,
-            tools=self._tools,
-            approval_policy=self._approval_policy,
-            execution_gate=self._execution_gate,
-            compaction_policy=self._compaction_policy,
-            compaction_strategy=self._compaction_strategy,
-            context_strategy=self._context_strategy,
+            self._components,
             event_sink=self._event_sink,
-            system_prompt=self._system_prompt,
-            max_model_requests=self._max_model_requests,
             plugin_host=self._plugin_host,
-            next_turn_hook=self._next_turn_hook,
         )
 
     def _remove_expired_locked(self, now: float) -> list[_SessionEntry]:

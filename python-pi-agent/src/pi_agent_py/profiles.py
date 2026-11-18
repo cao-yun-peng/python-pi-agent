@@ -5,11 +5,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from .components import (
+    AgentComponents,
+    CompactionComponents,
+    _DEFAULT_MAX_MODEL_REQUESTS,
+)
+from .context import FullHistoryContextStrategy
 from .ports import (
     ApprovalPolicy,
     CompactionPolicy,
     CompactionStrategy,
     ContextStrategy,
+    ModelProvider,
     NextTurnHook,
     Tool,
     ToolExecutionGate,
@@ -38,7 +45,7 @@ class AgentProfile:
     compaction_policy_factory: CompactionPolicyFactory | None = None
     compaction_strategy_factory: CompactionStrategyFactory | None = None
     next_turn_hook_factory: NextTurnHookFactory | None = None
-    max_model_requests: int = 8
+    max_model_requests: int = _DEFAULT_MAX_MODEL_REQUESTS
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -55,6 +62,36 @@ class AgentProfile:
                 "profile compaction_policy_factory requires "
                 "compaction_strategy_factory"
             )
+
+    def build_components(self, provider: ModelProvider) -> AgentComponents:
+        """Resolve the factories once at the application assembly boundary."""
+        tools = tuple(factory() for factory in self.tool_factories)
+        approval = self.approval_policy_factory
+        gate = self.execution_gate_factory
+        context = self.context_strategy_factory
+        approval_policy = approval() if approval is not None else DenyByDefaultApprovalPolicy()
+        execution_gate = gate() if gate is not None else DeclaredSideEffectGate()
+        context_strategy = context() if context is not None else FullHistoryContextStrategy()
+        policy = self.compaction_policy_factory
+        compaction_policy = policy() if policy is not None else None
+        strategy = self.compaction_strategy_factory
+        compaction = (
+            CompactionComponents(strategy(), compaction_policy)
+            if strategy is not None
+            else None
+        )
+        hook = self.next_turn_hook_factory
+        return AgentComponents(
+            provider=provider,
+            tools=tools,
+            approval_policy=approval_policy,
+            execution_gate=execution_gate,
+            context_strategy=context_strategy,
+            compaction=compaction,
+            next_turn_hook=hook() if hook is not None else None,
+            system_prompt=self.system_prompt,
+            max_model_requests=self.max_model_requests,
+        )
 
 
 def minimal_profile() -> AgentProfile:

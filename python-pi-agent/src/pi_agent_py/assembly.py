@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TypeVar, cast
 
@@ -379,50 +379,9 @@ class AgentRuntimeBuilder:
                 event_sink,
             )
 
-            profile = self._profile
-            tools = (
-                self._tools
-                if self._tools is not None
-                else tuple(factory() for factory in profile.tool_factories)
-            )
-            if self._loaded_config is not None:
-                bash_settings = self._loaded_config.spec.bash
-                if bash_settings is not None:
-                    tools = tuple(tools) + (
-                        _build_configured_bash(bash_settings),
-                    )
-            approval_policy = _resolve_override(
-                self._approval_policy,
-                profile.approval_policy_factory,
-            )
-            execution_gate = _resolve_override(
-                self._execution_gate,
-                profile.execution_gate_factory,
-            )
-            context_strategy = _resolve_override(
-                self._context_strategy,
-                profile.context_strategy_factory,
-            )
-            compaction_policy = _resolve_override(
-                self._compaction_policy,
-                profile.compaction_policy_factory,
-            )
-            compaction_strategy = _resolve_override(
-                self._compaction_strategy,
-                profile.compaction_strategy_factory,
-            )
-            profile_hook = _resolve_override(
-                self._next_turn_hook,
-                profile.next_turn_hook_factory,
-            )
-            if compaction_policy is not None and compaction_strategy is None:
-                raise ConfigurationError(
-                    "compaction policy requires a compaction strategy"
-                )
+            components = self._effective_profile().build_components(provider)
 
-            plugin_host: PluginHost | None = None
             session_plugin_host: PluginHost | None = None
-            plugin_hook: NextTurnHook | None = None
             if self._plugins:
                 plugin_host = lifecycle.manage(
                     ManagedResource(
@@ -434,37 +393,21 @@ class AgentRuntimeBuilder:
                 for name, factory in self._plugins:
                     await plugin_host.load(name, factory)
                 capabilities = plugin_host.snapshot()
-                tools = tuple(tools) + capabilities.tools
-                plugin_hook = capabilities.next_turn_hook
+                if capabilities.tools or capabilities.next_turn_hook is not None:
+                    components = components.replace(
+                        tools=components.tools + capabilities.tools,
+                        next_turn_hook=_combine_hooks(
+                            components.next_turn_hook, capabilities.next_turn_hook
+                        ),
+                    )
                 if capabilities.session_plugin_names:
                     session_plugin_host = plugin_host
 
-            _validate_tool_names(tools)
-            next_turn_hook = _combine_hooks(profile_hook, plugin_hook)
-            system_prompt = (
-                profile.system_prompt
-                if self._system_prompt is _UNSET
-                else cast(str | None, self._system_prompt)
-            )
-            max_model_requests = (
-                profile.max_model_requests
-                if self._max_model_requests is None
-                else self._max_model_requests
-            )
             return AgentRuntime(
-                provider,
+                components,
                 store,
                 event_sink=event_sink,
-                tools=tools,
-                approval_policy=approval_policy,
-                execution_gate=execution_gate,
-                compaction_policy=compaction_policy,
-                compaction_strategy=compaction_strategy,
-                context_strategy=context_strategy,
-                system_prompt=system_prompt,
-                max_model_requests=max_model_requests,
                 plugin_host=session_plugin_host,
-                next_turn_hook=next_turn_hook,
                 session_pool_policy=self._session_pool_policy,
                 graceful_shutdown_seconds=self._graceful_shutdown_seconds,
                 lifecycle=lifecycle,
@@ -483,6 +426,53 @@ class AgentRuntimeBuilder:
             raise RuntimeBuildError(
                 f"agent runtime assembly failed{detail}"
             ) from error
+
+    def _effective_profile(self) -> AgentProfile:
+        profile = self._profile
+        tool_factories = profile.tool_factories
+        if self._tools is not None:
+            tool_factories = tuple(_constant_factory(tool) for tool in self._tools)
+        if self._loaded_config is not None:
+            bash = self._loaded_config.spec.bash
+            if bash is not None:
+                tool_factories += (lambda: _build_configured_bash(bash),)
+
+        policy_factory = _override_factory(
+            self._compaction_policy, profile.compaction_policy_factory
+        )
+        strategy_factory = _override_factory(
+            self._compaction_strategy, profile.compaction_strategy_factory
+        )
+        if policy_factory is not None and strategy_factory is None:
+            raise ConfigurationError("compaction policy requires a compaction strategy")
+        return replace(
+            profile,
+            tool_factories=tool_factories,
+            approval_policy_factory=_override_factory(
+                self._approval_policy, profile.approval_policy_factory
+            ),
+            execution_gate_factory=_override_factory(
+                self._execution_gate, profile.execution_gate_factory
+            ),
+            context_strategy_factory=_override_factory(
+                self._context_strategy, profile.context_strategy_factory
+            ),
+            compaction_policy_factory=policy_factory,
+            compaction_strategy_factory=strategy_factory,
+            next_turn_hook_factory=_override_factory(
+                self._next_turn_hook, profile.next_turn_hook_factory
+            ),
+            system_prompt=(
+                profile.system_prompt
+                if self._system_prompt is _UNSET
+                else cast(str | None, self._system_prompt)
+            ),
+            max_model_requests=(
+                profile.max_model_requests
+                if self._max_model_requests is None
+                else self._max_model_requests
+            ),
+        )
 
     async def _build_provider(self) -> BuiltProvider:
         if self._provider is not None:
@@ -561,31 +551,15 @@ def _combine_hooks(*hooks: NextTurnHook | None) -> NextTurnHook | None:
     return _CombinedNextTurnHook(selected)
 
 
-def _build_optional(factory: Callable[[], T] | None) -> T | None:
-    return factory() if factory is not None else None
+def _constant_factory(value: T) -> Callable[[], T]:
+    return lambda: value
 
 
-def _resolve_override(
+def _override_factory(
     override: T | None,
     factory: Callable[[], T] | None,
-) -> T | None:
-    if override is not None:
-        return override
-    return _build_optional(factory)
-
-
-def _validate_tool_names(tools: Sequence[Tool]) -> None:
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for tool in tools:
-        name = tool.definition.name
-        if name in seen:
-            duplicates.add(name)
-        seen.add(name)
-    if duplicates:
-        raise ConfigurationError(
-            "duplicate assembled tool names: " + ", ".join(sorted(duplicates))
-        )
+) -> Callable[[], T] | None:
+    return _constant_factory(override) if override is not None else factory
 
 
 def _build_configured_bash(settings: DockerBashSettings) -> BashTool:

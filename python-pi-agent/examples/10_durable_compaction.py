@@ -5,7 +5,9 @@ import tempfile
 from pathlib import Path
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
+    CompactionComponents,
     FakeProvider,
     Finish,
     InMemoryEventSink,
@@ -45,8 +47,12 @@ async def main() -> None:
         session = AgentSession(
             "lesson",
             store,
-            FakeProvider([]),
-            compaction_strategy=ModelCompactionStrategy(summary_provider),
+            AgentComponents(
+                FakeProvider([]),
+                compaction=CompactionComponents(
+                    strategy=ModelCompactionStrategy(summary_provider),
+                ),
+            ),
             event_sink=trace,
         )
         compacted = await session.compact(keep_recent_turns=1)
@@ -57,7 +63,7 @@ async def main() -> None:
         resumed = AgentSession(
             "lesson",
             JsonlSessionStore(path),
-            resumed_provider,
+            AgentComponents(resumed_provider),
         )
         await resumed.run("What did we add next?")
 
