@@ -50,6 +50,8 @@ GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包�
 
 [应用组装示例](examples/24_application_runtime.py) 演示同一 Session 的复用和独立 Agent。离线测试替身由 `pi_agent_py.testing` 提供。
 
+`RuntimeSession.submit()` 和 `follow_up()` 返回可订阅、可定向取消的 `RunHandle`；`session.usage` 汇总本 Runtime 中该 Session 的用量。参见[观测示例](examples/30_run_observation.py)和[教程](tutorials/29-run-observation.md)。OpenTelemetry 适配器可通过 `pip install ".[otel]"` 安装。
+
 ## 快速开始
 
 在仓库根目录执行。首次使用可以先安装为 editable package：

@@ -33,6 +33,7 @@ from .domain import (
     SessionEventKind,
     SessionSnapshot,
     SessionCompaction,
+    TelemetryEvent,
     ToolCall as ToolCall,
     ToolDefinition,
     ToolExecutionContext,
@@ -91,6 +92,14 @@ class EventSink(Protocol):
     def emit(self, event: AgentEvent) -> None:
         """Record or enqueue an event quickly; runtime isolates raised errors."""
         ...
+
+
+class TelemetrySink(Protocol):
+    """Consume projected observations; perform slow I/O outside on_event."""
+
+    def on_event(self, event: TelemetryEvent) -> None: ...
+
+    async def aclose(self) -> None: ...
 
 
 class ContextStrategy(Protocol):

@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TypeVar, cast
 
+from ._runtime_observation import _RuntimeObservation
 from .app_runtime import AgentRuntime, SessionPoolPolicy
 from .configuration import (
     DockerBashSettings,
@@ -18,7 +19,6 @@ from .configuration import (
 )
 from .domain import Message, NextTurnContext, ToolSideEffects
 from .errors import ConfigurationError, RuntimeBuildError, RuntimeCloseError
-from .events import ensure_isolated_event_sink
 from .lifecycle import Cleanup, LifecycleScope, ManagedResource, ResourceOwnership
 from .model_runtime import (
     DefaultRetryPolicy,
@@ -37,6 +37,7 @@ from .ports import (
     ModelProvider,
     NextTurnHook,
     SessionStore,
+    TelemetrySink,
     Tool,
     ToolExecutionGate,
 )
@@ -54,6 +55,7 @@ from .providers import (
 from .session import InMemorySessionStore
 from .sandbox import DockerProcessSandbox
 from .shell import BashTool, SandboxedBashExecutor
+from .usage import PricingTable
 
 T = TypeVar("T")
 ProviderFactory = Callable[
@@ -164,11 +166,14 @@ class AgentRuntimeBuilder:
         self._provider_catalog: ProviderCatalog | None = None
         self._provider: ManagedResource[ModelProvider] | None = None
         self._provider_name = "direct"
+        self._provider_model: str | None = None
         self._provider_supports_tools = True
         self._provider_state_owners: frozenset[str] = frozenset()
         self._resilience = ProviderResilienceSettings()
         self._session_store: ManagedResource[SessionStore] | None = None
         self._event_sink: ManagedResource[EventSink] | None = None
+        self._telemetry_sink: ManagedResource[TelemetrySink] | None = None
+        self._pricing: PricingTable | None = None
         self._profile = minimal_profile()
         self._plugins: list[tuple[str, PluginFactory]] = []
         self._tools: tuple[Tool, ...] | None = None
@@ -202,6 +207,7 @@ class AgentRuntimeBuilder:
         provider: ModelProvider,
         *,
         name: str = "direct",
+        model: str | None = None,
         ownership: ResourceOwnership = "borrowed",
         cleanup: Cleanup | None = None,
         supports_tools: bool = True,
@@ -216,6 +222,7 @@ class AgentRuntimeBuilder:
             cleanup=cleanup,
         )
         self._provider_name = name
+        self._provider_model = model
         self._provider_supports_tools = supports_tools
         self._provider_state_owners = state_owners
         self._loaded_config = None
@@ -261,6 +268,20 @@ class AgentRuntimeBuilder:
 
     def with_profile(self, profile: AgentProfile) -> AgentRuntimeBuilder:
         self._profile = profile
+        return self
+
+    def with_telemetry_sink(
+        self,
+        sink: TelemetrySink,
+        *,
+        ownership: ResourceOwnership = "borrowed",
+        cleanup: Cleanup | None = None,
+    ) -> AgentRuntimeBuilder:
+        self._telemetry_sink = ManagedResource("telemetry-sink", sink, ownership, cleanup)
+        return self
+
+    def with_pricing(self, pricing: PricingTable) -> AgentRuntimeBuilder:
+        self._pricing = pricing
         return self
 
     def with_plugin(
@@ -347,7 +368,16 @@ class AgentRuntimeBuilder:
                 if self._event_sink is not None
                 else None
             )
-            event_sink = ensure_isolated_event_sink(raw_sink)
+            telemetry = (
+                observer_lifecycle.manage(self._telemetry_sink)
+                if self._telemetry_sink is not None else None
+            )
+            observation = _RuntimeObservation(
+                raw_sink, telemetry, self._pricing,
+                self._loaded_config.provider_config.model
+                if self._loaded_config is not None else self._provider_model,
+            )
+            event_sink = observation.sink
             store = lifecycle.manage(
                 self._session_store
                 or ManagedResource(
@@ -406,7 +436,7 @@ class AgentRuntimeBuilder:
             return AgentRuntime(
                 components,
                 store,
-                event_sink=event_sink,
+                _observation=observation,
                 plugin_host=session_plugin_host,
                 session_pool_policy=self._session_pool_policy,
                 graceful_shutdown_seconds=self._graceful_shutdown_seconds,

@@ -35,6 +35,7 @@ class _QueuedSessionRun:
     future: asyncio.Future[AgentResult]
     control_id: str | None = None
     claim_id: str | None = None
+    dispatch_started: bool = False
     entered_agent_loop: bool = False
 
 
@@ -73,6 +74,7 @@ class _SessionControl:
         self._accepting_steer = False
         self._idle_event = asyncio.Event()
         self._idle_event.set()
+        self.observe_dispatch_start = False
 
     @property
     def state(self) -> SessionState:
@@ -108,9 +110,15 @@ class _SessionControl:
 
     async def follow_up(self, prompt: str) -> str:
         """Queue a new run after earlier work and return its run identity."""
-        queued = await self._enqueue_run(prompt, delivery="follow_up")
-        queued.future.add_done_callback(_consume_background_result)
+        queued = await self.submit(prompt, delivery="follow_up")
         return queued.run_id
+
+    async def submit(
+        self, prompt: str, *, delivery: str, run_id: str | None = None
+    ) -> _QueuedSessionRun:
+        queued = await self._enqueue_run(prompt, delivery=delivery, run_id=run_id)
+        queued.future.add_done_callback(_consume_background_result)
+        return queued
 
     async def steer(self, prompt: str) -> None:
         """Insert a user instruction at the active run's next safe boundary."""
@@ -142,14 +150,15 @@ class _SessionControl:
         async with self._control_lock:
             if clear_queue:
                 while self._queued_runs:
-                    queued = self._queued_runs.popleft()
+                    queued = self._queued_runs[0]
                     if queued.control_id is not None:
                         await self._cancel_control(
                             queued.control_id,
                             run_id=queued.run_id,
                             reason="abort",
                         )
-                    queued.future.cancel()
+                    self._queued_runs.popleft()
+                    self._cancel_queued_run(queued)
             while self._steering:
                 control = self._steering.popleft()
                 await self._cancel_control(
@@ -220,10 +229,11 @@ class _SessionControl:
         prompt: str,
         *,
         delivery: str,
+        run_id: str | None = None,
     ) -> _QueuedSessionRun:
         loop = asyncio.get_running_loop()
         queued = _QueuedSessionRun(
-            run_id=uuid4().hex,
+            run_id=run_id or uuid4().hex,
             prompt=prompt,
             delivery=delivery,
             future=loop.create_future(),
@@ -270,6 +280,9 @@ class _SessionControl:
                     return
 
                 queued = self._queued_runs.popleft()
+                if self.observe_dispatch_start:
+                    queued.dispatch_started = True
+                    self._events.emit("run_started", run_id=queued.run_id, channel="live")
                 if queued.control_id is not None:
                     try:
                         queued.claim_id = await self._claim_control(
@@ -352,23 +365,32 @@ class _SessionControl:
             name=f"agent-session:{self._session_id}",
         )
 
+    def _cancel_queued_run(self, queued: _QueuedSessionRun) -> None:
+        self._events.emit("run_cancelled", run_id=queued.run_id, channel="live")
+        self._events.emit("run_settled", run_id=queued.run_id, channel="live")
+        queued.future.cancel()
+
     async def _cancel_submission(self, queued: _QueuedSessionRun) -> None:
         active_task: asyncio.Task[AgentResult] | None = None
         async with self._control_lock:
             if queued in self._queued_runs:
-                self._queued_runs.remove(queued)
                 if queued.control_id is not None:
                     await self._cancel_control(
                         queued.control_id,
                         run_id=queued.run_id,
                         reason="submission_cancelled",
                     )
-                queued.future.cancel()
-                if self._active_run is None and not self._queued_runs:
+                self._queued_runs.remove(queued)
+                self._cancel_queued_run(queued)
+                if (
+                    self._active_run is None
+                    and self._active_compaction_task is None
+                    and not self._queued_runs
+                ):
                     self._state = "idle"
                     self._idle_event.set()
                 return
-            if self._active_run is queued:
+            if self._active_run is queued and not queued.future.done():
                 while self._steering:
                     control = self._steering.popleft()
                     await self._cancel_control(

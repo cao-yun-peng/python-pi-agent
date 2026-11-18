@@ -6,7 +6,7 @@ import asyncio
 import time
 from copy import deepcopy
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from uuid import uuid4
 from warnings import warn
 
@@ -88,6 +88,7 @@ class _AgentWiring:
     steering_committer: _SteeringCommitter | None = None
     provider_request_hook: ProviderRequestHook | None = None
     steering_receiver: _SteeringReceiver | None = None
+    dispatch_started: bool = False
 
 
 class Agent:
@@ -204,7 +205,8 @@ class Agent:
         async with self._run_lock:
             self._active_run_id = run_id or uuid4().hex
             self._active_turn_id = _turn_id(self._active_run_id, 1)
-            self._emit("run_started", "live")
+            if not self._wiring.dispatch_started:
+                self._emit("run_started", "live")
             total_usage: TokenUsage | None = None
 
             try:
@@ -287,6 +289,7 @@ class Agent:
                         "live",
                         finish_reason=turn.finish.reason,
                         model_requests=request_number,
+                        usage=asdict(total_usage) if total_usage is not None else None,
                     )
                     return AgentResult(
                         message=turn.message,
@@ -427,16 +430,6 @@ class Agent:
                     provider_state.append(deepcopy(event))
                 elif isinstance(event, TokenUsage):
                     usage = event
-                    self._emit(
-                        "model_usage",
-                        "live",
-                        request_id=request_context.request_id,
-                        parent_span_id=span_id,
-                        input_tokens=event.input_tokens,
-                        output_tokens=event.output_tokens,
-                        total_tokens=event.total_tokens,
-                        cached_input_tokens=event.cached_input_tokens,
-                    )
                 elif isinstance(event, Finish):
                     if finish is not None:
                         raise ModelProtocolError("provider emitted more than one finish")
@@ -480,6 +473,15 @@ class Agent:
                 error=type(error).__name__,
             )
             raise
+        finally:
+            if usage is not None:
+                self._emit(
+                    "model_usage",
+                    "live",
+                    request_id=request_context.request_id,
+                    parent_span_id=span_id,
+                    **asdict(usage),
+                )
 
         self._emit(
             "model_request_finished",

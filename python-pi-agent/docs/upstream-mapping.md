@@ -19,7 +19,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 | `AgentProfile` / `AgentRuntimeBuilder` / `ProviderCatalog` | coding-agent 的 `createAgentSession()` 组装边界与 model registry | explicit composition + transactional lifecycle | Profile 只含默认值/factory，Catalog 显式传入，Builder 失败逆序回滚；不使用全局 registry，尚无 CLI override 与动态发现 |
 | `AgentComponents` | `packages/coding-agent/src/core/agent-session-services.ts::CreateAgentSessionServicesOptions` 与 `packages/agent/src/agent.ts::AgentOptions` | 显式组装后交给能力 Consumer | Python 解析后的模型行为组件以一个冻结对象传递，Runtime 单独管理 Store、事件和资源生命周期 |
 | `pi_agent_py.api` | `packages/coding-agent/src/index.ts` 的 SDK 导出入口 | 对外发布组装入口及能力契约 | Python 用显式 `__all__` 声明稳定导入面，导出对象与定义模块共享身份 |
-| `AgentRuntime` / `RuntimeSession` | `AgentSessionRuntime` 与应用侧 session 管理 | stable facade + resource ownership + session lease | 复用 AgentSession controller、惰性 TTL/LRU 驱逐、统一关闭 owned 资源；主动省略 EventHub、RunHandle、多租户 namespace 和 Web transport |
+| `AgentRuntime` / `RuntimeSession` | `AgentSessionRuntime` 与应用侧 session 管理 | stable facade + resource ownership + session lease | 复用 AgentSession controller、惰性 TTL/LRU 驱逐、统一关闭 owned 资源；主动省略多租户 namespace 和 Web transport |
 | `Message.thinking` / `Message.provider_state` | assistant `ThinkingContent` / `thinkingSignature` | model-visible provider continuity state | 可读 thinking 与 provider-owned item 分离持久化；TiMi `store:false` 原样回放 encrypted reasoning/output item，观察事件不暴露，尚无跨模型转换 |
 | `ToolDefinition` / `Tool` | `AgentTool`、参数 schema 与 execute context | Capability Definition / Provider / Consumer | 使用教学型 JSON Schema 子集；handler 接收隔离快照 context |
 | `ToolExecutionContext` | core toolCallId/params/signal + coding-agent `ExtensionToolContext` / `BeforeToolCallContext` | invocation-scoped capability context | 已含 call/definition、session、request/call index 与审批决定；待 signal API、cwd、identity、nested calls 和 progress |
@@ -31,7 +31,10 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 | tool message | `ToolResultMessage` | model-visible durable state | 已通过 SessionStore 逐消息提交并可从 durable event replay；重启时会保守补齐尾部未决调用，副作用结果标记为 unknown |
 | `EventSink` / `IsolatedEventSink` | `Agent.subscribe()` / `AgentSession.subscribe()` | live events 与 durable session events 分离 | Pi core Agent 会 await listener；本项目把 EventSink 限定为观察者并自动隔离异常，拦截行为留给 Hook |
 | `RedactingEventSink` / `BufferedEventSink` | UI/session listener 的应用侧消费 | telemetry 数据最小化 + lifecycle | 默认隐藏模型可见内容后再进入有界队列；best-effort、显式关闭，不替代 durable log |
-| `AgentEventEnvelope` / observer span | run/turn/model/tool lifecycle event | versioned telemetry schema + trace correlation | 公共字段移出 payload；模型/工具/压缩/Hook 有 started/terminal span 与 monotonic duration，尚无 OpenTelemetry exporter 和指标聚合 |
+| `AgentEventEnvelope` / observer span | run/turn/model/tool lifecycle event | versioned telemetry schema + trace correlation | 公共字段移出 payload；模型/工具/压缩/Hook 有 started/terminal span 与 monotonic duration |
+| `EventHub` / `RunHandle` | `packages/agent/src/agent.ts::Agent.subscribe()` | live 观察与 durable replay 分离 | 本项目用独立有界队列避免等待 listener，提供按 run 过滤、结果和定向取消；省略跨进程重放 |
+| `TelemetrySink` / OTel | `packages/telemetry/src/index.ts::TelemetryContext` 与显式 span context | 版本化遥测上下文和能力执行证据 | Python 从既有 envelope 投影出无正文遥测，在可选适配器关联 span；应用管理 SDK、采样和 exporter |
+| `UsageLedger` / `PricingTable` | `packages/ai/src/types.ts::Usage` 的 token 与 cost | 从观察事件统计能力使用 | 价格由应用注入，Python 账本在 Runtime 内跨 run 聚合，省略实时目录、跨进程账本与账单对账 |
 | `DurableEventIdentity` | session entry identity 与运行时 committed notification | observer-to-fact join | AgentSession 的 message notification 指回 durable event；standalone Agent 无 Store 时允许为空 |
 | `AgentSession` | Pi `AgentSession` 的 prompt/steer/followUp/abort、状态与 compaction 编排 | Consumer 组合 Provider、存储与控制 capability | 已支持 FIFO dispatcher、durable steer/follow-up、claim lease、abort、settled/idle、恢复和压缩；JSONL 尚无跨进程文件锁 |
 | `NextTurnHook` / `NextTurnContext` | `runLoop()` 的 `prepareNextTurn` + `AgentSession._compactBeforeNextAssistantResponse()` | runtime interceptor capability seam | Agent 保持单插槽；AgentSession 先执行 durable compaction，再执行应用/插件 Hook；context 显式携带 session/run/turn/request number，尚无运行中热重载 |

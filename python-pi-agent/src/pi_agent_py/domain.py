@@ -932,3 +932,16 @@ class AgentResult:
     messages: tuple[Message, ...]
     finish_reason: FinishReason
     usage: TokenUsage | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TelemetryEvent:
+    """Allowlisted observation fields; no event payload or content."""
+
+    kind: EventKind
+    channel: EventChannel
+    envelope: AgentEventEnvelope
+    outcome: str | None = None
+    provider_name: str | None = None
+    tool_name: str | None = None
+    usage: TokenUsage | None = None

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable, Sequence
+from uuid import uuid4
 
 from ..components import AgentComponents, _resolve_components
 from ..domain import (
@@ -16,6 +17,7 @@ from ..domain import (
     SessionState,
 )
 from ..errors import ConfigurationError, SessionControlError
+from ..event_hub import EventFilter, EventHub
 from ..events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from ..plugins import PluginHost, PluginSessionLease
 from ..ports import (
@@ -30,6 +32,7 @@ from ..ports import (
     Tool,
     ToolExecutionGate,
 )
+from ..run_handle import RunHandle
 from ..session_transitions import find_unresolved_tool_calls
 from ._observation import _SessionEvents, _message_payload, _turn_id
 from ._persistence import _SessionWriter, _call_session_store
@@ -109,6 +112,17 @@ class AgentSession:
             session_id, self._components.compaction, self._events
         )
 
+    @classmethod
+    def _for_runtime(
+        cls, session_id: str, store: SessionStore, components: AgentComponents, *,
+        event_sink: EventSink, plugin_host: PluginHost | None,
+    ) -> AgentSession:
+        session = cls(
+            session_id, store, components, event_sink=event_sink, plugin_host=plugin_host
+        )
+        session._control.observe_dispatch_start = True
+        return session
+
     @property
     def event_sink_failures(self) -> tuple[EventSinkFailure, ...]:
         """Return observer failures that were isolated from session execution."""
@@ -151,6 +165,28 @@ class AgentSession:
 
         await self.restore()
         return await self._control.follow_up(prompt)
+
+    async def _submit_handle(
+        self, prompt: str, hub: EventHub, *, follow_up: bool, max_buffer: int
+    ) -> RunHandle:
+        if not prompt.strip():
+            raise ValueError("prompt must contain non-whitespace text")
+        await self.restore()
+        run_id = uuid4().hex
+        events = hub._subscribe(
+            EventFilter(session_id=self._session_id, run_id=run_id),
+            max_buffer, "drop_newest", until_settled=True,
+        )
+        try:
+            queued = await self._control.submit(
+                prompt, delivery="follow_up" if follow_up else "prompt", run_id=run_id
+            )
+        except BaseException:
+            await events.aclose()
+            raise
+        return RunHandle(
+            run_id, events, queued.future, lambda: self._control._cancel_submission(queued)
+        )
 
     async def steer(self, prompt: str) -> None:
         """Insert a user instruction at the active run's next safe boundary."""
@@ -285,6 +321,7 @@ class AgentSession:
                     steering_committer=writer.deliver_control,
                     provider_request_hook=self._plugin_lease,
                     steering_receiver=self._control.receive_steering,
+                    dispatch_started=queued.dispatch_started,
                 ),
                 next_turn_hook=self._compactor.next_turn_hook(
                     writer, components.next_turn_hook

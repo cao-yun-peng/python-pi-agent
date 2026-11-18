@@ -21,8 +21,8 @@
 - 阶段 6 已完成第一条 Provider resilience 纵向切片：显式候选、能力与 provider-state 路由、pre-output retry、full-jitter/Retry-After backoff、兼容 fallback、总 attempt/elapsed budget、取消传播和 attempt trace。Circuit breaker、健康/成本/延迟加权与跨模型 state 转换留给有运行数据后的迭代。
 - 阶段 7 已完成显式 factory/API、Tool 与 NextTurnHook 注册、事务化发布、priority 顺序、逐 Hook 超时、失败关闭、幂等注销、SessionPluginFactory/Lease、请求投影 Hook、后台 settled observer 和逆序 cleanup。资源发现、durable control port 与安全热重载仍未开始。
 - 阶段 8 已完成两条安全执行纵向切片：第一条由 ToolExecutionContext、ApprovalPolicy 与 ToolExecutionGate 提供声明式默认拒绝；第二条已经演进为 `agent.yaml -> coding_profile -> BashTool -> SandboxedBashExecutor -> DockerProcessSandbox`，包含 workspace 相对工作目录、超时封顶、固定 Bash argv、每流有界输出尾部、网络副作用声明、fail-closed 和清理证据。兼容期 `SandboxedShellTool` 仍可用；文件 read/search/patch 的统一 workspace port、完整输出 spill、单次权限升级和身份化授权仍未开始。
-- 阶段 9 已完成两条观察纵向切片：第一条统一隔离 EventSink 异常、入队前脱敏和有界 worker 生命周期；第二条增加 versioned AgentEventEnvelope、固定 JSON record、模型/工具/压缩/Hook span duration，以及 observer message 到 durable event 的 identity join。低基数指标聚合、采样/exporter 和 durable 审计 sink 仍未开始。
-- 阶段 10 已完成第一条应用组装纵向切片：`AgentProfile`、显式 `ProviderCatalog`、事务化 `AgentRuntimeBuilder`、owned/borrowed 生命周期、`AgentRuntime` facade、可复用 `RuntimeSession` lease，以及惰性 TTL/LRU controller 驱逐。正式 CLI、EventHub/RunHandle、多租户 SessionRef 与 Web/SSE 尚未开始。
+- 阶段 9 已完成 EventSink 隔离、脱敏和背压，统一了 envelope 和 span 耗时，并增加 Runtime 的订阅、低基数指标和用量账本。durable 审计仍是独立任务。
+- 阶段 10 已完成 Profile、显式 Catalog、事务化 Builder、owned/borrowed 生命周期、Runtime facade、Session lease 与惰性 TTL/LRU。正式 CLI、多租户 SessionRef 与 Web/SSE 尚未开始。
 - Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；Chat Completions 三适配器复用内部 wire codec，Responses 仅复用 SSE framing，并通过 provider-owned state 完成无服务端存储的续轮。`ResilientModelRuntime` 已在 wire adapter 之上复用这些边界，不合并两套协议。
 
 - 基座路线图 A1/A2 已落地。用 [run 失败分类练习](../tutorials/13-safe-event-observation.md#8-run-失败分类) 跟踪 Store 失败从原生异常到调用方错误和 live 事件的过程，再观察 Session 如何继续处理后续 run。
@@ -131,13 +131,13 @@ runtime event
 
 ## 下一步
 
-应用层下一步先做正式 CLI，验证配置覆盖、Profile 选择、信号取消、退出码和 Runtime 关闭契约；之后再抽取 EventHub、RunHandle 与多租户 `SessionRef`，最后让 Web/SSE 只依赖这些稳定接口。HTTP handler 不得直接持有 `AgentSession`，断线也不能隐式删除 durable session。
+应用层下一步用正式 CLI 验证配置覆盖、Profile 选择、信号取消、退出码和 Runtime 关闭契约，再让 Web/SSE 通过已有的 EventHub 与 RunHandle 消费事件。HTTP handler 不得直接持有 `AgentSession`，断线也不能隐式删除 durable session。
 
 Provider resilience 的下一步不是继续堆策略，而是先用现有 attempt trace 建立低基数成功率、错误率和延迟证据，再决定是否引入 circuit breaker、健康/成本加权及半开探测。Partial stream 仍然 fail closed；在定义客户端 reset 协议前不自动续跑。
 
 插件方向下一步若需要主动控制能力，应给 SessionPluginContext 注入受限 control port，并复用 durable enqueue/claim/deliver/cancel；不得暴露 AgentSession、Store 或内存 deque。之后再考虑资源发现与安全热重载，不应直接做目录自动扫描。
 
-可观测性方向下一步应在现有稳定 envelope 上实现最小低基数聚合：run 成功率、模型/工具/压缩耗时和 observer drop 计数；随后再决定 exporter 与采样策略。强一致审计不能伪装成 best-effort EventSink，而应成为独立 durable capability。
+完成[第 29 章](../tutorials/29-run-observation.md)，验证两个并发 run 互不串流、慢订阅者不拖住 dispatcher，并用内存导出器重建父子 span。用 FakeProvider 分别观察正常、取消和缺价的用量汇总。强一致审计应作为独立 durable capability。
 
 安全执行方向下一步为截断输出设计 workspace 内可恢复的 spill 生命周期，明确路径、权限、清理和模型可见性；随后让 read/search/patch 共用规范化 workspace port，再设计 `read-only -> workspace-write` 与 network 的单次升级审批。不要为追求形式完整同时实现多套 OS-native runner，也不要把未知 Python 插件误认为已被 Shell sandbox 覆盖。
 

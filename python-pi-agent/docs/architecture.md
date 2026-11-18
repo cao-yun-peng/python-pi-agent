@@ -115,6 +115,12 @@ steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写
 
 日志安全由应用显式组装，而不是破坏原始事件。`RedactingEventSink` 复制 payload 并保留原 envelope identity，默认隐藏 message/text/thinking、工具参数、结构化结果和嵌套敏感键；token 用量元数据保留。`serialize_agent_event()` 把 envelope 与脱敏 payload 写成固定 JSON record。慢 I/O 可放入 `BufferedEventSink` 的有界队列，由单 worker 顺序送往同步 logger。推荐顺序是 `Isolated(runtime) -> Redacting -> Buffered -> logger`，使数据在入队前已脱敏。队列满或 logger 失败允许丢失并记录诊断，因此 EventSink 仍是 best-effort 观察通道，不能替代 `SessionStore` durable log。后台 worker 必须通过 `aclose()` 显式排空和关闭。
 
+### Runtime 观察消费面
+
+`AgentRuntimeBuilder` 为 Runtime、Session、插件和模型组合层提供同一个观察入口，先统计用量，再向有界 `EventHub`、应用 `EventSink` 和仅含投影字段的 `TelemetrySink` 分发。应用 sink 与遥测异常分别隔离。它们属于 Runtime 基础设施，沿用 ADR 0028 的边界，不进入 `AgentComponents` 或模型上下文。关闭时先结束 Session 和生产者，发送 `runtime_closed`，再关闭 Hub 与 owned observer。
+
+`RuntimeSession.submit()` / `follow_up()` 在 FIFO 入队前用 run ID 绑定 `RunHandle` 订阅，分派开始时发出 `run_started`。`events()` 是有界单流；`result()` 独立等待；`abort()` 只取消目标。`UsageLedger` 从最终 `model_usage` 报告计算 Runtime 生命周期内的 Session 及近期 run 合计。durable log 仍是恢复事实来源；事件流与用量观察不在重启后复原。见 [ADR 0029](adr/0029-run-scoped-event-stream-and-telemetry-sink.md)。
+
 ## 依赖规则
 
 - domain 不依赖 ports 或 runtime。

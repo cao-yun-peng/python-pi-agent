@@ -8,7 +8,9 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
+from warnings import warn
 
+from ._runtime_observation import _RuntimeObservation
 from .components import AgentComponents, _resolve_components
 from .domain import AgentResult, EventKind, SessionSnapshot, SessionState
 from .errors import (
@@ -16,7 +18,8 @@ from .errors import (
     RuntimeCloseError,
     RuntimeStateError,
 )
-from .events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
+from .event_hub import EventHub
+from .events import EventSinkFailure, make_agent_event
 from .lifecycle import LifecycleScope
 from .plugins import PluginHost
 from .ports import (
@@ -28,11 +31,14 @@ from .ports import (
     ModelProvider,
     NextTurnHook,
     SessionStore,
+    TelemetrySink,
     Tool,
     ToolExecutionGate,
 )
 from .runtime._persistence import _call_session_store
 from .runtime.session import AgentSession
+from .run_handle import RunHandle
+from .usage import PricingTable, UsageLedger, UsageSummary
 
 RuntimeState = Literal["running", "closing", "closed"]
 Clock = Callable[[], float]
@@ -91,12 +97,38 @@ class RuntimeSession:
         return self._entry.session.active_run_id
 
     async def run(self, prompt: str) -> AgentResult:
-        self._ensure_usable()
-        return await self._entry.session.run(prompt)
+        handle = await self.submit(prompt)
+        await handle.events().aclose()
+        try:
+            return await handle.result()
+        except asyncio.CancelledError:
+            await handle.abort()
+            raise
 
-    async def follow_up(self, prompt: str) -> str:
+    async def submit(self, prompt: str, *, max_buffer: int = 256) -> RunHandle:
+        """Queue a run and subscribe before the dispatcher can start it."""
         self._ensure_usable()
+        return await self._entry.session._submit_handle(
+            prompt, self._runtime.event_hub, follow_up=False, max_buffer=max_buffer
+        )
+
+    async def follow_up(self, prompt: str, *, max_buffer: int = 256) -> RunHandle:
+        """Durably enqueue a follow-up and return its run handle."""
+        self._ensure_usable()
+        return await self._entry.session._submit_handle(
+            prompt, self._runtime.event_hub, follow_up=True, max_buffer=max_buffer
+        )
+
+    async def follow_up_id(self, prompt: str) -> str:
+        """Deprecated ID-only entry point; use (await follow_up(prompt)).run_id."""
+        self._ensure_usable()
+        warn("use (await follow_up(prompt)).run_id", DeprecationWarning, stacklevel=2)
         return await self._entry.session.follow_up(prompt)
+
+    @property
+    def usage(self) -> UsageSummary:
+        self._ensure_open()
+        return self._runtime.usage_ledger.for_session(self.session_id)
 
     async def steer(self, prompt: str) -> None:
         self._ensure_usable()
@@ -154,6 +186,9 @@ class AgentRuntime:
         *,
         components: AgentComponents | None = None,
         event_sink: EventSink | None = None,
+        telemetry_sink: TelemetrySink | None = None,
+        pricing: PricingTable | None = None,
+        usage_model: str | None = None,
         tools: Sequence[Tool] | None = None,
         approval_policy: ApprovalPolicy | None = None,
         execution_gate: ToolExecutionGate | None = None,
@@ -169,6 +204,7 @@ class AgentRuntime:
         lifecycle: LifecycleScope | None = None,
         observer_lifecycle: LifecycleScope | None = None,
         clock: Clock = time.monotonic,
+        _observation: _RuntimeObservation | None = None,
     ) -> None:
         if (
             not isinstance(graceful_shutdown_seconds, (int, float))
@@ -195,7 +231,10 @@ class AgentRuntime:
             max_model_requests=max_model_requests,
         )
         self._session_store = session_store
-        self._event_sink = ensure_isolated_event_sink(event_sink)
+        self._observation = _observation or _RuntimeObservation(
+            event_sink, telemetry_sink, pricing, usage_model
+        )
+        self._event_sink = self._observation.sink
         self._plugin_host = plugin_host
         self._pool_policy = session_pool_policy or SessionPoolPolicy()
         self._graceful_shutdown_seconds = float(graceful_shutdown_seconds)
@@ -220,7 +259,15 @@ class AgentRuntime:
 
     @property
     def event_sink_failures(self) -> tuple[EventSinkFailure, ...]:
-        return self._event_sink.failures
+        return self._observation.failures
+
+    @property
+    def event_hub(self) -> EventHub:
+        return self._observation.hub
+
+    @property
+    def usage_ledger(self) -> UsageLedger:
+        return self._observation.ledger
 
     async def open_session(self, session_id: str) -> RuntimeSession:
         """Acquire one reusable session controller behind a releasable lease."""
@@ -332,6 +379,7 @@ class AgentRuntime:
                 "runtime_closed",
                 cleanup_error_count=len(failures),
             )
+            await self.event_hub.aclose()
             failures.extend(await _close_scope(self._observer_lifecycle))
             if failures:
                 raise RuntimeCloseError(
@@ -358,7 +406,7 @@ class AgentRuntime:
             entry.last_used_at = self._clock()
 
     def _new_session(self, session_id: str) -> AgentSession:
-        return AgentSession(
+        return AgentSession._for_runtime(
             session_id,
             self._session_store,
             self._components,

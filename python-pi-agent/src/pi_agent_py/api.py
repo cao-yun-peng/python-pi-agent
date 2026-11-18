@@ -51,6 +51,7 @@ from .domain import (
     SessionEventKind,
     SessionSnapshot,
     SessionState,
+    TelemetryEvent,
     TextDelta,
     ThinkingDelta,
     TokenUsage,
@@ -89,6 +90,7 @@ from .errors import (
     ToolExecutionGateError,
     ToolValidationError,
 )
+from .event_hub import EventFilter, EventHub, EventSubscription, OverflowPolicy
 from .events import (
     BufferedEventSink,
     CallbackEventSink,
@@ -118,21 +120,25 @@ from .ports import (
     NextTurnHook,
     ProviderRequestHook,
     SessionStore,
+    TelemetrySink,
     TokenEstimator,
     Tool,
     ToolExecutionGate,
 )
 from .profiles import AgentProfile, coding_profile, minimal_profile
+from .run_handle import RunHandle
 from .runtime.loop import Agent
 from .runtime.session import AgentSession
 from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
+from .telemetry import LoggingTelemetrySink
 from .tools import (
     DeclaredSideEffectGate,
     DenyByDefaultApprovalPolicy,
     FunctionTool,
     StaticApprovalPolicy,
 )
+from .usage import ModelPrice, PricingTable, UsageLedger, UsageSummary
 
 __all__ = [
     "Agent",
@@ -175,11 +181,14 @@ __all__ = [
     "DenyByDefaultApprovalPolicy",
     "DurableSessionEvent",
     "EventChannel",
+    "EventFilter",
+    "EventHub",
     "EventKind",
     "EventProvenance",
     "EventRedactionPolicy",
     "EventSink",
     "EventSinkFailure",
+    "EventSubscription",
     "Finish",
     "FullHistoryContextStrategy",
     "FunctionTool",
@@ -191,18 +200,22 @@ __all__ = [
     "JSONValue",
     "load_app_config",
     "LoadedAppConfig",
+    "LoggingTelemetrySink",
     "Message",
     "minimal_profile",
     "ModelCompactionStrategy",
+    "ModelPrice",
     "ModelProtocolError",
     "ModelProvider",
     "ModelStreamEvent",
     "NextTurnContext",
     "NextTurnHook",
+    "OverflowPolicy",
     "PendingControl",
     "PluginAPI",
     "PluginError",
     "PluginFactory",
+    "PricingTable",
     "ProviderAuthenticationError",
     "ProviderCatalog",
     "ProviderError",
@@ -217,6 +230,7 @@ __all__ = [
     "RedactingEventSink",
     "Registration",
     "ResourceOwnership",
+    "RunHandle",
     "RuntimeBuildError",
     "RuntimeCapacityError",
     "RuntimeCloseError",
@@ -240,6 +254,8 @@ __all__ = [
     "SessionStore",
     "SessionValidationError",
     "StaticApprovalPolicy",
+    "TelemetryEvent",
+    "TelemetrySink",
     "TextDelta",
     "ThinkingDelta",
     "TokenBudgetContextStrategy",
@@ -256,4 +272,6 @@ __all__ = [
     "ToolOutput",
     "ToolSideEffects",
     "ToolValidationError",
+    "UsageLedger",
+    "UsageSummary",
 ]

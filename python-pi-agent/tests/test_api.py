@@ -62,6 +62,8 @@ _STABLE_EXPORTS = frozenset(
     TokenEstimator TokenThresholdCompactionPolicy TokenUsage Tool ToolCall
     ToolDefinition ToolExecutionContext ToolExecutionDeniedError ToolExecutionGate
     ToolExecutionGateError ToolOutput ToolSideEffects ToolValidationError
+    EventFilter EventHub EventSubscription LoggingTelemetrySink ModelPrice
+    OverflowPolicy PricingTable RunHandle TelemetryEvent TelemetrySink UsageLedger UsageSummary
     """.split()
 )
 
