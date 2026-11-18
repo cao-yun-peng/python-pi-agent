@@ -30,7 +30,7 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .runtime import AgentSession
+from .runtime import AgentSession, _call_session_store
 
 RuntimeState = Literal["running", "closing", "closed"]
 Clock = Callable[[], float]
@@ -287,7 +287,7 @@ class AgentRuntime:
             raise ValueError("session_id must not be empty")
         if self._state == "closed":
             raise RuntimeStateError("agent runtime is closed")
-        return await self._session_store.load(session_id)
+        return await _call_session_store(self._session_store.load, session_id)
 
     async def aclose(self) -> None:
         """Stop accepting work, drain briefly, then close every owned resource."""

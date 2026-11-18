@@ -156,7 +156,12 @@ class CompactionPolicy(Protocol):
 
 
 class SessionStore(Protocol):
-    """Loads, appends, and forks model-visible session history."""
+    """Loads and persists model-visible session history and durable controls.
+
+    Implementations can raise domain errors such as SessionConflictError or
+    SessionStorageError. Runtime callers wrap unexpected adapter exceptions in
+    SessionStorageError and let cancellation propagate.
+    """
 
     async def load(self, session_id: str) -> SessionSnapshot:
         """Load an immutable snapshot of the current session state."""

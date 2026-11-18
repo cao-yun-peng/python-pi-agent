@@ -25,6 +25,8 @@
 - 阶段 10 已完成第一条应用组装纵向切片：`AgentProfile`、显式 `ProviderCatalog`、事务化 `AgentRuntimeBuilder`、owned/borrowed 生命周期、`AgentRuntime` facade、可复用 `RuntimeSession` lease，以及惰性 TTL/LRU controller 驱逐。正式 CLI、EventHub/RunHandle、多租户 SessionRef 与 Web/SSE 尚未开始。
 - Provider 调用已增加 request/attempt/purpose/session/run/turn 上下文；Chat Completions 三适配器复用内部 wire codec，Responses 仅复用 SSE framing，并通过 provider-owned state 完成无服务端存储的续轮。`ResilientModelRuntime` 已在 wire adapter 之上复用这些边界，不合并两套协议。
 
+- 基座路线图 A1/A2 已落地。用 [run 失败分类练习](../tutorials/13-safe-event-observation.md#8-run-失败分类) 跟踪 Store 失败从原生异常到调用方错误和 live 事件的过程，再观察 Session 如何继续处理后续 run。
+
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 
 这个 Hook 服务于阶段 5 的自动压缩，但同时是进入阶段 7 前的第一份拦截型扩展样本。它刻意保持很小：Agent Loop 只提供安全时机，`AgentSession` 负责注入具体 compaction 行为。

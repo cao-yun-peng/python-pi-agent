@@ -5,13 +5,16 @@ import unittest
 
 from pi_agent_py import (
     Agent,
+    DurableEventIdentity,
     FakeProvider,
     Finish,
     InMemoryEventSink,
+    InternalError,
     Message,
     ModelProtocolError,
     ProviderError,
     ProviderState,
+    SessionEventContext,
     TextDelta,
     WaitUntilCancelled,
 )
@@ -90,6 +93,45 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             [event.kind for event in events.events[-2:]],
             ["run_failed", "run_settled"],
         )
+        self.assertEqual(events.events[-2].payload["error_category"], "provider")
+
+    async def test_native_stream_error_is_classified_as_provider_failure(self) -> None:
+        original = OSError("provider diagnostics")
+        events = InMemoryEventSink()
+        agent = Agent(FakeProvider([[original]]), event_sink=events)
+
+        with self.assertRaises(ProviderError) as caught:
+            await agent.run("question")
+
+        self.assertIs(caught.exception.__cause__, original)
+        self.assertEqual(events.events[-3].kind, "model_request_failed")
+        self.assertEqual(events.events[-3].payload["error"], "ProviderError")
+        self.assertEqual(
+            events.events[-2].payload,
+            {"error": "ProviderError", "error_category": "provider"},
+        )
+
+    async def test_unexpected_runtime_error_has_its_own_category(self) -> None:
+        original = RuntimeError("runtime diagnostics")
+
+        async def fail_commit(
+            message: Message,
+            context: SessionEventContext,
+        ) -> DurableEventIdentity | None:
+            raise original
+
+        events = InMemoryEventSink()
+        agent = Agent(FakeProvider([]), event_sink=events, message_committer=fail_commit)
+
+        with self.assertRaises(InternalError) as caught:
+            await agent.run("question")
+
+        self.assertIs(caught.exception.__cause__, original)
+        self.assertEqual(
+            events.events[-2].payload,
+            {"error": "InternalError", "error_category": "internal"},
+        )
+        self.assertEqual(events.events[-1].kind, "run_settled")
 
     async def test_commits_provider_state_without_exposing_it_to_observers(self) -> None:
         state = ProviderState(
@@ -124,6 +166,7 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             [event.kind for event in events.events[-2:]],
             ["run_failed", "run_settled"],
         )
+        self.assertEqual(events.events[-2].payload["error_category"], "protocol")
 
     async def test_cancellation_reaches_provider_and_always_settles(self) -> None:
         provider = FakeProvider([[WaitUntilCancelled()]])

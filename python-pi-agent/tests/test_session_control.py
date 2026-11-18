@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from collections.abc import AsyncIterator, Sequence
+from sqlite3 import OperationalError
 
 from pi_agent_py import (
     AgentSession,
@@ -10,12 +11,16 @@ from pi_agent_py import (
     FakeProvider,
     Finish,
     FunctionTool,
+    InMemoryEventSink,
     InMemorySessionStore,
     JSONObject,
     Message,
     ProviderRequestContext,
     QueuedControl,
     SessionControlError,
+    SessionEventContext,
+    SessionSnapshot,
+    SessionStorageError,
     TextDelta,
     ToolCall,
     ToolDefinition,
@@ -23,7 +28,7 @@ from pi_agent_py import (
     ToolOutput,
     WaitUntilCancelled,
 )
-from pi_agent_py.domain import ModelStreamEvent
+from pi_agent_py.domain import ControlTransition, ModelStreamEvent, SessionEventKind
 
 
 class GatedProvider:
@@ -48,6 +53,31 @@ class GatedProvider:
         else:
             yield TextDelta("follow-up answer")
         yield Finish()
+
+
+class FailingControlStore(InMemorySessionStore):
+    def __init__(self, *failing_kinds: SessionEventKind) -> None:
+        super().__init__()
+        self.failing_kinds = set(failing_kinds)
+
+    async def record_control(
+        self,
+        session_id: str,
+        expected_version: int,
+        kind: SessionEventKind,
+        control: ControlTransition,
+        *,
+        event_context: SessionEventContext | None = None,
+    ) -> SessionSnapshot:
+        if kind in self.failing_kinds:
+            raise OperationalError("control write failed")
+        return await super().record_control(
+            session_id,
+            expected_version,
+            kind,
+            control,
+            event_context=event_context,
+        )
 
 
 class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
@@ -112,6 +142,64 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
             ],
             ["control_enqueued", "control_claimed", "control_delivered"],
         )
+
+    async def test_failed_follow_up_claim_settles_and_dispatcher_keeps_running(
+        self,
+    ) -> None:
+        store = FailingControlStore("control_claimed")
+        provider = FakeProvider([[TextDelta("continued"), Finish()]])
+        sink = InMemoryEventSink()
+        session = AgentSession("demo", store, provider, event_sink=sink)
+        run_id = await session.follow_up("resume after reopening")
+
+        async with asyncio.timeout(2):
+            await session.wait_until_idle()
+            result = await session.run("next request")
+
+        self.assertEqual(result.message.content, "continued")
+        failed, settled = [
+            event for event in sink.events if event.envelope.run_id == run_id
+        ]
+        self.assertEqual((failed.kind, settled.kind), ("run_failed", "run_settled"))
+        self.assertEqual(
+            failed.payload,
+            {"error": "SessionStorageError", "error_category": "storage"},
+        )
+        pending = (await store.load("demo")).pending_controls
+        self.assertEqual([item.control.run_id for item in pending], [run_id])
+        self.assertIsNone(pending[0].claim)
+
+    async def test_failed_steer_cleanup_preserves_failure_and_dispatcher(self) -> None:
+        store = FailingControlStore("control_claimed", "control_cancelled")
+        provider = GatedProvider()
+        sink = InMemoryEventSink()
+        session = AgentSession("demo", store, provider, event_sink=sink)
+        first = asyncio.create_task(session.run("first request"))
+        await provider.started.wait()
+        await session.steer("steer this run")
+        provider.release.set()
+
+        with self.assertRaises(SessionStorageError) as caught:
+            await first
+
+        async with asyncio.timeout(2):
+            await session.wait_until_idle()
+            result = await session.run("next request")
+
+        self.assertIsInstance(caught.exception.__cause__, OperationalError)
+        self.assertEqual(result.message.content, "follow-up answer")
+        failed, settled, cleanup = [
+            event for event in sink.events
+            if event.kind in {"run_failed", "run_settled", "session_control_cleanup_failed"}
+        ][:3]
+        self.assertEqual(
+            (failed.kind, settled.kind, cleanup.kind),
+            ("run_failed", "run_settled", "session_control_cleanup_failed"),
+        )
+        self.assertEqual(cleanup.envelope.run_id, failed.envelope.run_id)
+        self.assertEqual(cleanup.payload["error_category"], "storage")
+        pending = (await store.load("demo")).pending_controls
+        self.assertEqual([item.control.delivery for item in pending], ["steer"])
 
     async def test_steer_is_committed_at_the_next_safe_turn_boundary(self) -> None:
         tool_started = asyncio.Event()

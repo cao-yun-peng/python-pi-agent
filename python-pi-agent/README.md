@@ -64,6 +64,7 @@ agent.yaml -> coding_profile -> BashTool -> SandboxedBashExecutor -> Docker work
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\26_bash_tool_contract.py
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\27_docker_bash_executor.py --help
 .\.venv\Scripts\python.exe .\python-pi-agent\examples\28_configured_bash_runtime.py --help
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\29_run_failure_classification.py
 ```
 
 已经安装 `httpx` 依赖时，也可以直接用源码目录运行：

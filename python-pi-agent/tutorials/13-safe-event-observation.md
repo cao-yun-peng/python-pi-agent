@@ -130,3 +130,27 @@ finally:
 6. 在 AgentSession 中把 `message_committed.envelope.durable_event_id` 与 `read_events()` 的 event ID 对齐。
 
 掌握标准：能区分 durable state、best-effort observer 和 awaited interceptor；能从 envelope 还原一条 run 的模型、工具、压缩和 Hook 时间线；能解释为何 observer span 和 durable event identity 仍不是同一种事实。
+
+## 8. Run 失败分类
+
+第三方 Store 的 I/O 异常发生在消息提交阶段。Session 在 Store 调用处将它转换成 `SessionStorageError`，并把原始异常留给调用方通过 `__cause__` 检查。Provider 的原生流异常在模型调用处转换成 `ProviderError`，运行编排兜底异常属于 `InternalError`。这样调用方可以按故障子系统处理错误，观察者可以按有限的分类汇总事件。
+
+从仓库根目录运行离线示例。
+
+```powershell
+.\.venv\Scripts\python.exe .\python-pi-agent\examples\29_run_failure_classification.py
+```
+
+第一次消息提交模拟 SQLite 写入失败。观察以下输出。
+
+```text
+SessionStorageError caused by OperationalError
+run_started {}
+run_failed {'error': 'SessionStorageError', 'error_category': 'storage'}
+run_settled {}
+durable messages after failure: 0
+model requests after failure: 0
+next run: answer
+```
+
+在示例里将故障移到 `FakeProvider` 的第一个流步骤，检查这次用户消息何时提交，以及 `run_failed.error_category` 如何变成 `provider`。再对照 `test_session_runtime.py` 的准备阶段取消用例，观察 `run_cancelled` 之后的 `run_settled`。

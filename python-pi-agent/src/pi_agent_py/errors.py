@@ -2,7 +2,11 @@
 
 
 class AgentError(Exception):
-    """Base class for expected harness failures."""
+    """Base class for classified harness failures."""
+
+
+class InternalError(AgentError):
+    """An unexpected error occurred inside the agent runtime."""
 
 
 class ConfigurationError(AgentError):
@@ -198,3 +202,37 @@ class SessionReplayError(AgentError):
 
 class SessionStorageError(AgentError):
     """A session store could not read or persist durable data."""
+
+
+def _error_category(error: AgentError) -> str:
+    """Return a stable run-event category, including for adapter subclasses."""
+    categories = (
+        (InternalError, "internal"),
+        (ConfigurationError, "configuration"),
+        (ProviderAuthenticationError, "authentication"),
+        ((ProviderTimeoutError, SandboxTimeoutError), "timeout"),
+        (ProviderError, "provider"),
+        (ModelProtocolError, "protocol"),
+        (SessionStorageError, "storage"),
+        (
+            (
+                SessionConflictError,
+                SessionValidationError,
+                SessionControlError,
+                SessionReplayError,
+            ),
+            "session",
+        ),
+        (ToolValidationError, "tool_validation"),
+        (ToolExecutionDeniedError, "permission"),
+        (ToolExecutionGateError, "tool_execution"),
+        (SandboxError, "sandbox"),
+        (ContextPreparationError, "context"),
+        (CompactionError, "compaction"),
+        (PluginError, "plugin"),
+        ((AgentLoopLimitError, AgentRuntimeError), "runtime"),
+    )
+    for error_types, category in categories:
+        if isinstance(error, error_types):
+            return category
+    return "agent"

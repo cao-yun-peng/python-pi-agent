@@ -8,6 +8,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
 | `Agent.run()` | `packages/agent/src/agent-loop.ts` 的 agent/tool loop | Runtime 消费已注册能力 | 已有顺序工具循环，尚无并行 batch |
+| `run_failed.error_category` | `packages/agent/src/agent-loop.ts` 的运行失败终态 | 按 Provider / Consumer 能力边界定位故障 | Python 调用方收到领域异常和原始 cause，观察者收到异常类名和稳定分类 |
 | `ModelProvider` | `pi-ai` 的统一模型/流抽象 | Definition / Provider / Consumer capability seam | 每次调用显式携带 ProviderRequestContext；原始 Provider 与 resilience 组合层满足同一端口 |
 | `ProviderRequestContext` | coding-agent provider hooks 的 session/model 调用上下文 | invocation-scoped identity seam | 强类型 request/attempt/purpose/session/run/turn，不含凭据或 payload；retry/fallback 保持 request ID 并为每次物理调用更新 attempt identity |
 | `DirectModelRuntime` / `ResilientModelRuntime` / 三个策略端口 | Pi 的 model registry/runtime 与 provider selection | 显式 capability composition + invocation evidence | direct 保留一次调用的原始错误；resilient 实现能力路由、pre-output retry、backoff、兼容 fallback 和 attempt trace；主动省略动态 registry、circuit breaker 与健康/成本评分 |

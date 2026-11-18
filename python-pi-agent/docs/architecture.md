@@ -104,6 +104,8 @@ steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写
 
 观察与拦截使用不同错误语义。`Agent`、`AgentSession` 和 `PluginHost` 自动把应用的 `EventSink` 包进 `IsolatedEventSink`；sink 异常只产生有界 `EventSinkFailure`，并保留失败事件的 envelope event ID，不改变模型、工具、持久化或插件控制流，也不会覆盖原始错误。失败诊断不保存异常消息，避免把密钥或用户数据从异常文本二次写入日志。正常同步 sink 仍保持立即、有序投递，已有 UI 和测试不需要异步化。
 
+运行错误按调用边界分类。Provider 流的原生异常转成 `ProviderError`，SessionStore 调用的原生异常转成 `SessionStorageError`，运行编排中的未分类异常转成 `InternalError`。既有领域错误原样传播，原生异常保留在 `__cause__` 中。live `run_failed` 记录异常类名和稳定的 `error_category`，随后发出 `run_settled`。已入队的 run 在 Agent loop 之前失败时，由 Session 发出这一对事件。取消沿调用链传播并发出 `run_cancelled` 和 `run_settled`。follow-up 领取失败后，已持久化的控制意图仍可在重新打开 Session 时恢复。运行结束后的 steer 清理若写入失败，Session 发出 `session_control_cleanup_failed` 并继续调度。
+
 日志安全由应用显式组装，而不是破坏原始事件。`RedactingEventSink` 复制 payload 并保留原 envelope identity，默认隐藏 message/text/thinking、工具参数、结构化结果和嵌套敏感键；token 用量元数据保留。`serialize_agent_event()` 把 envelope 与脱敏 payload 写成固定 JSON record。慢 I/O 可放入 `BufferedEventSink` 的有界队列，由单 worker 顺序送往同步 logger。推荐顺序是 `Isolated(runtime) -> Redacting -> Buffered -> logger`，使数据在入队前已脱敏。队列满或 logger 失败允许丢失并记录诊断，因此 EventSink 仍是 best-effort 观察通道，不能替代 `SessionStore` durable log。后台 worker 必须通过 `aclose()` 显式排空和关闭。
 
 ## 依赖规则

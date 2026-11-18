@@ -46,6 +46,7 @@ EventKind: TypeAlias = Literal[
     "runtime_closed",
     "runtime_session_opened",
     "runtime_session_evicted",
+    "session_control_cleanup_failed",
     "run_started",
     "message_committed",
     "context_prepared",

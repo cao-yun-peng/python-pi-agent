@@ -6,8 +6,9 @@ import asyncio
 import time
 from collections import deque
 from copy import deepcopy
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
+from typing import ParamSpec, TypeVar
 from uuid import uuid4
 
 from .compaction import (
@@ -31,6 +32,7 @@ from .domain import (
     EventProvenance,
     Finish,
     Message,
+    ModelStreamEvent,
     NextTurnContext,
     ProviderRequestContext,
     ProviderState,
@@ -57,13 +59,16 @@ from .errors import (
     CompactionPolicyError,
     ConfigurationError,
     ContextPreparationError,
+    InternalError,
     ModelProtocolError,
     ProviderError,
     SandboxError,
     SandboxTimeoutError,
     SessionControlError,
+    SessionStorageError,
     ToolExecutionDeniedError,
     ToolValidationError,
+    _error_category,
 )
 from .events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from .plugins import PluginHost, PluginSessionLease
@@ -311,11 +316,11 @@ class Agent:
                 self._emit("run_cancelled", "live")
                 raise
             except AgentError as error:
-                self._emit("run_failed", "live", error=type(error).__name__)
+                self._emit("run_failed", "live", **_run_error_fields(error))
                 raise
             except Exception as error:
-                wrapped = ProviderError("model provider failed")
-                self._emit("run_failed", "live", error=type(wrapped).__name__)
+                wrapped = InternalError("agent run failed unexpectedly")
+                self._emit("run_failed", "live", **_run_error_fields(wrapped))
                 raise wrapped from error
             finally:
                 self._emit("run_settled", "live")
@@ -394,11 +399,7 @@ class Agent:
         finish: Finish | None = None
 
         try:
-            async for event in self._provider.stream(
-                context.messages,
-                self._tool_definitions,
-                context=request_context,
-            ):
+            async for event in self._stream_provider(context.messages, request_context):
                 if isinstance(event, ThinkingDelta):
                     _require_unfinished(finish, "thinking")
                     partial_thinking.append(event.text)
@@ -515,6 +516,21 @@ class Agent:
             finish=finish,
             usage=usage,
         )
+
+    async def _stream_provider(
+        self,
+        messages: Sequence[Message],
+        context: ProviderRequestContext,
+    ) -> AsyncIterator[ModelStreamEvent]:
+        try:
+            async for event in self._provider.stream(
+                messages, self._tool_definitions, context=context
+            ):
+                yield event
+        except AgentError:
+            raise
+        except Exception as error:
+            raise ProviderError("model provider failed") from error
 
     async def _prepare_context(
         self,
@@ -940,6 +956,25 @@ class Agent:
         )
 
 
+_StoreParameters = ParamSpec("_StoreParameters")
+_StoreResult = TypeVar("_StoreResult")
+
+
+async def _call_session_store(
+    operation: Callable[_StoreParameters, Awaitable[_StoreResult]],
+    /,
+    *args: _StoreParameters.args,
+    **kwargs: _StoreParameters.kwargs,
+) -> _StoreResult:
+    """Translate foreign errors at the persistence boundary."""
+    try:
+        return await operation(*args, **kwargs)
+    except AgentError:
+        raise
+    except Exception as error:
+        raise SessionStorageError("session store operation failed") from error
+
+
 class _SessionWriter:
     """Append one message at a time while carrying the latest version."""
 
@@ -964,7 +999,8 @@ class _SessionWriter:
     ) -> DurableEventIdentity:
         async with self._lock:
             await self._refresh()
-            self._snapshot = await self._session_store.append(
+            self._snapshot = await _call_session_store(
+                self._session_store.append,
                 self._snapshot.session_id,
                 self._snapshot.version,
                 (message,),
@@ -981,7 +1017,8 @@ class _SessionWriter:
     ) -> DurableEventIdentity:
         async with self._lock:
             await self._refresh()
-            self._snapshot = await self._session_store.record_control(
+            self._snapshot = await _call_session_store(
+                self._session_store.record_control,
                 self._snapshot.session_id,
                 self._snapshot.version,
                 "control_delivered",
@@ -997,7 +1034,8 @@ class _SessionWriter:
     ) -> SessionSnapshot:
         async with self._lock:
             await self._refresh()
-            self._snapshot = await self._session_store.compact(
+            self._snapshot = await _call_session_store(
+                self._session_store.compact,
                 self._snapshot.session_id,
                 self._snapshot.version,
                 compaction,
@@ -1006,8 +1044,8 @@ class _SessionWriter:
         return self._snapshot
 
     async def _refresh(self) -> None:
-        self._snapshot = await self._session_store.load(
-            self._snapshot.session_id
+        self._snapshot = await _call_session_store(
+            self._session_store.load, self._snapshot.session_id
         )
 
 
@@ -1079,6 +1117,7 @@ class _QueuedSessionRun:
     future: asyncio.Future[AgentResult]
     control_id: str | None = None
     claim_id: str | None = None
+    entered_agent_loop: bool = False
 
 
 class AgentSession:
@@ -1283,7 +1322,9 @@ class AgentSession:
             if self._restored:
                 return
             async with self._durable_lock:
-                snapshot = await self._session_store.load(self._session_id)
+                snapshot = await _call_session_store(
+                    self._session_store.load, self._session_id
+                )
             plugin_lease = None
             if self._plugin_host is not None:
                 plugin_lease = await self._plugin_host.open_session(
@@ -1400,10 +1441,14 @@ class AgentSession:
 
                 queued = self._queued_runs.popleft()
                 if queued.control_id is not None:
-                    queued.claim_id = await self._claim_control(
-                        queued.control_id,
-                        run_id=queued.run_id,
-                    )
+                    try:
+                        queued.claim_id = await self._claim_control(
+                            queued.control_id,
+                            run_id=queued.run_id,
+                        )
+                    except Exception as error:
+                        self._fail_queued_run(queued, error)
+                        continue
                 self._active_run = queued
                 self._accepting_steer = True
                 self._state = "running"
@@ -1416,8 +1461,13 @@ class AgentSession:
             try:
                 result = await active_task
             except asyncio.CancelledError:
+                if not queued.entered_agent_loop:
+                    self._emit("run_cancelled", run_id=queued.run_id, channel="live")
+                    self._emit("run_settled", run_id=queued.run_id, channel="live")
                 if not queued.future.done():
                     queued.future.cancel()
+            except Exception as error:
+                self._fail_queued_run(queued, error)
             except BaseException as error:
                 if not queued.future.done():
                     queued.future.set_exception(error)
@@ -1431,17 +1481,41 @@ class AgentSession:
                     if self._active_run is queued:
                         while self._steering:
                             control = self._steering.popleft()
-                            await self._cancel_control(
-                                control.control_id,
-                                run_id=control.run_id,
-                                reason="target_run_settled",
-                            )
+                            try:
+                                await self._cancel_control(
+                                    control.control_id,
+                                    run_id=control.run_id,
+                                    reason="target_run_settled",
+                                )
+                            except AgentError as error:
+                                self._emit(
+                                    "session_control_cleanup_failed",
+                                    run_id=control.run_id,
+                                    **_run_error_fields(error),
+                                )
                         self._active_run = None
                         self._active_task = None
                         self._accepting_steer = False
                         self._steering.clear()
                         self._state = "settled"
                 await asyncio.sleep(0)
+
+    def _fail_queued_run(self, queued: _QueuedSessionRun, error: Exception) -> None:
+        if isinstance(error, AgentError):
+            failure = error
+        else:
+            failure = InternalError("session run failed unexpectedly")
+            failure.__cause__ = error
+        if not queued.entered_agent_loop:
+            self._emit(
+                "run_failed",
+                run_id=queued.run_id,
+                channel="live",
+                **_run_error_fields(failure),
+            )
+            self._emit("run_settled", run_id=queued.run_id, channel="live")
+        if not queued.future.done():
+            queued.future.set_exception(failure)
 
     def _start_dispatcher_locked(self) -> None:
         self._dispatcher_task = asyncio.create_task(
@@ -1517,8 +1591,11 @@ class AgentSession:
         actor_id: str,
     ) -> SessionSnapshot:
         async with self._durable_lock:
-            snapshot = await self._session_store.load(self._session_id)
-            return await self._session_store.record_control(
+            snapshot = await _call_session_store(
+                self._session_store.load, self._session_id
+            )
+            return await _call_session_store(
+                self._session_store.record_control,
                 self._session_id,
                 snapshot.version,
                 kind,
@@ -1534,7 +1611,9 @@ class AgentSession:
 
     async def _claim_control(self, control_id: str, *, run_id: str) -> str:
         async with self._durable_lock:
-            snapshot = await self._session_store.load(self._session_id)
+            snapshot = await _call_session_store(
+                self._session_store.load, self._session_id
+            )
             pending = next(
                 (
                     item
@@ -1564,7 +1643,8 @@ class AgentSession:
                     self._clock() + self._control_claim_lease_seconds
                 ),
             )
-            await self._session_store.record_control(
+            await _call_session_store(
+                self._session_store.record_control,
                 self._session_id,
                 snapshot.version,
                 "control_claimed",
@@ -1598,7 +1678,9 @@ class AgentSession:
         prompt = queued.prompt
         run_id = queued.run_id
         async with self._run_lock:
-            snapshot = await self._session_store.load(self._session_id)
+            snapshot = await _call_session_store(
+                self._session_store.load, self._session_id
+            )
             writer = _SessionWriter(
                 self._session_store,
                 snapshot,
@@ -1687,6 +1769,7 @@ class AgentSession:
                 session_id=self._session_id,
                 max_model_requests=self._max_model_requests,
             )
+            queued.entered_agent_loop = True
             result = await agent.run(
                 prompt,
                 run_id=run_id,
@@ -1728,7 +1811,9 @@ class AgentSession:
     ) -> SessionSnapshot:
         async with self._run_lock:
             try:
-                snapshot = await self._session_store.load(self._session_id)
+                snapshot = await _call_session_store(
+                    self._session_store.load, self._session_id
+                )
                 writer = _SessionWriter(
                     self._session_store,
                     snapshot,
@@ -2072,6 +2157,7 @@ class AgentSession:
         self,
         kind: EventKind,
         *,
+        channel: EventChannel = "capability",
         event_context: SessionEventContext | None = None,
         run_id: str | None = None,
         turn_id: str | None = None,
@@ -2090,7 +2176,7 @@ class AgentSession:
         self._event_sink.emit(
             make_agent_event(
                 kind,
-                "capability",
+                channel,
                 source="agent_session",
                 payload=payload,
                 session_id=self._session_id,
@@ -2104,6 +2190,10 @@ class AgentSession:
                 durable_event_id=durable_event_id,
             )
         )
+
+
+def _run_error_fields(error: AgentError) -> dict[str, str]:
+    return {"error": type(error).__name__, "error_category": _error_category(error)}
 
 
 def _require_unfinished(finish: Finish | None, event_name: str) -> None:

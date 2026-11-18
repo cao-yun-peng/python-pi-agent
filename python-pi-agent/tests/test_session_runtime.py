@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from collections.abc import Sequence
+from sqlite3 import OperationalError
 
 from pi_agent_py import (
     AgentSession,
@@ -17,6 +18,9 @@ from pi_agent_py import (
     JSONObject,
     Message,
     ProviderError,
+    SessionEventContext,
+    SessionSnapshot,
+    SessionStorageError,
     SessionValidationError,
     TextDelta,
     TokenThresholdCompactionPolicy,
@@ -47,6 +51,104 @@ def _large_result_definition() -> ToolDefinition:
 
 
 class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_store_append_failure_is_classified_and_settles(self) -> None:
+        failure = OperationalError("adapter diagnostic")
+
+        class FailingAppendStore(InMemorySessionStore):
+            async def append(
+                self,
+                session_id: str,
+                expected_version: int,
+                messages: Sequence[Message],
+                *,
+                event_context: SessionEventContext | None = None,
+            ) -> SessionSnapshot:
+                raise failure
+
+        store = FailingAppendStore()
+        sink = InMemoryEventSink()
+        provider = FakeProvider([])
+        session = AgentSession("demo", store, provider, event_sink=sink)
+
+        with self.assertRaises(SessionStorageError) as caught:
+            await session.run("question")
+
+        self.assertIs(caught.exception.__cause__, failure)
+        self.assertEqual(provider.requests, [])
+        self.assertEqual(await store.read_events("demo"), ())
+        self.assertEqual(
+            [event.kind for event in sink.events],
+            ["run_started", "run_failed", "run_settled"],
+        )
+        self.assertEqual(
+            sink.events[-2].payload,
+            {"error": "SessionStorageError", "error_category": "storage"},
+        )
+
+    async def test_store_load_failure_after_enqueue_settles_and_can_run_again(self) -> None:
+        failure = OperationalError("adapter diagnostic")
+
+        class FailingLoadStore(InMemorySessionStore):
+            fail_next_load = False
+
+            async def load(self, session_id: str) -> SessionSnapshot:
+                if self.fail_next_load:
+                    self.fail_next_load = False
+                    raise failure
+                return await super().load(session_id)
+
+        store = FailingLoadStore()
+        sink = InMemoryEventSink()
+        provider = FakeProvider([[TextDelta("recovered"), Finish()]])
+        session = AgentSession("demo", store, provider, event_sink=sink)
+        await session.restore()
+        store.fail_next_load = True
+
+        with self.assertRaises(SessionStorageError) as caught:
+            await session.run("first question")
+
+        self.assertIs(caught.exception.__cause__, failure)
+        self.assertEqual(provider.requests, [])
+        failed, settled = sink.events[-2:]
+        self.assertEqual((failed.kind, settled.kind), ("run_failed", "run_settled"))
+        self.assertEqual(failed.payload["error_category"], "storage")
+        self.assertEqual(failed.channel, "live")
+        self.assertTrue(failed.envelope.run_id)
+        self.assertEqual(failed.envelope.run_id, settled.envelope.run_id)
+        self.assertEqual((await session.run("next question")).message.content, "recovered")
+
+    async def test_cancellation_during_run_preparation_settles(self) -> None:
+        reading = asyncio.Event()
+
+        class BlockingLoadStore(InMemorySessionStore):
+            block = False
+
+            async def load(self, session_id: str) -> SessionSnapshot:
+                if self.block:
+                    reading.set()
+                    await asyncio.Event().wait()
+                return await super().load(session_id)
+
+        store = BlockingLoadStore()
+        provider = FakeProvider([])
+        sink = InMemoryEventSink()
+        session = AgentSession("demo", store, provider, event_sink=sink)
+        await session.restore()
+        store.block = True
+        task = asyncio.create_task(session.run("question"))
+        await reading.wait()
+
+        await session.abort()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(session.is_idle)
+        self.assertEqual(provider.requests, [])
+        self.assertEqual(
+            [event.kind for event in sink.events],
+            ["run_cancelled", "run_settled"],
+        )
+
     def test_auto_policy_requires_a_compaction_strategy(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "requires"):
             AgentSession(
@@ -657,6 +759,8 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
                 "compaction_evaluated",
                 "compaction_started",
                 "compaction_failed",
+                "run_failed",
+                "run_settled",
             ],
         )
 
