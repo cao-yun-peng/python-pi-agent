@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,7 @@ version = "0.8.0"
 description = "A teaching-first, modular Python agent harness"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "pi-agent contributors" },
 ]
@@ -17,8 +17,27 @@ dependencies = [
     "PyYAML>=6,<7",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "mypy==1.19.1",
+    "ruff==0.15.12",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 pi_agent_py = ["py.typed"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+python_version = "3.11"
+modules = ["pi_agent_py.domain", "pi_agent_py.ports"]
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
+strict = true
+follow_imports = "silent"

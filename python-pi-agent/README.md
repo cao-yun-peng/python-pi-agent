@@ -31,6 +31,19 @@ agent.yaml -> coding_profile -> BashTool -> SandboxedBashExecutor -> Docker work
 
 它同时提供脚本化 `FakeProvider`，以及 DeepSeek、Kimi、GLM Chat Completions 和 TiMi Codex/GPT/Grok Responses API 适配器。默认测试仍然确定、离线且不会产生 API 费用。
 
+## 开发与 CI
+
+在仓库根目录创建并激活开发用虚拟环境。Windows PowerShell 使用 `py -3.11 -m venv .venv` 和 `.\.venv\Scripts\Activate.ps1`，Linux 使用 `python3.11 -m venv .venv` 和 `source .venv/bin/activate`。进入 `python-pi-agent` 后运行：
+
+```sh
+python -m pip install -e ".[dev]"
+python -m unittest discover -s tests -v
+python -m ruff check src tests
+python -m mypy
+```
+
+GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包并执行离线测试。静态检查使用 Python 3.11，Ruff 检查源码与测试，mypy 以 strict 模式检查 `pi_agent_py.domain` 和 `pi_agent_py.ports`。常规 CI 中 Docker 集成测试保持跳过，本地可通过 `PI_AGENT_DOCKER_IMAGE` 显式启用。
+
 ## 快速开始
 
 在仓库根目录执行。首次使用可以先安装为 editable package：

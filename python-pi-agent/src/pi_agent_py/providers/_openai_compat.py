@@ -24,7 +24,7 @@ from ..domain import (
     ToolDefinition,
 )
 from ..errors import ProviderResponseError
-from ._sse import iter_sse
+from ._sse import iter_sse as iter_sse
 
 
 def serialize_message(

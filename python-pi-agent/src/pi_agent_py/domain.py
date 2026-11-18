@@ -422,14 +422,14 @@ class ProviderRequestContext:
             raise ValueError("attempt must be greater than zero")
         if self.purpose not in {"agent_turn", "compaction"}:
             raise ValueError(f"unsupported provider request purpose: {self.purpose}")
-        for name, value in (
+        for name, optional_value in (
             ("session_id", self.session_id),
             ("run_id", self.run_id),
             ("turn_id", self.turn_id),
             ("parent_request_id", self.parent_request_id),
             ("cause_event_id", self.cause_event_id),
         ):
-            if value is not None and not value.strip():
+            if optional_value is not None and not optional_value.strip():
                 raise ValueError(f"{name} must not be empty")
         if self.turn_id is not None and self.run_id is None:
             raise ValueError("turn_id requires run_id")

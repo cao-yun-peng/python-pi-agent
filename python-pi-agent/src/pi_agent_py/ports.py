@@ -33,7 +33,7 @@ from .domain import (
     SessionEventKind,
     SessionSnapshot,
     SessionCompaction,
-    ToolCall,
+    ToolCall as ToolCall,
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
