@@ -19,7 +19,7 @@ prompt
 入口在 `Agent.run()`。先读测试，再读实现：
 
 - `tests/test_minimal_loop.py`
-- `src/pi_agent_py/runtime.py`
+- `src/pi_agent_py/runtime/loop.py`
 
 ## 三个最重要的设计决定
 

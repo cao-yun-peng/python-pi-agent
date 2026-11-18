@@ -944,7 +944,7 @@ if not tool_calls and finish.reason == "tool_calls":
 
 ## 11. Runtime 如何消费统一事件
 
-`runtime.py::Agent._request_model()` 是唯一的消费点。它维护五个局部变量：
+`runtime/loop.py::Agent._request_model()` 是 Agent 循环的模型流消费点。它维护这些局部变量：
 
 ```python
 partial_text: list[str] = []
@@ -1276,7 +1276,7 @@ Provider C       ─┘
 
 实现完成后，用这份清单自查：
 
-- [ ] `runtime.py` 没有出现任何供应商名字；
+- [ ] 已确认 `runtime/loop.py` 只依赖规范化模型事件；
 - [ ] `domain.py` 没有出现 `reasoning_content`、`choices`、`prompt_tokens`；
 - [ ] 新 Provider 的测试不需要真实 API Key；
 - [ ] 错误类型是项目定义的 `ProviderError` 子类；

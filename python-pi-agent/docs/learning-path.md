@@ -28,6 +28,7 @@
 - 基座路线图 A1/A2 已落地。用 [run 失败分类练习](../tutorials/13-safe-event-observation.md#8-run-失败分类) 跟踪 Store 失败从原生异常到调用方错误和 live 事件的过程，再观察 Session 如何继续处理后续 run。
 - 基座阶段 1 的组装链路已接入 `AgentComponents`。用 [Profile 与统一生命周期](../tutorials/25-application-runtime-assembly.md#3-builder-与-profile-的区别) 跟踪组件如何从 factory 解析到 Agent 实际消费，并比较常驻 Runtime 和独立 Agent 的入口。
 - 下游应用从 `pi_agent_py.api` 导入组装与扩展契约。阅读 [稳定入口回归](../tests/test_api.py)，练习只通过公开导入接入自定义 Provider 和工具插件。
+- Runtime 拆分后，从 `runtime/control.py` 追踪一个排队 run，进入 `runtime/session.py` 恢复历史和装配，再到 `runtime/loop.py` 运行模型和工具。对照 [Session 控制测试](../tests/test_session_control.py) 观察取消和队列恢复。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 
@@ -46,17 +47,17 @@ assistant tool call 已提交
 学习时按以下调用链阅读：
 
 1. `ports.py::NextTurnHook`：先看输入、返回值和 awaited 拦截语义。
-2. `runtime.py::Agent.run`：确认 Hook 只在工具结果全部提交后、且确实还有下一次请求额度时调用。
-3. `runtime.py::Agent._prepare_next_turn`：观察取消传播、错误分类、返回值校验和内存历史替换。
-4. `runtime.py::_SessionNextTurnHook`：理解通用 Hook 如何适配 session-specific compaction。
-5. `runtime.py::AgentSession._maybe_auto_compact`：确认 run 前和工具续轮前复用同一 policy、strategy、store 与 replay 路径。
+2. `runtime/loop.py::Agent.run`：确认 Hook 只在工具结果全部提交后、且确实还有下一次请求额度时调用。
+3. `runtime/loop.py::Agent._prepare_next_turn`：观察取消传播、错误分类、返回值校验和内存历史替换。
+4. `runtime/compaction_orchestration.py::_SessionNextTurnHook`：理解通用 Hook 如何适配 session-specific compaction。
+5. `runtime/compaction_orchestration.py::_SessionCompactor.maybe_auto_compact`：确认 run 前和工具续轮前复用同一 policy、strategy、store 与 replay 路径。
 6. `tests/test_tool_runtime.py` 和 `tests/test_session_runtime.py`：用确定性证据核对正常、失败和取消路径。
 
 这一节点的掌握标准：
 
 - 能解释为什么 `EventSink` 是观察者，而 `NextTurnHook` 是可改变控制流的拦截器。
 - 能说明 Hook 为什么必须位于完整 tool call/result 之后，而不能插在两者中间。
-- 能画出 `Agent -> NextTurnHook -> AgentSession -> SessionStore -> replay -> Agent` 的状态回流。
+- 能画出 `Agent -> NextTurnHook -> _SessionCompactor -> SessionStore -> replay -> Agent` 的状态回流。
 - 能证明摘要失败或取消时，已提交工具结果仍然存在、没有 `context_compacted`，也不会发起第二次模型请求。
 - 能解释为什么 Agent Loop 依赖 `NextTurnHook` 抽象，而不直接依赖 `CompactionPolicy` 或 `SessionStore`。
 
@@ -117,7 +118,7 @@ runtime event
 2. `events.py::IsolatedEventSink`：观察故障如何变成无敏感文本的 bounded diagnostics。
 3. `events.py::redact_event`：确认复制、事件字段策略与嵌套 secret key 规则。
 4. `events.py::BufferedEventSink`：理解有界队列、顺序 worker、drop 和 close 语义。
-5. `runtime.py` / `plugins.py` 的 constructor：确认三个消费方建立同一隔离边界。
+5. `runtime/loop.py`、`runtime/session.py` 和 `plugins.py` 的构造入口：确认三个消费方建立同一隔离边界。
 6. `tests/test_events.py`：用成功、原始失败、脱敏、下游错误和关闭路径核对契约。
 
 这一节点的掌握标准：

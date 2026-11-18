@@ -31,7 +31,8 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .runtime import AgentSession, _call_session_store
+from .runtime._persistence import _call_session_store
+from .runtime.session import AgentSession
 
 RuntimeState = Literal["running", "closing", "closed"]
 Clock = Callable[[], float]

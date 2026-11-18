@@ -31,6 +31,8 @@ python .\python-pi-agent\examples\24_application_runtime.py
 
 示例使用 `FakeProvider` 连续运行同一 session。第二次请求能看到第一次的 durable history，退出 `async with runtime` 后会统一关闭 owned resources。末尾用同一个 Profile 和另一份 FakeProvider 直接组装独立 Agent。
 
+沿同一个 run ID 阅读实现时，从 `runtime/control.py` 的入队和 dispatch 开始，再到 `runtime/session.py` 加载 durable history、装配 Agent，最后到 `runtime/loop.py` 消费模型事件并提交结果。`runtime/compaction_orchestration.py` 通过 Session writer 提交摘要，自动压缩接入下一轮 Hook。运行 [Session 控制示例](../examples/17_durable_controls.py) 可观察从 follow-up 入队到持久交付的过程。
+
 ## 3. Builder 与 Profile 的区别
 
 应用从 `pi_agent_py.api` 导入组装入口和能力类型，稳定清单由该模块的 `__all__` 定义。已有代码可继续使用根包导入。示例从 `pi_agent_py.testing` 获取离线测试替身。可以参考 [下游应用回归](../tests/test_api.py)，用同一导入面实现自己的流式 Provider、注册工具插件并消费事件。

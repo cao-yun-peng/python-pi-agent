@@ -3,7 +3,7 @@
 ## 当前边界
 
 ```text
-domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
+domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
                ^           |             ^
                |           ├── components.py resolves model-visible configuration
                |           ├── context.py implements ContextStrategy
@@ -34,7 +34,11 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 - `domain.py` 只包含无 I/O 的值对象。
 - `ports.py` 定义核心运行时所需能力，不提供供应商实现。
 - `api.py` 是下游应用和扩展的稳定导入入口。`__all__` 显式声明组装入口、能力端口、领域类型、事件与错误。它直接导出定义模块中的对象，根包为已有调用提供兼容导入。
-- `runtime.py` 消费端口并维护已提交消息。
+- `runtime/loop.py` 执行单次 Agent run，消费模型流、提交消息、执行顺序工具调用并发布 run 事件。
+- `runtime/session.py` 管理单个 Session 的组件、插件 lease、历史恢复与 run 装配。它通过 `runtime/_persistence.py` 逐消息写入 `SessionStore`。
+- `runtime/control.py` 独占 FIFO 队列、活跃任务和 idle 状态，负责 steer、follow-up、取消、durable claim 和恢复。Session 向它提供 run 执行与插件终态回调。
+- `runtime/compaction_orchestration.py` 执行手动和自动压缩，通过同一 Session writer 提交摘要。自动压缩接入 run 准备和工具续轮前的 Hook。
+- `pi_agent_py.runtime` 提供 `Agent` 与 `AgentSession` 的兼容导入。阶段 2 的 run 订阅会在控制队列入队边界接入，阶段 3 的 SessionSpec 解析会在应用层创建 Session 时接入。
 - `app_runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
 - `profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 只提供默认拒绝审批与 bash-only Gate，不创建 Docker。
 - `AgentProfile.build_components(provider)` 解析出冻结的 `AgentComponents`。Builder 先应用显式覆盖，再组合已解析的 Provider、部署配置和插件能力。Runtime、Session 和 Agent 传递同一个组件对象。Store、EventSink、PluginHost 及资源所有权由应用组装层独立管理。
@@ -43,7 +47,6 @@ domain.py <- ports.py <- runtime.py <- app_runtime.py <- apps
 - `assembly.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
 - `context.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。
 - `compaction.py` 提供 token threshold policy、选择可安全替换的完整旧 turn，并通过可替换模型 Provider 生成摘要。
-- `runtime.AgentSession` 加载会话历史，并通过逐消息异步提交把 Agent loop 连接到 `SessionStore`。
 - `session_transitions.py` 集中实现 replay、append 与 fork 的校验和事件生成，不执行 I/O 或修改调用者状态。
 - `session.py` 提供 `InMemorySessionStore`，只负责内存事件容器。
 - `session_jsonl.py` 提供带格式版本、严格解码和刷盘语义的 `JsonlSessionStore`。

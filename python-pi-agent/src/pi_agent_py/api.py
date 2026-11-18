@@ -123,7 +123,8 @@ from .ports import (
     ToolExecutionGate,
 )
 from .profiles import AgentProfile, coding_profile, minimal_profile
-from .runtime import Agent, AgentSession
+from .runtime.loop import Agent
+from .runtime.session import AgentSession
 from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
 from .tools import (

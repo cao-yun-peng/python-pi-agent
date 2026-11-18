@@ -147,7 +147,7 @@ live    run_settled
 1. [教程：最小 Agent Loop](tutorials/01-minimal-agent-loop.md)
 2. `src/pi_agent_py/domain.py`：什么是消息和事件
 3. `src/pi_agent_py/ports.py`：核心依赖哪些抽象，以及观察端口与拦截 Hook 的区别
-4. `src/pi_agent_py/runtime.py`：循环如何消费流、提交消息，并在下一次模型请求前调用 `NextTurnHook`
+4. `src/pi_agent_py/runtime/loop.py`：循环如何消费流、提交消息，并在下一次模型请求前调用 `NextTurnHook`
 5. `src/pi_agent_py/session_transitions.py`：会话事件怎样纯计算出新状态
 6. `src/pi_agent_py/testing.py`：如何不用真实模型验证循环
 7. `tests/test_minimal_loop.py`：公开行为契约
@@ -155,7 +155,7 @@ live    run_settled
 9. `src/pi_agent_py/model_runtime.py`：retry、backoff、能力路由、fallback 与 attempt trace
 10. `src/pi_agent_py/profiles.py`：产品默认值为何只保存 factory、不持有活 I/O
 11. `src/pi_agent_py/assembly.py`：显式 Catalog、事务化 Builder 与失败回滚
-12. `src/pi_agent_py/app_runtime.py`：应用 facade、Session lease、容量和关闭状态机
+12. `src/pi_agent_py/app_runtime.py` 与 `src/pi_agent_py/runtime/`：应用 facade、Session lease、控制队列和压缩编排
 13. `src/pi_agent_py/lifecycle.py`：owned/borrowed 资源与逆序释放
 14. `src/pi_agent_py/tools.py`：工具定义、审批策略、执行 Gate 与兼容期 Shell consumer
 15. `src/pi_agent_py/shell.py` 与 `sandbox.py`：BashTool、ShellExecutor 组装、workspace 路径解析和 exact-argv 进程隔离

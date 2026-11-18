@@ -94,6 +94,7 @@ class PublicApiTests(unittest.TestCase):
         import pi_agent_py
         from pi_agent_py.app_runtime import AgentRuntime
         from pi_agent_py.ports import EventSink, ModelProvider, Tool
+        from pi_agent_py.runtime import Agent, AgentSession
 
         overlap = _STABLE_EXPORTS.intersection(pi_agent_py.__all__)
         for name in overlap:
@@ -101,6 +102,8 @@ class PublicApiTests(unittest.TestCase):
                 self.assertIs(getattr(api, name), getattr(pi_agent_py, name))
 
         self.assertIs(api.AgentRuntime, AgentRuntime)
+        self.assertIs(api.Agent, Agent)
+        self.assertIs(api.AgentSession, AgentSession)
         self.assertIs(api.ModelProvider, ModelProvider)
         self.assertIs(api.EventSink, EventSink)
         self.assertIs(api.Tool, Tool)
