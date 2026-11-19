@@ -43,6 +43,11 @@ EventSource: TypeAlias = Literal[
 ]
 SessionState: TypeAlias = Literal["idle", "running", "aborting", "settled"]
 EventKind: TypeAlias = Literal[
+    "middleware_started",
+    "middleware_finished",
+    "middleware_failed",
+    "middleware_cancelled",
+    "tool_result_transformed",
     "runtime_started",
     "runtime_closing",
     "runtime_closed",
@@ -394,6 +399,16 @@ class ToolExecutionContext:
             raise ValueError("call_index must be greater than zero")
         if self.session_id is not None and not self.session_id.strip():
             raise ValueError("session_id must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultContext:
+    """Execution identity and outcome before a tool result becomes durable."""
+
+    execution: ToolExecutionContext
+    outcome: str
+    run_id: str | None = None
+    turn_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

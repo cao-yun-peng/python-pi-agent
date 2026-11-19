@@ -35,6 +35,7 @@ from pi_agent_py.api import (
 
 _STABLE_EXPORTS = frozenset(
     """
+    Middleware MiddlewareError ToolResultContext ToolResultHook TruncateToolResults
     DecoratedTool ToolError tool
     Agent agent_event_record AGENT_EVENT_SCHEMA_VERSION AgentComponents AgentError
     AgentEvent AgentEventEnvelope AgentLoopLimitError AgentProfile AgentResult

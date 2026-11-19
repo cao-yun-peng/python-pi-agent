@@ -11,6 +11,11 @@ from .application.runtime import (
 )
 from .application.builder import AgentRuntimeBuilder
 from .tools.decorator import DecoratedTool, ToolError, tool
+from .tools.result_truncation import TruncateToolResults
+from .runtime.middleware import Middleware
+from .domain import ToolResultContext
+from .ports import ToolResultHook
+from .errors import MiddlewareError
 from .application.provider_catalog import (
     BuiltProvider,
     ProviderCatalog,
@@ -222,6 +227,7 @@ from .tools.gates import DeclaredSideEffectGate, TrustedToolExecutionGate
 from .tools.validation import validate_tool_arguments
 
 __all__ = [
+    "Middleware", "MiddlewareError", "ToolResultContext", "ToolResultHook", "TruncateToolResults",
     "DecoratedTool", "ToolError", "tool",
     "AGENT_EVENT_SCHEMA_VERSION",
     "Agent",

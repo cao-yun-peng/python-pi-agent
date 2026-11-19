@@ -10,6 +10,7 @@ from typing import TypeVar, cast
 from ._observation import _RuntimeObservation
 from .runtime import AgentRuntime, SessionPoolPolicy
 from ..runtime.components import AgentComponents
+from ..runtime.middleware import Middleware
 from .capability_catalog import CapabilityCatalog, default_capability_catalog
 from .configuration import (
     LoadedAppConfig,
@@ -79,6 +80,7 @@ class AgentRuntimeBuilder:
         self._profile = minimal_profile()
         self._plugins: list[tuple[str, PluginFactory]] = []
         self._tools: tuple[Tool, ...] | None = None
+        self._middleware: tuple[Middleware, ...] | None = None
         self._approval_policy: ApprovalPolicy | None = None
         self._execution_gate: ToolExecutionGate | None = None
         self._context_strategy: ContextStrategy | None = None
@@ -223,6 +225,11 @@ class AgentRuntimeBuilder:
         self._tools = tuple(tools)
         return self
 
+    def with_middleware(self, middleware: Sequence[Middleware]) -> AgentRuntimeBuilder:
+        """Replace Profile middleware; plugin middleware is appended afterwards."""
+        self._middleware = tuple(middleware)
+        return self
+
     def with_approval_policy(
         self,
         policy: ApprovalPolicy,
@@ -359,9 +366,10 @@ class AgentRuntimeBuilder:
                 for name, factory in (*configured_plugins, *self._plugins):
                     await plugin_host.load(name, factory)
                 capabilities = plugin_host.snapshot()
-                if capabilities.tools or capabilities.next_turn_hook is not None:
+                if capabilities.tools or capabilities.next_turn_hook is not None or capabilities.middleware:
                     components = components.replace(
                         tools=components.tools + capabilities.tools,
+                        middleware=components.middleware + capabilities.middleware,
                         next_turn_hook=_combine_hooks(
                             components.next_turn_hook, capabilities.next_turn_hook
                         ),
@@ -424,6 +432,10 @@ class AgentRuntimeBuilder:
             raise ConfigurationError("compaction policy requires a compaction strategy")
         return replace(
             profile,
+            middleware_factories=(
+                tuple(_constant_factory(item) for item in self._middleware)
+                if self._middleware is not None else profile.middleware_factories
+            ),
             tool_factories=tool_factories,
             approval_policy_factory=_override_factory(
                 self._approval_policy, profile.approval_policy_factory

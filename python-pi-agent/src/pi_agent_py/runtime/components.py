@@ -20,6 +20,7 @@ from ..ports import (
 )
 from ..tools.approval import DenyByDefaultApprovalPolicy
 from ..tools.gates import DeclaredSideEffectGate
+from .middleware import Middleware
 
 
 _DEFAULT_MAX_MODEL_REQUESTS = 8
@@ -38,6 +39,7 @@ class CompactionComponents:
 
 
 class _ComponentChanges(TypedDict, total=False):
+    middleware: tuple[Middleware, ...]
     provider: ModelProvider
     tools: tuple[Tool, ...]
     approval_policy: ApprovalPolicy
@@ -62,6 +64,7 @@ class AgentComponents:
     next_turn_hook: NextTurnHook | None = None
     system_prompt: str | None = None
     max_model_requests: int = _DEFAULT_MAX_MODEL_REQUESTS
+    middleware: tuple[Middleware, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.max_model_requests) is not int or self.max_model_requests <= 0:
@@ -72,6 +75,12 @@ class AgentComponents:
         duplicates = sorted(name for name, count in counts.items() if count > 1)
         if duplicates:
             raise ValueError("duplicate tool names: " + ", ".join(duplicates))
+        middleware = tuple(self.middleware)
+        object.__setattr__(self, "middleware", middleware)
+        if any(not isinstance(item, Middleware) for item in middleware):
+            raise TypeError("middleware entries must be Middleware")
+        if len({item.name for item in middleware}) != len(middleware):
+            raise ValueError("duplicate middleware names")
 
     def replace(self, **changes: Unpack[_ComponentChanges]) -> Self:
         """Return a validated copy with the supplied fields replaced."""

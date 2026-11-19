@@ -26,6 +26,7 @@ from .errors import (
 )
 from .observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from .ports import EventSink, NextTurnHook, Tool
+from .runtime.middleware import Middleware
 
 CleanupCallback = Callable[[], Awaitable[None] | None]
 
@@ -99,6 +100,10 @@ class PluginAPI(Protocol):
         """Stage one model-callable tool."""
         ...
 
+    def register_middleware(self, middleware: Middleware) -> Registration:
+        """Stage a named transform for explicit component assembly."""
+        ...
+
     def register_next_turn_hook(
         self,
         hook: NextTurnHook,
@@ -140,6 +145,13 @@ class PluginCapabilities:
     tools: tuple[Tool, ...]
     next_turn_hook: NextTurnHook | None
     session_plugin_names: tuple[str, ...]
+    middleware: tuple[Middleware, ...] = ()
+
+
+@dataclass(slots=True)
+class _MiddlewareRegistration:
+    middleware: Middleware
+    handle: Registration
 
 
 @dataclass(slots=True)
@@ -183,6 +195,7 @@ class _PluginState:
     hooks: list[_HookRegistration]
     cleanups: list[_CleanupRegistration]
     session_factories: list[_SessionFactoryRegistration]
+    middleware: list[_MiddlewareRegistration]
 
 
 class _StagedPluginAPI:
@@ -194,6 +207,18 @@ class _StagedPluginAPI:
         self.hooks: list[_HookRegistration] = []
         self.cleanups: list[_CleanupRegistration] = []
         self.session_factories: list[_SessionFactoryRegistration] = []
+        self.middleware: list[_MiddlewareRegistration] = []
+
+    def register_middleware(self, middleware: Middleware) -> Registration:
+        if not isinstance(middleware, Middleware):
+            raise PluginRegistrationError("expected Middleware")
+        if any(item.middleware.name == middleware.name for item in self.middleware):
+            raise PluginRegistrationError("duplicate middleware name")
+        handle = Registration(lambda: None)
+        item = _MiddlewareRegistration(middleware, handle)
+        handle._rebind(lambda: _remove_identity(self.middleware, item))
+        self.middleware.append(item)
+        return handle
 
     def register_tool(self, tool: Tool) -> Registration:
         name = tool.definition.name
@@ -505,6 +530,7 @@ class PluginHost:
         self._plugins: dict[str, _PluginState] = {}
         self._tools: list[_ToolRegistration] = []
         self._hooks: list[_HookRegistration] = []
+        self._middleware: list[_MiddlewareRegistration] = []
         self._session_factories: list[_SessionFactoryRegistration] = []
         self._session_leases: set[PluginSessionLease] = set()
         self._next_order = 0
@@ -541,6 +567,9 @@ class PluginHost:
                         "plugin factory must return None or an awaitable"
                     )
                 self._validate_tool_conflicts(staged.tools)
+                names = {item.middleware.name for item in self._middleware if item.handle.active}
+                if any(item.middleware.name in names for item in staged.middleware):
+                    raise PluginRegistrationError("middleware name conflicts with a loaded plugin")
             except asyncio.CancelledError:
                 await _run_cleanups(staged.cleanups)
                 raise
@@ -561,7 +590,11 @@ class PluginHost:
                 hooks=staged.hooks,
                 cleanups=staged.cleanups,
                 session_factories=staged.session_factories,
+                middleware=staged.middleware,
             )
+            for item in state.middleware:
+                item.handle._rebind(lambda item=item: _remove_identity(self._middleware, item))
+                self._middleware.append(item)
             for item in state.tools:
                 item.handle._rebind(lambda item=item: self._remove_tool(item))
                 self._tools.append(item)
@@ -590,6 +623,7 @@ class PluginHost:
             )
         )
         return PluginCapabilities(
+            middleware=tuple(item.middleware for item in self._middleware if item.handle.active),
             plugin_names=tuple(self._plugins),
             tools=tuple(
                 item.tool for item in self._tools if item.handle.active
@@ -670,6 +704,8 @@ class PluginHost:
             if state is None:
                 return
             for item in state.tools:
+                item.handle.unregister()
+            for item in state.middleware:
                 item.handle.unregister()
             for item in state.hooks:
                 item.handle.unregister()

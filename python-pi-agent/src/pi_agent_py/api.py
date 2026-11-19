@@ -161,10 +161,16 @@ from .tools.approval import (
 )
 from .tools.function import FunctionTool
 from .tools.decorator import DecoratedTool, ToolError, tool
+from .tools.result_truncation import TruncateToolResults
+from .runtime.middleware import Middleware
+from .domain import ToolResultContext
+from .ports import ToolResultHook
+from .errors import MiddlewareError
 from .tools.gates import DeclaredSideEffectGate
 from .observability.usage import ModelPrice, PricingTable, UsageLedger, UsageSummary
 
 __all__ = [
+    "Middleware", "MiddlewareError", "ToolResultContext", "ToolResultHook", "TruncateToolResults",
     "DecoratedTool", "ToolError", "tool",
     "Agent",
     "agent_event_record",

@@ -30,7 +30,7 @@ class SessionSpec:
             if component.name in {"system_prompt", "max_model_requests"}:
                 if first != second:
                     return False
-            elif component.name == "tools":
+            elif component.name in {"tools", "middleware"}:
                 if len(first) != len(second) or any(
                     first_tool is not second_tool
                     for first_tool, second_tool in zip(first, second)

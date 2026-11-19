@@ -38,6 +38,39 @@ from pi_agent_py.observability.otel import OtelTelemetrySink
 
 
 class OtelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_middleware_spans_cover_success_failure_and_cancellation(self) -> None:
+        from pi_agent_py.api import Middleware, MiddlewareError
+        import asyncio
+
+        for mode in ("success", "failure", "cancelled"):
+            started = asyncio.Event()
+            class Hook:
+                async def prepare(self, context, plan):
+                    if mode == "failure":
+                        raise ValueError("private-error")
+                    if mode == "cancelled":
+                        started.set()
+                        await asyncio.Event().wait()
+                    return plan
+            runtime = await (AgentRuntimeBuilder().with_provider(FakeProvider([[Finish()]]))
+                             .with_middleware((Middleware("test", provider_request=Hook()),))
+                             .with_telemetry_sink(self.sink).build())
+            async with runtime:
+                task = asyncio.create_task(runtime.run(mode, "private prompt"))
+                if mode == "cancelled":
+                    await started.wait()
+                    task.cancel()
+                if mode == "success":
+                    await task
+                else:
+                    with self.assertRaises(asyncio.CancelledError if mode == "cancelled" else MiddlewareError):
+                        await task
+        spans = [s for s in self.exporter.get_finished_spans() if s.name == "pi_agent.middleware"]
+        self.assertEqual(len(spans), 3)
+        self.assertEqual([s.attributes["pi_agent.outcome"] for s in spans], ["success", "error", "cancelled"])
+        self.assertTrue(all(s.end_time >= s.start_time for s in spans))
+        self.assertNotIn("private", repr([dict(s.attributes) for s in spans]))
+
     def setUp(self) -> None:
         self.exporter = InMemorySpanExporter()
         traces = TracerProvider()

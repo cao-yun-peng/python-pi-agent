@@ -36,6 +36,7 @@ domain.py <- ports.py <- runtime/ <- application/ <- apps
 - `domain.py` 只包含无 I/O 的值对象。
 - `ports.py` 定义核心运行时所需能力，不提供供应商实现。
 - `api.py` 是下游应用和扩展的稳定导入入口。`__all__` 显式声明组装入口、能力端口、领域类型、事件与错误。它直接导出定义模块中的对象，根包为已有调用提供兼容导入。
+- `runtime/middleware.py` 定义 Middleware 和两阶段顺序链：ContextStrategy → provider_request → Session 插件；执行工具 → tool_result → durable 提交。请求失败抛 MiddlewareError，结果处理失败提交固定 unknown 错误，取消继续传播；压缩摘要不经过请求链。
 - `runtime/loop.py` 执行单次 Agent run，消费模型流、提交消息、执行顺序工具调用并发布 run 事件。
 - `runtime/session.py` 管理单个 Session 的组件、插件 lease、历史恢复与 run 装配。它通过 `storage/_writer.py` 逐消息写入 `SessionStore`。
 - `runtime/control.py` 独占 FIFO 队列、活跃任务和 idle 状态，负责 steer、follow-up、取消、durable claim 和恢复。Session 向它提供 run 执行与插件终态回调。
@@ -64,6 +65,7 @@ domain.py <- ports.py <- runtime/ <- application/ <- apps
 - `providers/_provider_support.py` 集中一等 Provider 的默认模型/端点、基础配置校验和通用 HTTP 状态分类；它不读取配置文件、不拥有流式控制流，也不形成 Provider 基类。
 - `providers/deepseek.py`、`providers/kimi.py` 与 `providers/glm.py` 分别隔离各自 HTTP 认证、模型参数、完成判据、错误体解析和供应商特例，并组合共享 wire codec/support；它们不是继承同一个可变大基类。GLM 适配器还负责标准 API 的 `request_id`、`tool_stream`、模型级 thinking/reasoning 约束和业务错误码映射。
 - `providers/timicc_responses.py` 独立实现 Responses API 的 typed SSE、扁平 function tool、output item 与 usage 语义，只复用 SSE framing 和基础配置/HTTP 分类。它固定发送 `store: false`，将 completed output item 保存为 provider-owned opaque state，以支持 Codex/GPT/Grok reasoning/tool 续轮；不把两套 wire format 塞进 Chat Completions codec，也不引入 `BaseOpenAIProvider`。
+- `tools/result_truncation.py` 按字符限制 content，标记计入预算；不改变 structured_content/is_error。
 - `tools/decorator.py` 从 async 函数签名生成 DecoratedTool，显式注入 context、映射 JSON 返回与 ToolError；不承担注册、审批或执行调度。
 - `tools/function.py` 提供 `FunctionTool` 和 `ToolHandler`，把异步 Python 函数适配为 Tool。
 - `tools/approval.py` 提供默认拒绝和显式静态审批策略。
@@ -172,3 +174,5 @@ SessionSpec 的 metadata 保存为独立 JSON 快照，暴露在 RuntimeSession.
 - ProcessSandbox 只运行进程请求，不接收任意 Python Tool；隔离 Provider 不可用时必须 fail closed。
 - ToolExecutionContext 是运行时快照而非 durable fact；跨进程人工审批需要独立持久状态机。
 - steer/follow-up 已有 durable enqueue/claim/deliver/cancel；JSONL 仍缺少跨进程文件锁，因此 claim lease 目前主要提供可验证的恢复契约，而不是完整的分布式队列。
+
+Middleware 通过 Profile factory、Builder.with_middleware 或 PluginAPI.register_middleware 显式组装。Builder 替换 Profile 项并追加插件快照；SessionSpec 按每项身份比较。资源由应用或插件 cleanup 管理，无运行中热重载。middleware span 与 tool_result_transformed 只包含身份、阶段、计数和分类，不承载恢复状态。

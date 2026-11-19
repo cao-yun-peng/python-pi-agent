@@ -40,6 +40,7 @@ from .domain import (
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
+    ToolResultContext,
 )
 
 
@@ -142,6 +143,13 @@ class ProviderRequestHook(Protocol):
         plan: ContextPlan,
     ) -> ContextPlan:
         """Return a request projection without mutating canonical history."""
+        ...
+
+
+class ToolResultHook(Protocol):
+    """Transform the executed result before its durable commit."""
+
+    async def transform(self, context: ToolResultContext, output: ToolOutput) -> ToolOutput:
         ...
 
 

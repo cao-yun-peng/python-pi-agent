@@ -157,3 +157,7 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## B6：从函数签名到工具契约
 
 阅读[第 33 章](../tutorials/33-tool-decorator.md)，运行示例 34，跟踪 schema 推导 → runtime 校验 → context 注入 → ToolOutput。用离线测试区分 ToolError、默认审批拒绝、Gate 拒绝、超时和取消。复杂 schema 与可插拔校验器留待后续。
+
+## B5：组合请求与工具结果变换
+
+阅读[第 34 章](../tutorials/34-middleware.md)，运行示例 35。先追踪请求投影，再追踪工具执行后的结果变换和 durable 提交；对照失败、取消和恢复。通过 tests/downstream_middleware 比较 Builder 与 Plugin 接入，并解释 SessionPlugin 和 NextTurnHook 为何保留独立语义。

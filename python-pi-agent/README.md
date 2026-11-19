@@ -195,3 +195,5 @@ live    run_settled
 41. [教程：从 agent.yaml 组装 Docker Bash Runtime](tutorials/28-configured-bash-runtime.md)
 
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。
+
+类型化工具声明见[第 33 章](tutorials/33-tool-decorator.md)与[示例 34](examples/34_tool_decorator.py)；组合检索投影和结果截断见[第 34 章](tutorials/34-middleware.md)与[示例 35](examples/35_middleware.py)。两者均离线运行。

@@ -23,6 +23,7 @@ from ..ports import (
 )
 from ..tools.approval import DenyByDefaultApprovalPolicy
 from ..tools.gates import DeclaredSideEffectGate
+from ..runtime.middleware import Middleware
 
 ToolFactory = Callable[[], Tool]
 ApprovalPolicyFactory = Callable[[], ApprovalPolicy]
@@ -47,6 +48,7 @@ class AgentProfile:
     compaction_strategy_factory: CompactionStrategyFactory | None = None
     next_turn_hook_factory: NextTurnHookFactory | None = None
     max_model_requests: int = _DEFAULT_MAX_MODEL_REQUESTS
+    middleware_factories: tuple[Callable[[], Middleware], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -83,6 +85,7 @@ class AgentProfile:
         )
         hook = self.next_turn_hook_factory
         return AgentComponents(
+            middleware=tuple(factory() for factory in self.middleware_factories),
             provider=provider,
             tools=tools,
             approval_policy=approval_policy,

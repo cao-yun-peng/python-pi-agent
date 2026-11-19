@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from uuid import uuid4
 
 from .components import AgentComponents
+from .middleware import _MiddlewareChain
 from ..domain import (
     AgentResult,
     ApprovalDecision,
@@ -32,6 +33,7 @@ from ..domain import (
     ToolDefinition,
     ToolExecutionContext,
     ToolOutput,
+    ToolResultContext,
 )
 from ..errors import (
     AgentError,
@@ -113,6 +115,7 @@ class Agent:
         self._tools = {definition.name: tool for definition, tool in tool_entries}
         self._tool_definitions = tuple(definition for definition, _ in tool_entries)
         self._event_sink = ensure_isolated_event_sink(event_sink)
+        self._middleware = _MiddlewareChain(components.middleware, self._event_sink)
         self._wiring = _AgentWiring()
         self._next_turn_hook = self._components.next_turn_hook
         self._session_id = session_id
@@ -511,6 +514,7 @@ class Agent:
             raise ContextPreparationError(
                 "context plan source_message_count does not match history"
             )
+        context = await self._middleware.prepare(request_context, context)
         hook = self._wiring.provider_request_hook
         if hook is not None:
             try:
@@ -648,7 +652,11 @@ class Agent:
                     approval=decision,
                 )
 
-            output = await self._run_tool(tool, context)
+            execution = deepcopy(context)
+            output, outcome = await self._run_tool(tool, context)
+            output = await self._middleware.transform(
+                ToolResultContext(execution, outcome, self._active_run_id, self._active_turn_id), output
+            )
             await self._commit_tool_result(call, output)
 
     async def _review_tool_call(
@@ -707,7 +715,7 @@ class Agent:
         self,
         tool: Tool,
         context: ToolExecutionContext,
-    ) -> ToolOutput:
+    ) -> tuple[ToolOutput, str]:
         call = context.call
         span_id = uuid4().hex
         started_at = time.perf_counter()
@@ -811,7 +819,7 @@ class Agent:
             call_index=context.call_index,
             session_id=context.session_id,
         )
-        return output
+        return output, outcome
 
     async def _fail_truncated_tool_calls(
         self,

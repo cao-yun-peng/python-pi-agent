@@ -2,6 +2,7 @@
 
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
+| Middleware 链（B5） | 顺序变换、投影与 durable 结果、两种失败策略 | Middleware、ProviderRequestHook、ToolResultHook、ToolResultContext | standalone/Session/Builder/Profile/Plugin；TruncateToolResults | 排序、深拷贝、失败、超时、取消恢复、插件回滚、OTel 与脱敏 | [第 34 章](../tutorials/34-middleware.md) | 能证明检索不进 replay、截断结果持久化，失败不泄漏原文且不诱导重试 |
 | 类型化工具声明（B6） | 签名与 schema 同源、显式组装 | DecoratedTool、tool、ToolError；Optional 列表校验 | 基础装饰器完成；复杂类型与可插拔校验器待后续 | schema 映射、拒绝、返回值、审批、Gate、超时、取消 | [第 33 章](../tutorials/33-tool-decorator.md) | 能从签名推导模型契约并证明普通异常文本不泄漏 |
 | 按功能组织模块 | 稳定入口、定义位置和显式依赖 | application、storage、context、observability、tools 目录及 providers/runtime、runtime 规格和句柄 | 应用组装、资源管理与配置归组；工具按职责拆分；迁移后删除原具体模块 | API/根包对象身份、原模块移除与既有行为回归 | 教程路径由后续任务更新 | 能从公开 API 定位新定义，并解释配置、组装、资源关闭、请求与执行的依赖 |
 | 配置驱动能力 | 配置定义、运行初始化、显式注册和资源归属 | CapabilitySettings、CapabilityRegistration、不可变 CapabilityCatalog | PluginAPI/PluginHost 承接工具、Hook、Session 插件及 cleanup；Bash 新旧配置统一消费 | src 外适配器、B3/B4 组合、参数校验、冲突、取消、逆序回滚与 fail-closed Bash | [第 32 章](../tutorials/32-configured-capabilities.md)、ADR 0031 | 能从配置定义新工具，验证初始化和关闭轨迹，并说明资源何时移交 Host |

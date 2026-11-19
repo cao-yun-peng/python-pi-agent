@@ -91,6 +91,14 @@ class _RecordingHook:
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_component_fields_are_consumed_through_the_builder(self) -> None:
+        from pi_agent_py.api import Middleware
+
+        middleware_requests = []
+        class RequestHook:
+            async def prepare(self, context, plan):
+                middleware_requests.append(context.request_number)
+                return plan
+        middleware = Middleware("record", provider_request=RequestHook())
         approval_policy = StaticApprovalPolicy(True)
         gate = DeclaredSideEffectGate(allowed_side_effects=("read",))
         compactor = FakeCompactionStrategy(["earlier work"])
@@ -131,6 +139,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         profile = AgentProfile(
             "combined",
+            middleware_factories=(lambda: middleware,),
             system_prompt="Be concise.",
             tool_factories=(lambda: tool,),
             approval_policy_factory=lambda: approval_policy,
@@ -156,6 +165,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await session.run("reach request limit")
 
         observations = {
+            "middleware": (middleware_requests, [1, 2, 1, 1, 2]),
             "provider": (result.message.content, "first"),
             "tools": (provider.requested_tools[0], (tool.definition,)),
             "approval_policy": (len(approval_policy.requests), 3),

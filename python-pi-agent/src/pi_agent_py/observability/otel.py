@@ -11,6 +11,7 @@ from opentelemetry.trace import Span, Status, StatusCode, Tracer, set_span_in_co
 from ..domain import AgentEventEnvelope, EventKind, TelemetryEvent
 
 _START: dict[EventKind, str] = {
+    "middleware_started": "middleware",
     "model_request_started": "model_request",
     "provider_attempt_started": "provider_attempt",
     "tool_execution_started": "tool",
@@ -18,6 +19,9 @@ _START: dict[EventKind, str] = {
     "plugin_hook_started": "hook",
 }
 _END: dict[EventKind, str] = {
+    "middleware_finished": "success",
+    "middleware_failed": "error",
+    "middleware_cancelled": "cancelled",
     "model_request_finished": "success",
     "model_request_failed": "error",
     "provider_attempt_succeeded": "success",

@@ -272,9 +272,11 @@ class SessionSpecTests(unittest.IsolatedAsyncioTestCase):
     async def test_all_component_changes_are_detected_by_identity_or_value(
         self,
     ) -> None:
+        from pi_agent_py.api import Middleware, TruncateToolResults
         provider = FakeProvider([])
         base = AgentComponents(provider)
         changes = {
+            "middleware": (Middleware("changed", tool_result=TruncateToolResults(64)),),
             "provider": FakeProvider([]),
             "tools": (_tool("new"),),
             "approval_policy": object(),

@@ -75,6 +75,10 @@ class ModelProtocolError(AgentError):
     """The provider stream violated the model event protocol."""
 
 
+class MiddlewareError(AgentError):
+    """A middleware transform failed or violated its stage contract."""
+
+
 class ContextPreparationError(AgentError):
     """A context strategy failed to prepare a valid model request."""
 
@@ -228,6 +232,7 @@ def _error_category(error: AgentError) -> str:
         (ToolExecutionGateError, "tool_execution"),
         (SandboxError, "sandbox"),
         (ContextPreparationError, "context"),
+        (MiddlewareError, "middleware"),
         (CompactionError, "compaction"),
         (PluginError, "plugin"),
         ((AgentLoopLimitError, AgentRuntimeError), "runtime"),
