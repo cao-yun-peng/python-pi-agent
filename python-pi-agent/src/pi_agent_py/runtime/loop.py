@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from copy import deepcopy
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from uuid import uuid4
 
@@ -20,6 +21,8 @@ from ..domain import (
     EventKind,
     EventProvenance,
     Finish,
+    JSONObject,
+    JSONValue,
     Message,
     ModelStreamEvent,
     NextTurnContext,
@@ -54,7 +57,6 @@ from ..ports import (
     ProviderRequestHook,
     Tool,
 )
-from ..tools.validation import validate_tool_arguments
 from ..observability._session_events import _duration_ms, _message_payload, _run_error_fields, _turn_id
 
 
@@ -607,7 +609,16 @@ class Agent:
                 continue
 
             try:
-                validate_tool_arguments(tool.definition.input_schema, call.arguments)
+                validate: Callable[[Mapping[str, JSONValue], JSONObject], object] = (
+                    self._components.schema_validator.validate
+                )
+                validation_result = validate(
+                    deepcopy(tool.definition.input_schema), deepcopy(call.arguments)
+                )
+                if validation_result is not None:
+                    if inspect.iscoroutine(validation_result):
+                        validation_result.close()
+                    raise TypeError("schema validator must return None synchronously")
             except ToolValidationError as error:
                 self._emit(
                     "tool_validation_failed",
@@ -624,6 +635,10 @@ class Agent:
                     ),
                 )
                 continue
+            except AgentError:
+                raise
+            except Exception as error:
+                raise InternalError("tool schema validator failed") from error
 
             context = _tool_execution_context(
                 call,
@@ -631,6 +646,8 @@ class Agent:
                 request_number=request_number,
                 call_index=call_index,
                 session_id=self._session_id,
+                run_id=self._active_run_id,
+                turn_id=self._active_turn_id,
             )
             if tool.definition.requires_approval:
                 decision = await self._review_tool_call(context)
@@ -650,6 +667,8 @@ class Agent:
                     call_index=call_index,
                     session_id=self._session_id,
                     approval=decision,
+                    run_id=self._active_run_id,
+                    turn_id=self._active_turn_id,
                 )
 
             execution = deepcopy(context)
@@ -766,7 +785,10 @@ class Agent:
         except TimeoutError:
             outcome = "timeout"
             output = ToolOutput(
-                content="Tool execution exceeded its timeout.",
+                content=(
+                    "Tool execution exceeded its timeout. "
+                    "The outcome may be unknown; do not retry automatically."
+                ),
                 is_error=True,
             )
         except ToolExecutionDeniedError as error:
@@ -934,6 +956,8 @@ def _tool_execution_context(
     call_index: int,
     session_id: str | None,
     approval: ApprovalDecision | None = None,
+    run_id: str | None = None,
+    turn_id: str | None = None,
 ) -> ToolExecutionContext:
     """Snapshot mutable JSON so policy and tool code cannot alter the transcript."""
     return ToolExecutionContext(
@@ -943,6 +967,8 @@ def _tool_execution_context(
         call_index=call_index,
         session_id=session_id,
         approval=approval,
+        run_id=run_id,
+        turn_id=turn_id,
     )
 
 

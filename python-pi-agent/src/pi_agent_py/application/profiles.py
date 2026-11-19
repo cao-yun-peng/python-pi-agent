@@ -18,12 +18,14 @@ from ..ports import (
     ContextStrategy,
     ModelProvider,
     NextTurnHook,
+    SchemaValidator,
     Tool,
     ToolExecutionGate,
 )
 from ..tools.approval import DenyByDefaultApprovalPolicy
 from ..tools.gates import DeclaredSideEffectGate
 from ..runtime.middleware import Middleware
+from ..tools.schema import SubsetSchemaValidator
 
 ToolFactory = Callable[[], Tool]
 ApprovalPolicyFactory = Callable[[], ApprovalPolicy]
@@ -49,6 +51,7 @@ class AgentProfile:
     next_turn_hook_factory: NextTurnHookFactory | None = None
     max_model_requests: int = _DEFAULT_MAX_MODEL_REQUESTS
     middleware_factories: tuple[Callable[[], Middleware], ...] = ()
+    schema_validator_factory: Callable[[], SchemaValidator] | None = None
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -84,7 +87,9 @@ class AgentProfile:
             else None
         )
         hook = self.next_turn_hook_factory
+        validator_factory = self.schema_validator_factory
         return AgentComponents(
+            schema_validator=(validator_factory() if validator_factory is not None else SubsetSchemaValidator()),
             middleware=tuple(factory() for factory in self.middleware_factories),
             provider=provider,
             tools=tools,

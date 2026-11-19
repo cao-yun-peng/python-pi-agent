@@ -15,11 +15,13 @@ from ..ports import (
     ContextStrategy,
     ModelProvider,
     NextTurnHook,
+    SchemaValidator,
     Tool,
     ToolExecutionGate,
 )
 from ..tools.approval import DenyByDefaultApprovalPolicy
 from ..tools.gates import DeclaredSideEffectGate
+from ..tools.schema import SubsetSchemaValidator
 from .middleware import Middleware
 
 
@@ -39,6 +41,7 @@ class CompactionComponents:
 
 
 class _ComponentChanges(TypedDict, total=False):
+    schema_validator: SchemaValidator
     middleware: tuple[Middleware, ...]
     provider: ModelProvider
     tools: tuple[Tool, ...]
@@ -65,6 +68,7 @@ class AgentComponents:
     system_prompt: str | None = None
     max_model_requests: int = _DEFAULT_MAX_MODEL_REQUESTS
     middleware: tuple[Middleware, ...] = ()
+    schema_validator: SchemaValidator = field(default_factory=SubsetSchemaValidator)
 
     def __post_init__(self) -> None:
         if type(self.max_model_requests) is not int or self.max_model_requests <= 0:

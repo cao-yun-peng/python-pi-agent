@@ -389,6 +389,8 @@ class ToolExecutionContext:
     call_index: int
     session_id: str | None = None
     approval: ApprovalDecision | None = None
+    run_id: str | None = None
+    turn_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.call.name != self.definition.name:
@@ -399,6 +401,11 @@ class ToolExecutionContext:
             raise ValueError("call_index must be greater than zero")
         if self.session_id is not None and not self.session_id.strip():
             raise ValueError("session_id must not be empty")
+        for name, value in (("run_id", self.run_id), ("turn_id", self.turn_id)):
+            if value is not None and not value.strip():
+                raise ValueError(f"{name} must not be empty")
+        if self.turn_id is not None and self.run_id is None:
+            raise ValueError("turn_id requires run_id")
 
 
 @dataclass(frozen=True, slots=True)

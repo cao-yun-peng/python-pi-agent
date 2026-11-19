@@ -7,6 +7,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
+| SchemaValidator、工具调用身份与 PluginAPI.event_sink | Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/ai/src/utils/validation.ts::validateToolArguments`、`packages/agent/src/agent-loop.ts::prepareToolCall` | 前置能力契约、显式身份、隔离观察和释放证据 | Python 提供可替换校验端口与离线 Draft 2020-12；不复制 TypeBox 参数转换或进程级 WeakMap 缓存。run/turn 是工具 context 的显式快照；插件借用观察端口，无 Store/Runtime 权限 |
 | `runtime/middleware.py`、ToolResultHook | Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb`，`packages/coding-agent/src/core/extensions/types.ts::BeforeProviderRequestEvent`、`ToolResultEventResult`、`ExtensionAPI.on`；`packages/agent/src/agent-loop.ts::ToolCallHooks` | 按阶段的能力接缝、显式注册与执行证据 | Python 使用完整值顺序链；请求不 durable，工具结果 durable；禁止翻转 is_error。没有直接对应的 Middleware 值对象，不复制 Pi 可更改 isError/usage 的结果协议或其全部拦截阶段 |
 | `tools/decorator.py` 的 tool / DecoratedTool | `packages/coding-agent/src/core/extensions/types.ts::ToolDefinition`、`packages/agent/src/types.ts::AgentTool`，commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` | 显式能力值、Consumer 与执行证据 | Pi 显式提供 TypeBox parameters；Python async 签名推导无直接对应。不引入全局注册、同步线程执行或完整 schema 框架 |
 | `application/` 与 `runtime/components.py`、`runtime/session_spec.py` | coding-agent 的组装与会话配置职责 | 显式配置、能力工厂和资源所有权接缝 | 应用层拥有配置、Catalog、Builder、Runtime facade 和 Lifecycle；运行时保留共同消费的组件/Session 规格。仅迁移定义位置，不改变取消和回滚语义 |

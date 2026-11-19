@@ -36,13 +36,13 @@ agent.yaml -> coding_profile -> BashTool -> SandboxedBashExecutor -> Docker work
 在仓库根目录创建并激活开发用虚拟环境。Windows PowerShell 使用 `py -3.11 -m venv .venv` 和 `.\.venv\Scripts\Activate.ps1`，Linux 使用 `python3.11 -m venv .venv` 和 `source .venv/bin/activate`。进入 `python-pi-agent` 后运行：
 
 ```sh
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,jsonschema]"
 python -m unittest discover -s tests -v
 python -m ruff check src tests
 python -m mypy
 ```
 
-GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包并执行离线测试。静态检查使用 Python 3.11，Ruff 检查源码与测试，mypy 以 strict 模式检查 `pi_agent_py.api`、`pi_agent_py.domain` 和 `pi_agent_py.ports`。常规 CI 中 Docker 集成测试保持跳过，本地可通过 `PI_AGENT_DOCKER_IMAGE` 显式启用。
+GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包并执行离线测试。静态检查使用 Python 3.11，Ruff 检查源码与测试，mypy 以 strict 模式检查 `pi_agent_py.api`、`pi_agent_py.domain`、`pi_agent_py.ports` 和 `pi_agent_py.tools.schema`。常规 CI 中 Docker 集成测试保持跳过，本地可通过 `PI_AGENT_DOCKER_IMAGE` 显式启用。
 
 ## 稳定应用入口
 
@@ -197,3 +197,5 @@ live    run_settled
 项目路线见 [docs/learning-path.md](docs/learning-path.md)，架构边界见 [docs/architecture.md](docs/architecture.md)。
 
 类型化工具声明见[第 33 章](tutorials/33-tool-decorator.md)与[示例 34](examples/34_tool_decorator.py)；组合检索投影和结果截断见[第 34 章](tutorials/34-middleware.md)与[示例 35](examples/35_middleware.py)。两者均离线运行。
+
+远端工具接入前的通用契约见[第 35 章](tutorials/35-generic-tool-adapter-seams.md)和[示例 36](examples/36_generic_tool_seams.py)：可替换 schema 校验、插件观察借用、工具 run/turn 身份与未知超时结果。完整校验器需可选安装 [jsonschema]，基础 API 无该依赖仍可导入。

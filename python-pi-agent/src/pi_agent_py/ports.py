@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -21,6 +21,7 @@ from .domain import (
     ContextPlan,
     DurableSessionEvent,
     JSONObject,
+    JSONValue,
     Message,
     ModelStreamEvent,
     NextTurnContext,
@@ -242,6 +243,18 @@ class SessionStore(Protocol):
         at_version: int | None = None,
     ) -> SessionSnapshot:
         """Persist a non-empty source prefix as a new target session."""
+        ...
+
+
+class SchemaValidator(Protocol):
+    """Validate arguments locally, before approval or any tool side effect."""
+
+    def supports(self, schema: Mapping[str, JSONValue]) -> bool:
+        """Return whether the complete schema fits this implementation's profile."""
+        ...
+
+    def validate(self, schema: Mapping[str, JSONValue], arguments: JSONObject) -> None:
+        """Raise ToolValidationError for invalid arguments; configuration errors for invalid schemas."""
         ...
 
 

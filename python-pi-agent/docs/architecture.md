@@ -66,6 +66,7 @@ domain.py <- ports.py <- runtime/ <- application/ <- apps
 - `providers/deepseek.py`、`providers/kimi.py` 与 `providers/glm.py` 分别隔离各自 HTTP 认证、模型参数、完成判据、错误体解析和供应商特例，并组合共享 wire codec/support；它们不是继承同一个可变大基类。GLM 适配器还负责标准 API 的 `request_id`、`tool_stream`、模型级 thinking/reasoning 约束和业务错误码映射。
 - `providers/timicc_responses.py` 独立实现 Responses API 的 typed SSE、扁平 function tool、output item 与 usage 语义，只复用 SSE framing 和基础配置/HTTP 分类。它固定发送 `store: false`，将 completed output item 保存为 provider-owned opaque state，以支持 Codex/GPT/Grok reasoning/tool 续轮；不把两套 wire format 塞进 Chat Completions codec，也不引入 `BaseOpenAIProvider`。
 - `tools/result_truncation.py` 按字符限制 content，标记计入预算；不改变 structured_content/is_error。
+- `tools/schema.py` 提供默认子集和可选离线 Draft 2020-12 校验器。SchemaValidator 由 AgentComponents → Profile/Builder 显式组装，在审批前执行；完整实现限制 dialect/vocabulary/关键字和引用来源，错误不回显参数。
 - `tools/decorator.py` 从 async 函数签名生成 DecoratedTool，显式注入 context、映射 JSON 返回与 ToolError；不承担注册、审批或执行调度。
 - `tools/function.py` 提供 `FunctionTool` 和 `ToolHandler`，把异步 Python 函数适配为 Tool。
 - `tools/approval.py` 提供默认拒绝和显式静态审批策略。
@@ -176,3 +177,5 @@ SessionSpec 的 metadata 保存为独立 JSON 快照，暴露在 RuntimeSession.
 - steer/follow-up 已有 durable enqueue/claim/deliver/cancel；JSONL 仍缺少跨进程文件锁，因此 claim lease 目前主要提供可验证的恢复契约，而不是完整的分布式队列。
 
 Middleware 通过 Profile factory、Builder.with_middleware 或 PluginAPI.register_middleware 显式组装。Builder 替换 Profile 项并追加插件快照；SessionSpec 按每项身份比较。资源由应用或插件 cleanup 管理，无运行中热重载。middleware span 与 tool_result_transformed 只包含身份、阶段、计数和分类，不承载恢复状态。
+
+PluginAPI.event_sink 只读借用 Host 的隔离观察端口，插件不拥有其关闭权。ToolExecutionContext 的 run_id/turn_id 从活动 run 显式传给审批、Gate、handler 和结果 Hook，可跨 worker 任务传递；它们不是新增 durable fact。工具外层超时明确提示结果可能未知，不授权自动重试。详见 ADR 0035。

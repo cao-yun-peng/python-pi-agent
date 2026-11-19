@@ -91,6 +91,12 @@ class _RecordingHook:
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_component_fields_are_consumed_through_the_builder(self) -> None:
+        from pi_agent_py.api import SubsetSchemaValidator
+        validated = []
+        class Validator(SubsetSchemaValidator):
+            def validate(self, schema, arguments):
+                validated.append(arguments)
+                super().validate(schema, arguments)
         from pi_agent_py.api import Middleware
 
         middleware_requests = []
@@ -139,6 +145,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         profile = AgentProfile(
             "combined",
+            schema_validator_factory=Validator,
             middleware_factories=(lambda: middleware,),
             system_prompt="Be concise.",
             tool_factories=(lambda: tool,),
@@ -165,6 +172,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await session.run("reach request limit")
 
         observations = {
+            "schema_validator": (len(validated), 3),
             "middleware": (middleware_requests, [1, 2, 1, 1, 2]),
             "provider": (result.message.content, "first"),
             "tools": (provider.requested_tools[0], (tool.definition,)),

@@ -160,6 +160,8 @@ from .tools.approval import (
     StaticApprovalPolicy,
 )
 from .tools.function import FunctionTool
+from .tools.schema import JsonSchemaValidator, SubsetSchemaValidator
+from .ports import SchemaValidator
 from .tools.decorator import DecoratedTool, ToolError, tool
 from .tools.result_truncation import TruncateToolResults
 from .runtime.middleware import Middleware
@@ -170,6 +172,7 @@ from .tools.gates import DeclaredSideEffectGate
 from .observability.usage import ModelPrice, PricingTable, UsageLedger, UsageSummary
 
 __all__ = [
+    "SchemaValidator", "SubsetSchemaValidator", "JsonSchemaValidator",
     "Middleware", "MiddlewareError", "ToolResultContext", "ToolResultHook", "TruncateToolResults",
     "DecoratedTool", "ToolError", "tool",
     "Agent",

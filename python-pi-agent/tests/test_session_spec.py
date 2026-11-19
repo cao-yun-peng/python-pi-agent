@@ -276,6 +276,7 @@ class SessionSpecTests(unittest.IsolatedAsyncioTestCase):
         provider = FakeProvider([])
         base = AgentComponents(provider)
         changes = {
+            "schema_validator": object(),
             "middleware": (Middleware("changed", tool_result=TruncateToolResults(64)),),
             "provider": FakeProvider([]),
             "tools": (_tool("new"),),

@@ -35,6 +35,7 @@ from pi_agent_py.api import (
 
 _STABLE_EXPORTS = frozenset(
     """
+    SchemaValidator SubsetSchemaValidator JsonSchemaValidator
     Middleware MiddlewareError ToolResultContext ToolResultHook TruncateToolResults
     DecoratedTool ToolError tool
     Agent agent_event_record AGENT_EVENT_SCHEMA_VERSION AgentComponents AgentError
@@ -125,6 +126,7 @@ class PublicApiTests(unittest.TestCase):
     def test_tool_modules_supply_root_exports_without_package_aliases(self) -> None:
         import pi_agent_py
         import pi_agent_py.tools as tools
+        from pi_agent_py.tools.schema import JsonSchemaValidator, SubsetSchemaValidator
         from pi_agent_py.tools.decorator import DecoratedTool, ToolError, tool
         from pi_agent_py.tools.approval import (
             DenyByDefaultApprovalPolicy,
@@ -137,6 +139,7 @@ class PublicApiTests(unittest.TestCase):
         from pi_agent_py.tools.validation import validate_tool_arguments
 
         for exported in (
+            JsonSchemaValidator, SubsetSchemaValidator,
             DecoratedTool, ToolError, tool,
             FunctionTool, SandboxedShellTool, TrustedToolExecutionGate,
             validate_tool_arguments, DockerProcessSandbox, BashTool,

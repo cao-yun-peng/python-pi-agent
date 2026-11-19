@@ -35,6 +35,7 @@ from ..ports import (
     EventSink,
     ModelProvider,
     NextTurnHook,
+    SchemaValidator,
     SessionStore,
     SessionSpecResolver,
     TelemetrySink,
@@ -84,6 +85,7 @@ class AgentRuntimeBuilder:
         self._approval_policy: ApprovalPolicy | None = None
         self._execution_gate: ToolExecutionGate | None = None
         self._context_strategy: ContextStrategy | None = None
+        self._schema_validator: SchemaValidator | None = None
         self._compaction_policy: CompactionPolicy | None = None
         self._compaction_strategy: CompactionStrategy | None = None
         self._next_turn_hook: NextTurnHook | None = None
@@ -249,6 +251,11 @@ class AgentRuntimeBuilder:
         strategy: ContextStrategy,
     ) -> AgentRuntimeBuilder:
         self._context_strategy = strategy
+        return self
+
+    def with_schema_validator(self, validator: SchemaValidator) -> AgentRuntimeBuilder:
+        """Replace the Profile's argument validator before component assembly."""
+        self._schema_validator = validator
         return self
 
     def with_compaction(
@@ -432,6 +439,9 @@ class AgentRuntimeBuilder:
             raise ConfigurationError("compaction policy requires a compaction strategy")
         return replace(
             profile,
+            schema_validator_factory=_override_factory(
+                self._schema_validator, profile.schema_validator_factory
+            ),
             middleware_factories=(
                 tuple(_constant_factory(item) for item in self._middleware)
                 if self._middleware is not None else profile.middleware_factories

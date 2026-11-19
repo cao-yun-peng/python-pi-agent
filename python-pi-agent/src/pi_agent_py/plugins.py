@@ -96,6 +96,11 @@ class Registration:
 class PluginAPI(Protocol):
     """Capabilities a plugin factory may register during explicit setup."""
 
+    @property
+    def event_sink(self) -> EventSink:
+        """Borrow the host's isolated observer; ownership stays with the application."""
+        ...
+
     def register_tool(self, tool: Tool) -> Registration:
         """Stage one model-callable tool."""
         ...
@@ -201,13 +206,18 @@ class _PluginState:
 class _StagedPluginAPI:
     """Collects registrations privately until the factory succeeds."""
 
-    def __init__(self, plugin_name: str) -> None:
+    def __init__(self, plugin_name: str, event_sink: EventSink) -> None:
         self.plugin_name = plugin_name
+        self._event_sink = event_sink
         self.tools: list[_ToolRegistration] = []
         self.hooks: list[_HookRegistration] = []
         self.cleanups: list[_CleanupRegistration] = []
         self.session_factories: list[_SessionFactoryRegistration] = []
         self.middleware: list[_MiddlewareRegistration] = []
+
+    @property
+    def event_sink(self) -> EventSink:
+        return self._event_sink
 
     def register_middleware(self, middleware: Middleware) -> Registration:
         if not isinstance(middleware, Middleware):
@@ -557,7 +567,7 @@ class PluginHost:
             if name in self._plugins:
                 raise PluginRegistrationError(f'plugin "{name}" is already loaded')
 
-            staged = _StagedPluginAPI(name)
+            staged = _StagedPluginAPI(name, self._event_sink)
             try:
                 result = factory(staged)
                 if inspect.isawaitable(result):
