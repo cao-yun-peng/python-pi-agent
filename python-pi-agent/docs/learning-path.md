@@ -191,3 +191,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## 练习：工具定义快照
 
 运行示例 41，修改原 schema 和工具 definition，比较旧 Agent 与新 Agent 的结果和既有 tool_validation_failed/tool_execution_* 事件。阅读第三章新增小节与 ADR 0040，解释为什么隔离嵌套值和固定运行时绑定缺一不可，以及为什么不能 deepcopy handler/连接。通过 test_tool_definition_snapshots 验证审批、Gate、超时和取消；区分 Agent 生命周期与 Session 每个 run 的组装边界。
+
+
+## Workspace/read 纵向切片
+
+阅读第 39 章，运行示例 42：先以内存目录观察分页、版本、缺失文件和模型续轮，再用显式本地 Python Docker 镜像读取真实 workspace。解释路径规范化与 Linux no-follow 打开的职责、原始文件预算与输出页预算的区别，并通过 test_workspace_read 证明 Gate/审批零访问、取消和符号链接/FIFO 拒绝。read_only_profile 仅放行注册的 read；下一阶段从同一文件端口扩展 write 的提交与版本冲突契约。

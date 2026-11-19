@@ -107,6 +107,20 @@ class CompactionPolicyError(CompactionError):
     """Automatic compaction policy evaluation failed."""
 
 
+class WorkspaceFileError(AgentError):
+    """Safe filesystem failure code; raw I/O diagnostics stay in the cause."""
+
+    def __init__(self, code: str) -> None:
+        if code not in {
+            "not_found", "not_file", "symlink_denied", "permission_denied",
+            "too_large", "not_utf8", "line_too_long", "invalid_offset",
+            "changed", "unavailable", "protocol_error",
+        }:
+            raise ValueError("unknown workspace file error code")
+        self.code = code
+        super().__init__(f"Workspace read failed ({code}).")
+
+
 class ToolValidationError(AgentError):
     """Tool arguments do not satisfy the declared input schema."""
 

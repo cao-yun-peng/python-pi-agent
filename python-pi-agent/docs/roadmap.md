@@ -145,3 +145,8 @@ MCP 方案阶段 0 已完成，随 `feat: add generic tool adapter seams` 提交
 阶段 3 的 Streamable HTTP、显式 headers 和 JSON/SSE 接收预算已完成，随 `feat: add bounded MCP Streamable HTTP transport` 提交；见 [ADR 0038](adr/0038-mcp-streamable-http-budgets.md)、教程 37 HTTP 小节、示例 39。下一项为纯 YAML Settings/显式 SecretResolver/CapabilityCatalog 和稳定 API。
 
 阶段 4 的纯 YAML Settings、显式 SecretResolver、CapabilityCatalog 接线、稳定 API 与教学交付已完成，随 `feat: configure MCP capabilities with explicit secrets` 提交；见 [ADR 0039](adr/0039-configured-mcp-capability.md)、教程 38、示例 40。E1 的首版客户端切片完成；OAuth、动态 exposure、重连、租户池和 stdio 原始行预算继续作为非首版扩展。
+
+
+## Workspace/read 阶段 1 已完成
+
+WorkspaceFiles、请求/预算/结果、ReadTool、内存测试替身和只读 ProcessSandbox Provider 已贯通，含分页/版本、路径/no-follow、原始读取与输出预算、审批/Gate、失败与取消。read_only_profile 只放行显式 read，coding_profile 支持 bash/read；无自动 YAML 注册。真实 Docker 验证使用已存在的本地 Linux Python 镜像。下一阶段实现 write 的类型化提交、版本冲突与取消结果语义，再接 edit；read/search/patch 共用文件边界仍按增量推进。见 ADR 0041、第 39 章、示例 42。

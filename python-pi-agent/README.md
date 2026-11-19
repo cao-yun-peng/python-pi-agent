@@ -201,3 +201,5 @@ live    run_settled
 类型化工具声明见[第 33 章](tutorials/33-tool-decorator.md)与[示例 34](examples/34_tool_decorator.py)；组合检索投影和结果截断见[第 34 章](tutorials/34-middleware.md)与[示例 35](examples/35_middleware.py)。两者均离线运行。
 
 远端工具接入前的通用契约见[第 35 章](tutorials/35-generic-tool-adapter-seams.md)和[示例 36](examples/36_generic_tool_seams.py)：可替换 schema 校验、插件观察借用、工具 run/turn 身份与未知超时结果。完整校验器需可选安装 [jsonschema]，基础 API 无该依赖仍可导入。
+
+workspace 文件端口和 `read` 工具见[第 39 章](tutorials/39-workspace-read.md)与[示例 42](examples/42_workspace_read.py)。默认以内存文件和 FakeProvider 离线展示分页、版本、错误与事件；显式选择本地 Docker Python 镜像可读取真实 workspace。`read_only_profile()` 只放行已注册的 read，`coding_profile()` 支持显式注册的 bash/read。

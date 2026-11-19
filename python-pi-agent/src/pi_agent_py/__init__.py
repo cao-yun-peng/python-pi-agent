@@ -242,7 +242,16 @@ from .application.capabilities.mcp import (
     parse_mcp_settings, mcp_capability_registration,
 )
 
+from .domain import WorkspaceReadLimits, WorkspaceReadRequest, WorkspaceReadResult
+from .ports import WorkspaceFiles
+from .errors import WorkspaceFileError
+from .tools.read import ReadTool
+from .tools.workspace import SandboxedWorkspaceFiles
+from .application.profiles import read_only_profile
+
 __all__ = [
+    "WorkspaceReadLimits", "WorkspaceReadRequest", "WorkspaceReadResult", "WorkspaceFiles",
+    "WorkspaceFileError", "ReadTool", "SandboxedWorkspaceFiles", "read_only_profile",
     "AllowedMcpConnections",
     "McpCallResult",
     "McpConnectionSpec",

@@ -150,6 +150,60 @@ class ToolDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkspaceReadRequest:
+    """A text page addressed relative to one explicitly bound workspace."""
+
+    path: str
+    offset: int = 1
+    limit: int = 200
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.path, str) or not self.path.strip()
+            or any(c in self.path for c in ("\\", ":", "\x00"))
+            or self.path.startswith(("/", "~"))
+            or len(self.path.encode("utf-8")) > 4096
+        ):
+            raise ValueError("workspace path must be a relative POSIX file path")
+        path = PurePosixPath(self.path)
+        if not path.parts or ".." in path.parts:
+            raise ValueError("workspace path must stay inside the workspace")
+        object.__setattr__(self, "path", path.as_posix())
+        for name, value in (("offset", self.offset), ("limit", self.limit)):
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceReadLimits:
+    """Application-owned budgets, never enlarged by model arguments."""
+
+    max_file_bytes: int = 1_048_576
+    max_output_bytes: int = 51_200
+    max_lines: int = 2_000
+
+    def __post_init__(self) -> None:
+        for name, value in (("max_file_bytes", self.max_file_bytes),
+                            ("max_output_bytes", self.max_output_bytes), ("max_lines", self.max_lines)):
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceReadResult:
+    """One bounded page; version hashes the original complete bounded file bytes."""
+
+    path: str
+    text: str
+    offset: int
+    returned_lines: int
+    total_lines: int
+    total_bytes: int
+    version: str
+    next_offset: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ToolOutput:
     """A finalized tool result with separate model and programmatic content."""
 

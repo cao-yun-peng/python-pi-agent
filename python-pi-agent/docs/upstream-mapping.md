@@ -83,3 +83,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## 工具定义快照补充
 
 固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/agent/src/types.ts::AgentTool` 和 `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts::wrapToolDefinition` 对应工具协议与适配边界。本项目在 Python ToolDefinition 增加嵌套 JSON 隔离，并在 Agent 构造时固定契约、委托原实现，避免移植动态扩展/UI 注册体系。不是照搬 Pi 的不可变性保证，也不增加定义的 durable 版本或热重载。证据见 ADR 0040、第三章、示例 41 和 test_tool_definition_snapshots。
+
+
+## WorkspaceFiles/read 映射
+
+对照固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/tools/read.ts::ReadOperations/createReadToolDefinition` 与 `truncate.ts::truncateHead`：借鉴模型工具与底层操作分离、offset/limit、行数与字节双预算及续读提示。本项目通过 WorkspaceFiles 和只读 ProcessSandbox 执行，拒绝绝对路径、全部符号链接及非普通文件；不移植图片缩放、平台文件名模糊匹配或 TUI。DeepSeek Harness 对应 Definition/Provider/Consumer/Lifecycle/Evidence 能力接缝，当前不拆分发布包。见 ADR 0041、示例 42、第 39 章与 test_workspace_read。

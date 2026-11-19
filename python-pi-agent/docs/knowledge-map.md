@@ -51,3 +51,10 @@
 | 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|
 | 工具契约隔离与运行时绑定 | frozen 外壳不能冻结嵌套 JSON，多次读取定义可能漂移 | domain.ToolDefinition + runtime.loop 私有 Tool 绑定 | test_tool_definition_snapshots：嵌套隔离、定义替换、Provider、审批/Gate/超时、重名、取消 | 第三章 / 示例 41 / ADR 0040 | 能证明模型与执行使用同一契约，并解释新 Agent 生效及活资源不复制 |
+
+
+## Workspace 文件读取补充
+
+| 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
+|---|---|---|---|---|---|
+| WorkspaceFiles 与 read | 路径边界、no-follow、有限读取、UTF-8 完整行分页、版本和借用生命周期 | 领域 DTO + WorkspaceFiles + ReadTool + 沙箱 Provider；内存替身共用投影 | test_workspace_read：字节/行预算、EOF、编码、Gate/审批、取消、POSIX/Docker 集成 | 第 39 章 / 示例 42 / ADR 0041 | 能替换 backend，解释只读挂载与路径检查、页截断与完整文件版本；write/edit 待后续 |

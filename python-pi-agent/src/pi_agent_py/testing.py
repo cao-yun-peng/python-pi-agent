@@ -17,6 +17,9 @@ from .domain import (
     ToolDefinition,
 )
 from .errors import CompactionError, ProviderError
+from .domain import WorkspaceReadLimits, WorkspaceReadRequest, WorkspaceReadResult
+from .errors import WorkspaceFileError
+from .tools.workspace import project_workspace_text
 from .tools.mcp.contracts import (
     McpCallResult, McpConnectionError, McpConnectionSpec, McpToolDescriptor,
     McpTransportError,
@@ -30,6 +33,21 @@ class WaitUntilCancelled:
 
 FakeStep: TypeAlias = ModelStreamEvent | Exception | WaitUntilCancelled
 FakeCompactionStep: TypeAlias = str | Exception | WaitUntilCancelled
+
+
+class InMemoryWorkspaceFiles:
+    """A per-instance immutable bytes catalog using production page semantics."""
+
+    def __init__(self, files: Mapping[str, bytes], *, limits: WorkspaceReadLimits | None = None) -> None:
+        self._files = {WorkspaceReadRequest(path).path: bytes(data) for path, data in files.items()}
+        self._limits = limits or WorkspaceReadLimits()
+
+    async def read_text(self, request: WorkspaceReadRequest) -> WorkspaceReadResult:
+        try:
+            data = self._files[request.path]
+        except KeyError as error:
+            raise WorkspaceFileError("not_found") from error
+        return project_workspace_text(request, data, self._limits)
 
 
 class FakeProvider:

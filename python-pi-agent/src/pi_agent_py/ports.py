@@ -42,6 +42,8 @@ from .domain import (
     ToolExecutionContext,
     ToolOutput,
     ToolResultContext,
+    WorkspaceReadRequest,
+    WorkspaceReadResult,
 )
 
 
@@ -285,6 +287,19 @@ class ToolExecutionGate(Protocol):
         context: ToolExecutionContext,
     ) -> ToolOutput:
         """Apply policy to the bound Tool contract and invoke it; this is not OS isolation."""
+        ...
+
+
+class WorkspaceFiles(Protocol):
+    """Borrowed workspace access; implementations enforce paths and read budgets.
+
+    Reads raise WorkspaceFileError with a safe code, preserve cancellation, and
+    acquire/release per-call resources. Construction performs no file reads.
+    Future mutations will extend this boundary with their own contracts.
+    """
+
+    async def read_text(self, request: WorkspaceReadRequest) -> WorkspaceReadResult:
+        """Read one bounded UTF-8 page, without following symbolic links."""
         ...
 
 

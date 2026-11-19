@@ -39,6 +39,8 @@ _STABLE_EXPORTS = frozenset(
     SchemaValidator SubsetSchemaValidator JsonSchemaValidator
     Middleware MiddlewareError ToolResultContext ToolResultHook TruncateToolResults
     DecoratedTool ToolError tool
+    WorkspaceReadLimits WorkspaceReadRequest WorkspaceReadResult WorkspaceFiles
+    WorkspaceFileError ReadTool SandboxedWorkspaceFiles read_only_profile
     Agent agent_event_record AGENT_EVENT_SCHEMA_VERSION AgentComponents AgentError
     AgentEvent AgentEventEnvelope AgentLoopLimitError AgentProfile AgentResult
     AgentRuntime AgentRuntimeBuilder AgentRuntimeError AgentSession ApprovalDecision
