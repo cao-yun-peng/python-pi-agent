@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from typing import Literal
 from uuid import uuid4
 
-from .domain import (
+from ..domain import (
     EventKind,
     Message,
     ModelStreamEvent,
@@ -19,7 +19,7 @@ from .domain import (
     ProviderRequestPurpose,
     ToolDefinition,
 )
-from .errors import (
+from ..errors import (
     ProviderExhaustedError,
     ProviderHTTPError,
     ProviderRateLimitError,
@@ -27,8 +27,8 @@ from .errors import (
     ProviderTimeoutError,
     ProviderTransportError,
 )
-from .observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
-from .ports import BackoffStrategy, EventSink, ModelProvider, RetryPolicy, RoutePolicy
+from ..observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
+from ..ports import BackoffStrategy, EventSink, ModelProvider, RetryPolicy, RoutePolicy
 
 RetryAction = Literal["retry_same", "try_next", "fail"]
 Sleep = Callable[[float], Awaitable[None]]

@@ -102,12 +102,12 @@ class PublicApiTests(unittest.TestCase):
         from pi_agent_py.observability.usage import UsageLedger
         from pi_agent_py.storage.jsonl import JsonlSessionStore
         from pi_agent_py.storage.memory import InMemorySessionStore
-        from pi_agent_py.tools.core import (
-            DeclaredSideEffectGate,
+        from pi_agent_py.tools.approval import (
             DenyByDefaultApprovalPolicy,
-            FunctionTool,
             StaticApprovalPolicy,
         )
+        from pi_agent_py.tools.function import FunctionTool
+        from pi_agent_py.tools.gates import DeclaredSideEffectGate
 
         objects = (
             ModelCompactionStrategy, FullHistoryContextStrategy, EventHub,
@@ -123,23 +123,52 @@ class PublicApiTests(unittest.TestCase):
     def test_tool_modules_supply_root_exports_without_package_aliases(self) -> None:
         import pi_agent_py
         import pi_agent_py.tools as tools
-        from pi_agent_py.tools.core import (
-            FunctionTool,
-            SandboxedShellTool,
-            TrustedToolExecutionGate,
-            validate_tool_arguments,
+        from pi_agent_py.tools.approval import (
+            DenyByDefaultApprovalPolicy,
+            StaticApprovalPolicy,
         )
+        from pi_agent_py.tools.function import FunctionTool
+        from pi_agent_py.tools.gates import DeclaredSideEffectGate, TrustedToolExecutionGate
         from pi_agent_py.tools.sandbox import DockerProcessSandbox
-        from pi_agent_py.tools.shell import BashTool, SandboxedBashExecutor
+        from pi_agent_py.tools.shell import BashTool, SandboxedBashExecutor, SandboxedShellTool
+        from pi_agent_py.tools.validation import validate_tool_arguments
 
         for exported in (
             FunctionTool, SandboxedShellTool, TrustedToolExecutionGate,
             validate_tool_arguments, DockerProcessSandbox, BashTool,
-            SandboxedBashExecutor,
+            SandboxedBashExecutor, DenyByDefaultApprovalPolicy,
+            StaticApprovalPolicy, DeclaredSideEffectGate,
         ):
             with self.subTest(exported=exported.__name__):
                 self.assertIs(getattr(pi_agent_py, exported.__name__), exported)
                 self.assertFalse(hasattr(tools, exported.__name__))
+
+    def test_provider_runtime_modules_supply_root_exports(self) -> None:
+        import pi_agent_py
+        from pi_agent_py.providers.runtime import (
+            AttemptFailure,
+            AttemptSummary,
+            CapabilityRoutePolicy,
+            DefaultRetryPolicy,
+            DirectModelRuntime,
+            FullJitterBackoff,
+            ProviderCandidate,
+            ResilientModelRuntime,
+            RetryDecision,
+        )
+
+        for exported in (
+            AttemptFailure, AttemptSummary, CapabilityRoutePolicy,
+            DefaultRetryPolicy, DirectModelRuntime, FullJitterBackoff,
+            ProviderCandidate, ResilientModelRuntime, RetryDecision,
+        ):
+            with self.subTest(exported=exported.__name__):
+                self.assertIs(getattr(pi_agent_py, exported.__name__), exported)
+
+    def test_run_handle_is_defined_in_runtime(self) -> None:
+        from pi_agent_py.runtime.run_handle import RunHandle
+
+        self.assertIs(api.RunHandle, RunHandle)
 
     def test_relocated_module_paths_are_removed(self) -> None:
         for name in (
@@ -147,6 +176,7 @@ class PublicApiTests(unittest.TestCase):
             "events", "event_hub", "telemetry", "otel", "usage",
             "runtime._persistence", "runtime._observation",
             "shell", "sandbox",
+            "model_runtime", "run_handle", "tools.core",
         ):
             with self.subTest(module=name):
                 self.assertIsNone(find_spec(f"pi_agent_py.{name}"))

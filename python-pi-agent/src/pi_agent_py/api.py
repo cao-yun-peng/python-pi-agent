@@ -143,19 +143,19 @@ from .ports import (
 )
 from .profiles import AgentProfile, coding_profile, minimal_profile
 from .provider_catalog import ProviderRegistration, ProviderSettingsParser
-from .run_handle import RunHandle
+from .runtime.run_handle import RunHandle
 from .runtime.loop import Agent
 from .runtime.session import AgentSession
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
 from .session_spec import SessionSpec, StaticSessionSpecResolver
 from .observability.telemetry import LoggingTelemetrySink
-from .tools.core import (
-    DeclaredSideEffectGate,
+from .tools.approval import (
     DenyByDefaultApprovalPolicy,
-    FunctionTool,
     StaticApprovalPolicy,
 )
+from .tools.function import FunctionTool
+from .tools.gates import DeclaredSideEffectGate
 from .observability.usage import ModelPrice, PricingTable, UsageLedger, UsageSummary
 
 __all__ = [

@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
-from .domain import AgentResult
-from .observability.event_hub import EventSubscription
+from ..domain import AgentResult
+from ..observability.event_hub import EventSubscription
 
 
 class RunHandle:

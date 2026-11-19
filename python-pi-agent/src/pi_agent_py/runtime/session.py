@@ -32,7 +32,7 @@ from ..ports import (
     Tool,
     ToolExecutionGate,
 )
-from ..run_handle import RunHandle
+from .run_handle import RunHandle
 from ..storage.transitions import find_unresolved_tool_calls
 from ..observability._session_events import _SessionEvents, _message_payload, _turn_id
 from ..storage._writer import _SessionWriter, _call_session_store

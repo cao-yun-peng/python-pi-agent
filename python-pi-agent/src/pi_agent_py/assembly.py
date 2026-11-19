@@ -18,7 +18,7 @@ from .configuration import (
 from .domain import Message, NextTurnContext
 from .errors import ConfigurationError, RuntimeBuildError, RuntimeCloseError
 from .lifecycle import Cleanup, LifecycleScope, ManagedResource, ResourceOwnership
-from .model_runtime import (
+from .providers.runtime import (
     DefaultRetryPolicy,
     DirectModelRuntime,
     FullJitterBackoff,

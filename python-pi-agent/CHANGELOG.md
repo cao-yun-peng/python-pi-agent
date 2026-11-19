@@ -18,9 +18,19 @@
   | `pi_agent_py.otel` | `pi_agent_py.observability.otel` |
   | `pi_agent_py.usage` | `pi_agent_py.observability.usage` |
   | `pi_agent_py.runtime._observation` | `pi_agent_py.observability._session_events` |
-  | `pi_agent_py.tools` 的工具、审批和校验对象 | `pi_agent_py.tools.core` |
+  | `pi_agent_py.tools` / `pi_agent_py.tools.core` 的对象 | 按职责拆分，见下表 |
   | `pi_agent_py.shell` | `pi_agent_py.tools.shell` |
   | `pi_agent_py.sandbox` | `pi_agent_py.tools.sandbox` |
+  | `pi_agent_py.model_runtime` | `pi_agent_py.providers.runtime` |
+  | `pi_agent_py.run_handle` | `pi_agent_py.runtime.run_handle` |
+
+  | 工具对象 | 定义模块 |
+  |---|---|
+  | `FunctionTool`、`ToolHandler` | `pi_agent_py.tools.function` |
+  | `DenyByDefaultApprovalPolicy`、`StaticApprovalPolicy` | `pi_agent_py.tools.approval` |
+  | `DeclaredSideEffectGate`、`TrustedToolExecutionGate` | `pi_agent_py.tools.gates` |
+  | `validate_tool_arguments` | `pi_agent_py.tools.validation` |
+  | `SandboxedShellTool` | `pi_agent_py.tools.shell` |
 
   教程、示例和下游示范包的具体路径在后续任务调整。
 

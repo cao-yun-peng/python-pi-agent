@@ -9,7 +9,9 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
                |           ├── context/strategies.py implements ContextStrategy
                |           ├── context/compaction.py implements CompactionStrategy
                |           ├── plugins.py assembles Tool / NextTurnHook
-               |           ├── tools/core.py provides generic tools, approval, and gates
+               |           ├── tools/function.py adapts Python functions
+               |           ├── tools/approval.py and tools/gates.py enforce declared policy
+               |           ├── tools/validation.py validates tool arguments
                |           ├── tools/shell.py consumes ShellExecutor as BashTool
                |           └── tools/sandbox.py implements ProcessSandbox
                |                         ├── profiles.py defines product defaults
@@ -17,7 +19,7 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
                |                         └── assembly.py builds AgentRuntime
                ├── observability/events.py implements isolation, redaction, and buffering
                ├── configuration.py parses explicit YAML and secret references
-               ├── model_runtime.py composes routing, retry, backoff, and fallback
+               ├── providers/runtime.py composes routing, retry, backoff, and fallback
                ├── storage/transitions.py provides pure state transitions
                ├── storage/memory.py implements SessionStore
                ├── storage/jsonl.py implements persistent SessionStore
@@ -37,6 +39,7 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 - `runtime/loop.py` 执行单次 Agent run，消费模型流、提交消息、执行顺序工具调用并发布 run 事件。
 - `runtime/session.py` 管理单个 Session 的组件、插件 lease、历史恢复与 run 装配。它通过 `storage/_writer.py` 逐消息写入 `SessionStore`。
 - `runtime/control.py` 独占 FIFO 队列、活跃任务和 idle 状态，负责 steer、follow-up、取消、durable claim 和恢复。Session 向它提供 run 执行与插件终态回调。
+- `runtime/run_handle.py` 提供单个排队 run 的身份、事件流、结果等待和定向取消。结果等待者取消或关闭事件流不会自动取消 run。
 - `runtime/compaction_orchestration.py` 执行手动和自动压缩，通过同一 Session writer 提交摘要。自动压缩接入 run 准备和工具续轮前的 Hook。
 - `pi_agent_py.runtime` 提供 `Agent` 与 `AgentSession` 的兼容导入。run 订阅在入队前绑定，应用层通过 SessionSpec 选择每个 controller 的组件。
 - `app_runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
@@ -55,14 +58,17 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 - `storage/jsonl.py` 提供带格式版本、严格解码和刷盘语义的 `JsonlSessionStore`。
 - `observability/events.py` 提供同步观察适配器、runtime 失败隔离、日志脱敏和显式关闭的有界后台投递。
 - `configuration.py` 是应用组装边界：把显式 YAML 解析成不含密钥的强类型 spec，再按 override → process env → 指定 dotenv 解析凭据；可选 Bash 节只保存 Docker workspace、镜像、资源边界和网络开关。它不搜索父目录、不修改进程环境，并只暴露脱敏诊断。
-- `model_runtime.py` 在原始 `ModelProvider` 之上提供一次调用且保留原始错误的 `DirectModelRuntime`，以及组合 `RoutePolicy`、`RetryPolicy` 和 `BackoffStrategy` 的 `ResilientModelRuntime`。它不解析供应商 wire protocol，也不改变 Agent loop 的逻辑请求计数。
+- `providers/runtime.py` 在原始 `ModelProvider` 之上提供一次调用且保留原始错误的 `DirectModelRuntime`，以及组合 `RoutePolicy`、`RetryPolicy` 和 `BackoffStrategy` 的 `ResilientModelRuntime`。它不解析供应商 wire protocol，也不改变 Agent loop 的逻辑请求计数。
 - `testing.py` 是确定性 Provider 实现，也是 Provider 契约的第一份证据。
 - `providers/_sse.py` 只处理 SSE event/data framing；`providers/_openai_compat.py` 只处理 OpenAI-compatible Chat Completions 的消息/工具序列化、tool call 分片与 usage 归一化。二者都不拥有认证、URL 或模型能力。
 - `providers/_provider_support.py` 集中一等 Provider 的默认模型/端点、基础配置校验和通用 HTTP 状态分类；它不读取配置文件、不拥有流式控制流，也不形成 Provider 基类。
 - `providers/deepseek.py`、`providers/kimi.py` 与 `providers/glm.py` 分别隔离各自 HTTP 认证、模型参数、完成判据、错误体解析和供应商特例，并组合共享 wire codec/support；它们不是继承同一个可变大基类。GLM 适配器还负责标准 API 的 `request_id`、`tool_stream`、模型级 thinking/reasoning 约束和业务错误码映射。
 - `providers/timicc_responses.py` 独立实现 Responses API 的 typed SSE、扁平 function tool、output item 与 usage 语义，只复用 SSE framing 和基础配置/HTTP 分类。它固定发送 `store: false`，将 completed output item 保存为 provider-owned opaque state，以支持 Codex/GPT/Grok reasoning/tool 续轮；不把两套 wire format 塞进 Chat Completions codec，也不引入 `BaseOpenAIProvider`。
-- `tools/core.py` 提供 `FunctionTool`、审批策略、声明式副作用 Gate、兼容期 `SandboxedShellTool` 和可替换的 schema 校验边界。
-- `tools/shell.py` 提供模型侧 `BashTool` Consumer 和 `SandboxedBashExecutor` Provider；前者只投影命名后的 `command/workdir/timeout_seconds`，后者把工作目录限制在 `/workspace`、施加超时上限，并以固定 `/bin/bash -lc` argv 消费 `ProcessSandbox`。
+- `tools/function.py` 提供 `FunctionTool` 和 `ToolHandler`，把异步 Python 函数适配为 Tool。
+- `tools/approval.py` 提供默认拒绝和显式静态审批策略。
+- `tools/gates.py` 提供声明式副作用与工具名 allowlist Gate，以及显式信任的 Gate。
+- `tools/validation.py` 实现当前支持的 JSON Schema 子集校验，不执行工具或审批。
+- `tools/shell.py` 提供模型侧 `BashTool` Consumer 和 `SandboxedBashExecutor` Provider；前者只投影命名后的 `command/workdir/timeout_seconds`，后者把工作目录限制在 `/workspace`、施加超时上限，并以固定 `/bin/bash -lc` argv 消费 `ProcessSandbox`。直接消费 `ProcessSandbox` 的 `SandboxedShellTool` 也位于本模块。
 - `tools/sandbox.py` 提供真正的 `ProcessSandbox` Provider；首个实现通过 Docker 隔离 workspace Shell。
 - `plugins.py` 提供显式、事务化的 `PluginHost`，把 Tool、Hook 与 cleanup 组合成不可变能力快照。
 
@@ -70,9 +76,9 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 
 存储实现、回放转换和逐消息 writer 集中在 `storage/`。上下文投影和摘要机制集中在 `context/`。事件、订阅、遥测和用量记账集中在 `observability/`。三个子包的初始化文件仅提供目录说明，具体能力由定义模块显式导入。
 
-第一批迁移删除原具体模块，包内引用和测试使用新路径。稳定入口 `pi_agent_py.api` 与根包公开对象指向迁移后的定义。具体模块路径映射列在 CHANGELOG，教程、示例和下游示范代码在后续任务调整。
+工具适配、审批、执行 Gate 和参数校验分别位于 `tools/function.py`、`tools/approval.py`、`tools/gates.py` 和 `tools/validation.py`；Shell 语义与 Docker 进程隔离分别位于 `tools/shell.py` 和 `tools/sandbox.py`。`tools/__init__.py` 仅提供目录说明。`configured_bash.py` 在应用组装边界解析 Settings 并通过 PluginAPI 注册工具；工具实现只依赖领域对象和端口，运行时负责调用顺序、超时与取消传播。
 
-第二批把工具适配、审批与声明式执行策略归入 `tools/core.py`，把 Shell 语义与 Docker 进程隔离分别归入 `tools/shell.py` 和 `tools/sandbox.py`。`tools/__init__.py` 仅提供目录说明，原 `tools.py`、`shell.py` 和 `sandbox.py` 已删除。`configured_bash.py` 继续在应用组装边界解析 Settings 并通过 PluginAPI 注册工具；工具实现只依赖领域对象和端口，运行时仍负责调用顺序、超时与取消传播。
+模型请求的路由、重试与 attempt 观察归入 `providers/runtime.py`，消费 run 的句柄归入 `runtime/run_handle.py`。迁移后原具体模块与临时归组模块 `tools/core.py` 已删除，稳定入口 `pi_agent_py.api` 与根包公开对象直接引用新定义。路径映射列在 CHANGELOG，教程、示例和下游示范代码在后续任务调整。
 
 ## 状态模型
 

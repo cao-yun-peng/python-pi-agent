@@ -21,7 +21,8 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .tools.core import DenyByDefaultApprovalPolicy, DeclaredSideEffectGate
+from .tools.approval import DenyByDefaultApprovalPolicy
+from .tools.gates import DeclaredSideEffectGate
 
 ToolFactory = Callable[[], Tool]
 ApprovalPolicyFactory = Callable[[], ApprovalPolicy]

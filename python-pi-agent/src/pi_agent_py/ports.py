@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from .session_spec import SessionSpec
-    from .model_runtime import (
+    from .providers.runtime import (
         AttemptFailure,
         ProviderCandidate,
         RetryDecision,

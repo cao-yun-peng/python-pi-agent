@@ -168,7 +168,7 @@ from .plugins import (
     SessionPluginContext,
     SessionPluginFactory,
 )
-from .model_runtime import (
+from .providers.runtime import (
     AttemptFailure,
     AttemptSummary,
     CapabilityRoutePolicy,
@@ -198,7 +198,7 @@ from .ports import (
 from .profiles import AgentProfile, coding_profile, minimal_profile
 from .runtime import Agent, AgentSession
 from .tools.sandbox import DockerProcessSandbox
-from .tools.shell import BashTool, SandboxedBashExecutor
+from .tools.shell import BashTool, SandboxedBashExecutor, SandboxedShellTool
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
 from .storage.transitions import (
@@ -212,15 +212,13 @@ from .storage.transitions import (
     replay_session,
 )
 from .testing import FakeCompactionStrategy, FakeProvider, WaitUntilCancelled
-from .tools.core import (
-    DeclaredSideEffectGate,
+from .tools.approval import (
     DenyByDefaultApprovalPolicy,
-    FunctionTool,
-    SandboxedShellTool,
     StaticApprovalPolicy,
-    TrustedToolExecutionGate,
-    validate_tool_arguments,
 )
+from .tools.function import FunctionTool
+from .tools.gates import DeclaredSideEffectGate, TrustedToolExecutionGate
+from .tools.validation import validate_tool_arguments
 
 __all__ = [
     "AGENT_EVENT_SCHEMA_VERSION",

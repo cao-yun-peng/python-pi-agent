@@ -47,7 +47,7 @@ from .ports import (
 )
 from .storage._writer import _call_session_store
 from .runtime.session import AgentSession
-from .run_handle import RunHandle
+from .runtime.run_handle import RunHandle
 from .session_spec import SessionSpec, StaticSessionSpecResolver
 from .observability.usage import PricingTable, UsageLedger, UsageSummary
 

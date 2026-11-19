@@ -40,3 +40,15 @@
 - `configured_bash.py` 继续属于应用组装边界。工具实现依赖 domain/ports，组装边界依赖工具实现，运行时保留执行编排。
 
 此次调整定义位置与导入，并修正迁移模块的类型描述：进程协议使用只读属性，读取方法声明按位置传参；JSON 校验避免在不同类型的循环中复用变量名。稳定 API 和根包公开对象直接引用新定义；既有审批拒绝、超时、取消与 fail-closed 测试继续验证执行契约。教程、示例和下游示范代码仍在后续任务调整。
+
+## 第三批：请求组合、run 句柄与工具职责
+
+2026-11-19 继续在当前分支迁移：
+
+- `model_runtime.py` 迁入 `providers/runtime.py`。ProviderCandidate、重试和路由策略、direct/resilient 请求组合及 attempt 观察保留原有语义。
+- `run_handle.py` 迁入 `runtime/run_handle.py`。事件订阅类型继续由 observability 提供；句柄只组合 run 身份、结果等待和定向取消。
+- 删除 `tools/core.py`，将 FunctionTool/ToolHandler、审批策略、执行 Gate、JSON 参数校验分别放入 `tools/function.py`、`tools/approval.py`、`tools/gates.py`、`tools/validation.py`。
+- SandboxedShellTool 归入已有的 `tools/shell.py`，与 BashTool 共享 Shell 功能位置，保持各自消费的端口和结果语义。
+- 包内消费、TYPE_CHECKING 引用、稳定 API 和根包导出都直接指向新定义；原路径不留兼容模块。教程、示例和下游代码仍由后续任务更新。
+
+验证包括拆分前后每个定义的语法树对比、公开对象身份和原路径移除，以及模型重试/回退/取消、run 等待和定向取消、工具失败与取消的离线回归。工具子包保持仅含说明的初始化文件。
