@@ -154,6 +154,107 @@ class DecoratorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "duplicate tool names"):
             AgentComponents(FakeProvider([]), tools=(first, second))
 
+    def test_default_must_match_parameter_schema(self) -> None:
+        for annotation, default in (
+            (int, "private-default"), (int, True), (bool, 1), (str, None),
+            (Literal["head", "tail"], "middle"), (Literal[1, 2], 3),
+            (list[int], [1, "bad"]), (list[list[int]], [[True]]),
+            (Optional[list[int]], ["bad"]),
+            (Annotated[int, "Count"], "bad"),
+        ):
+            async def example(value=default):
+                """Reject incompatible defaults before any invocation."""
+            example.__annotations__ = {"value": annotation}
+            with self.subTest(annotation=annotation, default=default):
+                with self.assertRaisesRegex(TypeError, "tool example parameter value") as caught:
+                    tool(example)
+                self.assertIsInstance(caught.exception.__cause__, ToolValidationError)
+                self.assertNotIn("private-default", str(caught.exception))
+
+    async def test_defaults_use_existing_coercion_and_preserve_explicit_values(self) -> None:
+        seen = []
+        @tool
+        async def example(
+            scale: float = 2, weights: list[float] = [1],
+            items: list[int] | None = [3], mode: Literal["head", "tail"] = "head",
+            enabled: bool = True, *, data: JSONObject = {"nested": []},
+        ):
+            """Bind valid defaults and explicit arguments."""
+            seen.append((type(scale), type(weights[0])))
+            return {"scale": scale, "items": items, "mode": mode, "enabled": enabled, "data": data}
+        output = await example.execute({}, context_for(example))
+        self.assertEqual(seen, [(float, float)])
+        self.assertEqual(output.structured_content, {
+            "scale": 2.0, "items": [3], "mode": "head", "enabled": True, "data": {"nested": []},
+        })
+        for items in (None, []):
+            output = await example.execute(
+                {"scale": 0, "items": items, "mode": "tail", "enabled": False, "data": {}},
+                context_for(example),
+            )
+            self.assertEqual(output.structured_content, {
+                "scale": 0.0, "items": items, "mode": "tail", "enabled": False, "data": {},
+            })
+
+    async def test_default_snapshot_survives_original_schema_and_handler_mutation(self) -> None:
+        original = {"nested": [1]}
+        async def example(*, data: JSONObject = original):
+            """Each invocation gets its own nested default."""
+            data["nested"].append(9)
+            return data
+        adapted = tool(example)
+        original["nested"].append(2)
+        example.__kwdefaults__["data"] = {"nested": [7]}
+        adapted.definition.input_schema["properties"]["data"]["default"]["nested"].append(8)
+        for _ in range(2):
+            output = await adapted.execute({}, context_for(adapted))
+            self.assertEqual(output.structured_content, {"nested": [1, 9]})
+        self.assertEqual(original, {"nested": [1, 2]})
+        # The original function remains available with ordinary Python semantics.
+        self.assertEqual(await adapted.fn(), {"nested": [7, 9]})
+
+    async def test_two_agents_share_tool_but_not_default_state(self) -> None:
+        @tool
+        async def append(items: list[JSONObject] = [{"values": []}]):
+            """Mutate nested values without sharing state across runs."""
+            items[0]["values"].append(1)
+            await asyncio.sleep(0)
+            return items
+        providers = [FakeProvider([
+            [ToolCall("c", "append", {}), Finish("tool_calls")], [Finish()],
+        ]) for _ in range(2)]
+        results = await asyncio.gather(*(
+            Agent(AgentComponents(provider, tools=(append,))).run("go") for provider in providers
+        ))
+        for result, provider in zip(results, providers):
+            self.assertEqual(result.messages[2].structured_content, [{"values": [1]}])
+            self.assertEqual(result.messages[1].tool_calls[0].arguments, {})
+            self.assertEqual(provider.requested_tools[0][0].input_schema["properties"]["items"]["default"], [{"values": []}])
+
+    async def test_failed_and_cancelled_calls_do_not_mutate_next_default(self) -> None:
+        entered = asyncio.Event()
+        @tool
+        async def example(mode: str, data: JSONObject = {"items": []}):
+            """Failures and cancellation also discard local default mutations."""
+            data["items"].append(mode)
+            if mode == "error":
+                raise ToolError("expected")
+            if mode == "cancel":
+                entered.set()
+                await asyncio.Event().wait()
+            return data
+        context = context_for(example)
+        self.assertTrue((await example.execute({"mode": "error"}, context)).is_error)
+        task = asyncio.create_task(example.execute({"mode": "cancel"}, context))
+        await entered.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(
+            (await example.execute({"mode": "ok"}, context)).structured_content,
+            {"items": ["ok"]},
+        )
+
     async def test_return_mapping_and_explicit_error(self) -> None:
         for value in ("text", None, {"b": 2, "a": 1}, [1], 1, 2.5, True, ToolOutput("ready")):
             @tool(description="Return a value")

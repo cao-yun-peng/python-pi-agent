@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 修复 `@tool` 默认值契约：定义时拒绝与参数类型或 Literal 不符的默认值；省略参数时从私有快照逐调用深拷贝，并应用现有类型转换，避免跨调用、跨 Agent 共享列表/字典。显式值优先，原函数直接调用与 MCP 默认值语义不变。示例 34、教程 33 和 ADR 0034 同步更新。
+
 - MCP 阶段 4：新增纯 YAML Settings、显式 SecretResolver/MappingSecretResolver、mcp_capability_registration 与稳定 API 导出。默认 Catalog 不变；全部引用和目标在首个连接前预检，复用现有插件事务。示例 40 与教程 38 完成首版教学链路，见 ADR 0039。
 
 - MCP 阶段 3：新增独立 Streamable HTTP client、显式 headers、HTTPS/loopback 策略与 JSON/SSE 接收预算；拒绝压缩、重定向与网络恢复。失败通过 SDK 兼容通道返回 unknown，正常释放资源；本地集成验证两种协议，见 ADR 0038。

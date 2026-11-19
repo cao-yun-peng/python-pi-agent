@@ -181,3 +181,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## MCP 阶段 4：配置与教学交付
 
 阅读[第 38 章](../tutorials/38-mcp-configured-capability.md)，运行示例 40。沿 Settings → 显式引用 → 目标策略 → 插件事务 → 普通 Tool → durable 结果 → 关闭追踪；证明缺 Catalog/引用/策略时无连接，并能够替换 Connector/SecretResolver 而不改主循环。
+
+
+## 练习：默认值也是工具契约
+
+运行示例 34，观察错误默认值在定义时被拒绝，以及两次 collect_tags 调用得到相同的独立结果。阅读教程 33 和 ADR 0034，解释显式 null 与省略的区别，以及为什么需要私有快照和每次深拷贝。运行 test_tool_decorator，确认双 Agent、失败及取消都不会污染下一次默认值；直接调用 .fn 仍遵循普通 Python 语义。

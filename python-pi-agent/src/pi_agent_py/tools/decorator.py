@@ -13,6 +13,8 @@ from functools import reduce
 from typing import Annotated, Any, Literal, Union, cast, get_args, get_origin, get_type_hints, overload
 
 from ..domain import JSONObject, JSONValue, ToolDefinition, ToolExecutionContext, ToolOutput, ToolSideEffects
+from ..errors import ToolValidationError
+from .validation import validate_tool_arguments
 
 ToolFunction = Callable[..., Awaitable[object]]
 
@@ -31,22 +33,29 @@ class DecoratedTool:
     def __init__(
         self, fn: ToolFunction, definition: ToolDefinition,
         annotations: dict[str, object], context_parameter: str | None,
+        defaults: JSONObject | None = None,
     ) -> None:
         self.fn = fn
         self.__wrapped__ = fn
         self._definition = definition
         self._annotations = annotations
         self._context_parameter = context_parameter
+        self._defaults = deepcopy(defaults) if defaults is not None else {}
 
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
 
     async def execute(self, arguments: JSONObject, context: ToolExecutionContext) -> ToolOutput:
-        # Validation belongs to the runtime. Python binds missing/default args.
+        # Validate supplied args in the runtime; bind isolated defaults here.
+        bound = {
+            name: deepcopy(value) for name, value in self._defaults.items()
+            if name not in arguments
+        }
+        bound.update(arguments)
         kwargs = {
             name: _coerce(self._annotations.get(name), value)
-            for name, value in arguments.items()
+            for name, value in bound.items()
         }
         if self._context_parameter is not None:
             kwargs[self._context_parameter] = context
@@ -123,6 +132,7 @@ def tool(
         properties: JSONObject = {}
         required: list[JSONValue] = []
         annotations: dict[str, object] = {}
+        defaults: JSONObject = {}
         context_parameter = None
         for parameter in signature.parameters.values():
             label = f"tool {tool_name} parameter {parameter.name}"
@@ -141,9 +151,17 @@ def tool(
                 schema = _schema(annotation)
                 if parameter.default is not parameter.empty:
                     _require_json(parameter.default)
-                    schema["default"] = deepcopy(parameter.default)
+                    default = cast(JSONValue, deepcopy(parameter.default))
+                    validate_tool_arguments(
+                        {"type": "object", "properties": {parameter.name: schema}},
+                        {parameter.name: default},
+                    )
+                    defaults[parameter.name] = default
+                    schema["default"] = deepcopy(default)
                 else:
                     required.append(parameter.name)
+            except ToolValidationError as error:
+                raise TypeError(f"{label}: default does not match parameter schema") from error
             except (TypeError, ValueError, RecursionError) as error:
                 raise TypeError(f"{label}: unsupported annotation or default") from error
             properties[parameter.name] = schema
@@ -153,7 +171,7 @@ def tool(
             side_effects=side_effects, requires_approval=requires_approval,
             retry_safe=retry_safe, replay_safe=replay_safe, timeout_seconds=timeout_seconds,
         )
-        return DecoratedTool(function, definition, annotations, context_parameter)
+        return DecoratedTool(function, definition, annotations, context_parameter, defaults)
     return decorate if fn is None else decorate(fn)
 
 

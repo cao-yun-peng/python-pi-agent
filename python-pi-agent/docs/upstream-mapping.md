@@ -73,3 +73,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 - 学 Pi：保持 Agent Loop 小，统一供应商事件，明确 session 生命周期。
 - 学 DeepSeek Harness：能力边界由 Definition、Provider、Consumer、Lifecycle 和 Evidence 共同构成。
 - 不照搬：早期不拆成大量包，不引入与当前教学目标无关的动态系统。
+
+
+## Python 工具默认值绑定补充
+
+对照固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/agent/src/types.ts::AgentTool` 与 `packages/agent/src/agent-loop.ts::prepareToolCall`：本项目保留参数校验后执行工具的边界。Python `@tool` 的定义期默认值验证、私有快照和逐调用副本属于本地函数适配器能力，无直接上游 API 对应；不修改 Pi、不把 MCP schema.default 当作本地绑定指令，也不扩展为通用参数改写/动态定义系统。证据见 test_tool_decorator、教程 33 与 ADR 0034。

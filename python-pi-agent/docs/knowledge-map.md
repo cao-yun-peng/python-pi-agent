@@ -37,3 +37,10 @@
 | Run 订阅、遥测和用量 | 有界背压、定向取消、数据投影、低基数、用量估算 | EventHub、RunHandle、LoggingTelemetrySink、UsageLedger | 可选 OTel span/指标，独立应用管理 SDK；账本保留 Runtime 内的 Session 汇总 | FakeProvider 并发隔离、慢订阅、关闭/取消、失败计量；内存 span exporter 与指标读取 | [第 29 章](../tutorials/29-run-observation.md)、ADR 0029 | 能独立消费 run 与结果，验证日志不含正文，并说明 session 用量何时不完整 |
 | 安全事件观察 | 已覆盖观察/拦截分离、失败隔离、数据最小化、统一 envelope、span、背压与生命周期 | 已完成 versioned AgentEventEnvelope、固定 JSON record、Isolated/Redacting/Buffered EventSink、model/tool/compaction/Hook span 及 durable event link | 待审计型 durable sink 与跨线程压力测试 | 已覆盖 envelope 校验/序列化、Agent/Session/Plugin 隔离、started/terminal 配对、duration、durable identity join、脱敏不变性、顺序投递、下游失败与关闭后丢弃 | 第 13 章、ADR 0021 | 能从 envelope 还原一次 run 的模型/工具/压缩/Hook 时间线，并解释 observer span 为何仍不能承担恢复事实 |
 | 评测 | 已完成 compaction 的结构、probe QA、模型裁判和 trace 分层方案 | 待实现离线 eval case 与 deterministic grader | 待数据集、真实模型 judge、持续评测与报告版本化 | 当前只有 runtime 契约测试 | `docs/compaction-evaluation.md` | 能用版本化数据比较摘要 prompt/模型/策略，并让 judge 与人工标签校准 |
+
+
+## 工具默认值契约补充
+
+| 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
+|---|---|---|---|---|---|
+| Python 工具默认值校验与隔离 | 类型注解不自动验证默认值，可变默认对象会复用 | tools/decorator.py：定义期 schema 校验、私有快照、逐调用深拷贝与转换 | test_tool_decorator：错误默认值、嵌套隔离、并发、失败、取消 | 第 33 章 / 示例 34 / ADR 0034 | 能解释省略与显式值、schema 标注与执行快照、adapter 与原函数调用的区别 |

@@ -199,3 +199,8 @@ OwnedMcpEndpoint 在同一 owner 任务持有 SDK 上下文，以有界队列和
 ## YAML MCP capability（阶段 4）
 
 application/capabilities/mcp.py 纯解析非秘密 Settings，显式注册 CapabilityCatalog。command/cwd 相对配置目录规范化，args 原样；env/header 只保存引用。应用借用 SecretResolver、共享 SchemaValidator 和精确连接策略，工厂先解析所有引用/验证头，再复用 mcp_plugin 的全部目标预检与事务。默认 Catalog 不变，无自动 SDK 导入或环境读取。稳定 api 导出 DTO/端口、SDK connector/options、Tool 和配置工厂，不暴露 SDK 类型，见 [ADR 0039](adr/0039-configured-mcp-capability.md)。
+
+
+## Python 工具默认值绑定
+
+`tools/decorator.py` 在定义时以生成的参数 schema 校验有限 JSON 默认值；失败为保留 cause 的 TypeError。DecoratedTool 保存与原函数/schema 标注分离的私有默认值快照，执行时只为省略参数复制默认值，再走已有类型转换。显式值、模型 ToolCall、审批上下文与 durable 参数不变；原函数直接调用和 MCP schema default 的语义不变。该绑定不引入新端口或主循环分支，见 ADR 0034、教程 33。

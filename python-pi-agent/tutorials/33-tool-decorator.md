@@ -10,7 +10,11 @@
 
 示例打印推导的 schema，并展示成功读取、ToolError 与参数类型错误。轨迹依次经过 tool_call_received、校验、tool_execution_started/finished 和 message_committed。类型错误不会调用函数；工具结果进入第二次模型请求。
 
-`@tool` 和 `@tool(...)` 都返回 Tool 值，无 import 注册副作用。把值显式交给 AgentComponents.tools、Builder.with_tools 或 PluginAPI.register_tool。名称默认取函数名，描述取 docstring 第一段，Annotated 的字符串描述参数。str/int/float/bool、同类型 Literal、list[T]、开放 JSON 字典、Optional 与 Annotated 可以组合。必填顺序沿用签名；有默认值的参数交给 Python 默认绑定。ToolExecutionContext 参数隐藏于 schema，执行时注入。整数传给 float 参数时转为浮点数。
+`@tool` 和 `@tool(...)` 都返回 Tool 值，无 import 注册副作用。把值显式交给 AgentComponents.tools、Builder.with_tools 或 PluginAPI.register_tool。名称默认取函数名，描述取 docstring 第一段，Annotated 的字符串描述参数。str/int/float/bool、同类型 Literal、list[T]、开放 JSON 字典、Optional 与 Annotated 可以组合。必填顺序沿用签名；默认值在定义时验证并保存，调用时由 adapter 为省略的参数补入独立深拷贝。ToolExecutionContext 参数隐藏于 schema，执行时注入。显式参数和默认值中的整数传给 float 参数时都会转为浮点数。
+
+Python 不会自动检查 `limit: int = "ten"` 的类型，也会在重复调用时复用函数的默认列表。装饰器现在用生成的参数 schema 校验有限 JSON 默认值：类型、Literal 或嵌套列表不匹配时，定义工具立即抛 TypeError，含工具名与参数名并保留异常链，不回显默认值。schema 的 default 与执行使用的私有快照独立，外部修改原列表或 schema 标注不会改变 adapter 的默认绑定。每次调用仅为省略项复制默认值，显式 None、False、0、空列表或空字典均不会被替换；必填参数仍然必填。
+
+示例 34 打印错误默认值的定义失败，并通过两次 collect_tags 调用演示相同的 `["demo", "processed"]`，第二次不会积累第一次的修改。失败、取消和两个 Agent 并发调用也各自使用独立副本；tests/test_tool_decorator.py 提供离线证据。模型原始 ToolCall、审批输入和 durable 参数仍保留实际提供的内容，不写入 adapter 补入的默认值。`.fn` / `__wrapped__` 是原函数，直接调用时保留普通 Python 默认值语义；MCP 的 schema default 仍是标注，本变更不为远端调用填值。
 
 Optional 使用 type 列表，所以校验器必须同时支持列表与嵌套 items/properties。不能生成 minimum、pattern 等当前校验器不执行的约束。复杂类型继续用 FunctionTool 和手写 schema；B6 的可插拔 SchemaValidator 留待后续。
 
