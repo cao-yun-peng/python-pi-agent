@@ -10,6 +10,7 @@ from .application.runtime import (
     SessionPoolPolicy,
 )
 from .application.builder import AgentRuntimeBuilder
+from .tools.decorator import DecoratedTool, ToolError, tool
 from .application.provider_catalog import (
     BuiltProvider,
     ProviderCatalog,
@@ -221,6 +222,7 @@ from .tools.gates import DeclaredSideEffectGate, TrustedToolExecutionGate
 from .tools.validation import validate_tool_arguments
 
 __all__ = [
+    "DecoratedTool", "ToolError", "tool",
     "AGENT_EVENT_SCHEMA_VERSION",
     "Agent",
     "AgentError",

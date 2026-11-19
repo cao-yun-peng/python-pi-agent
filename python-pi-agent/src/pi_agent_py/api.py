@@ -160,10 +160,12 @@ from .tools.approval import (
     StaticApprovalPolicy,
 )
 from .tools.function import FunctionTool
+from .tools.decorator import DecoratedTool, ToolError, tool
 from .tools.gates import DeclaredSideEffectGate
 from .observability.usage import ModelPrice, PricingTable, UsageLedger, UsageSummary
 
 __all__ = [
+    "DecoratedTool", "ToolError", "tool",
     "Agent",
     "agent_event_record",
     "AGENT_EVENT_SCHEMA_VERSION",

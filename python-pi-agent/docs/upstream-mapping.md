@@ -7,6 +7,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
+| `tools/decorator.py` 的 tool / DecoratedTool | `packages/coding-agent/src/core/extensions/types.ts::ToolDefinition`、`packages/agent/src/types.ts::AgentTool`，commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` | 显式能力值、Consumer 与执行证据 | Pi 显式提供 TypeBox parameters；Python async 签名推导无直接对应。不引入全局注册、同步线程执行或完整 schema 框架 |
 | `application/` 与 `runtime/components.py`、`runtime/session_spec.py` | coding-agent 的组装与会话配置职责 | 显式配置、能力工厂和资源所有权接缝 | 应用层拥有配置、Catalog、Builder、Runtime facade 和 Lifecycle；运行时保留共同消费的组件/Session 规格。仅迁移定义位置，不改变取消和回滚语义 |
 | `storage/`、`context/`、`observability/`、`tools/` | Pi 会话、压缩、观察与工具执行的职责 | 按能力组织实现与消费接缝 | 单一 Python 分发包内归组功能模块；工具、Shell 与进程隔离的机制映射见下表，端口仍由 ports 定义 |
 | `runtime/loop.py::Agent.run()` | `packages/agent/src/agent-loop.ts::agentLoop()` | Runtime 消费已注册能力 | 通过显式接线提交消息、接收 steer 和调用 Hook，执行顺序工具循环 |

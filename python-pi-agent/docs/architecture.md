@@ -64,6 +64,7 @@ domain.py <- ports.py <- runtime/ <- application/ <- apps
 - `providers/_provider_support.py` 集中一等 Provider 的默认模型/端点、基础配置校验和通用 HTTP 状态分类；它不读取配置文件、不拥有流式控制流，也不形成 Provider 基类。
 - `providers/deepseek.py`、`providers/kimi.py` 与 `providers/glm.py` 分别隔离各自 HTTP 认证、模型参数、完成判据、错误体解析和供应商特例，并组合共享 wire codec/support；它们不是继承同一个可变大基类。GLM 适配器还负责标准 API 的 `request_id`、`tool_stream`、模型级 thinking/reasoning 约束和业务错误码映射。
 - `providers/timicc_responses.py` 独立实现 Responses API 的 typed SSE、扁平 function tool、output item 与 usage 语义，只复用 SSE framing 和基础配置/HTTP 分类。它固定发送 `store: false`，将 completed output item 保存为 provider-owned opaque state，以支持 Codex/GPT/Grok reasoning/tool 续轮；不把两套 wire format 塞进 Chat Completions codec，也不引入 `BaseOpenAIProvider`。
+- `tools/decorator.py` 从 async 函数签名生成 DecoratedTool，显式注入 context、映射 JSON 返回与 ToolError；不承担注册、审批或执行调度。
 - `tools/function.py` 提供 `FunctionTool` 和 `ToolHandler`，把异步 Python 函数适配为 Tool。
 - `tools/approval.py` 提供默认拒绝和显式静态审批策略。
 - `tools/gates.py` 提供声明式副作用与工具名 allowlist Gate，以及显式信任的 Gate。

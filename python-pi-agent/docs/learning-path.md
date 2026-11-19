@@ -153,3 +153,7 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 安全执行方向下一步为截断输出设计 workspace 内可恢复的 spill 生命周期，明确路径、权限、清理和模型可见性；随后让 read/search/patch 共用规范化 workspace port，再设计 `read-only -> workspace-write` 与 network 的单次升级审批。不要为追求形式完整同时实现多套 OS-native runner，也不要把未知 Python 插件误认为已被 Shell sandbox 覆盖。
 
 上下文方向仍应实现 compaction eval 的最小离线切片，用版本化 case 和 deterministic grader 验证摘要保留目标、约束、工具发现和下一步；随后再处理精确 tokenizer 与资源加载。
+
+## B6：从函数签名到工具契约
+
+阅读[第 33 章](../tutorials/33-tool-decorator.md)，运行示例 34，跟踪 schema 推导 → runtime 校验 → context 注入 → ToolOutput。用离线测试区分 ToolError、默认审批拒绝、Gate 拒绝、超时和取消。复杂 schema 与可插拔校验器留待后续。

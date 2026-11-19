@@ -32,7 +32,15 @@ def _validate_value(
     violations: list[str],
 ) -> None:
     expected = schema.get("type")
-    if isinstance(expected, str) and not _matches_type(value, expected):
+    if isinstance(expected, list) and (
+        not expected or any(not isinstance(item, str) for item in expected)
+    ):
+        violations.append(f"{path}: invalid schema type list")
+        return
+    types = [expected] if isinstance(expected, str) else expected
+    if isinstance(types, list) and not any(
+        _matches_type(value, item) for item in types if isinstance(item, str)
+    ):
         violations.append(f"{path}: expected {expected}")
         return
 
@@ -40,9 +48,9 @@ def _validate_value(
     if isinstance(enum, list) and value not in enum:
         violations.append(f"{path}: value is not in enum")
 
-    if expected == "object" and isinstance(value, dict):
+    if isinstance(types, list) and "object" in types and isinstance(value, dict):
         _validate_object(value, schema, path=path, violations=violations)
-    elif expected == "array" and isinstance(value, list):
+    elif isinstance(types, list) and "array" in types and isinstance(value, list):
         items = schema.get("items")
         if isinstance(items, dict):
             for index, item in enumerate(value):

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 新增稳定 API `tool`、`DecoratedTool`、`ToolError`，从 async 函数签名生成工具。JSON Schema `type` 列表现在真正校验，并继续检查非空 object/array 的内部值；非法 type 列表明确拒绝。复杂类型与可插拔 SchemaValidator 留待后续。
+
 - **破坏性变更：移除旧构造参数和兼容接口。** 理由见 ADR 0028 第 5 节与 ADR 0031。
 
   | 旧写法 | 新写法 |

@@ -43,6 +43,20 @@ class RecordingNextTurnHook:
 
 
 class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    def test_schema_type_lists(self) -> None:
+        from pi_agent_py.errors import ToolValidationError
+        from pi_agent_py.tools.validation import validate_tool_arguments
+
+        schema = {"type": "object", "properties": {"value": {"type": ["integer", "null"]}}}
+        for value in (1, None):
+            validate_tool_arguments(schema, {"value": value})
+        for value in (True, "1"):
+            with self.assertRaises(ToolValidationError):
+                validate_tool_arguments(schema, {"value": value})
+        for invalid in ([], ["integer", False]):
+            with self.assertRaisesRegex(ToolValidationError, "invalid schema"):
+                validate_tool_arguments({"type": invalid}, {})
+
     async def test_approves_executes_and_returns_result_to_next_model_request(
         self,
     ) -> None:
