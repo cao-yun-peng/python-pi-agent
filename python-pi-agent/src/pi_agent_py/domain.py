@@ -43,6 +43,16 @@ EventSource: TypeAlias = Literal[
 ]
 SessionState: TypeAlias = Literal["idle", "running", "aborting", "settled"]
 EventKind: TypeAlias = Literal[
+    "mcp_connection_started",
+    "mcp_connection_ready",
+    "mcp_connection_failed",
+    "mcp_connection_cancelled",
+    "mcp_connection_closed",
+    "mcp_tools_discovered",
+    "mcp_request_started",
+    "mcp_request_finished",
+    "mcp_request_failed",
+    "mcp_request_cancelled",
     "middleware_started",
     "middleware_finished",
     "middleware_failed",

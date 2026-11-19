@@ -179,3 +179,11 @@ SessionSpec 的 metadata 保存为独立 JSON 快照，暴露在 RuntimeSession.
 Middleware 通过 Profile factory、Builder.with_middleware 或 PluginAPI.register_middleware 显式组装。Builder 替换 Profile 项并追加插件快照；SessionSpec 按每项身份比较。资源由应用或插件 cleanup 管理，无运行中热重载。middleware span 与 tool_result_transformed 只包含身份、阶段、计数和分类，不承载恢复状态。
 
 PluginAPI.event_sink 只读借用 Host 的隔离观察端口，插件不拥有其关闭权。ToolExecutionContext 的 run_id/turn_id 从活动 run 显式传给审批、Gate、handler 和结果 Hook，可跨 worker 任务传递；它们不是新增 durable fact。工具外层超时明确提示结果可能未知，不授权自动重试。详见 ADR 0035。
+
+## MCP 工具适配（阶段 1）
+
+`tools/mcp/contracts.py` 定义 SDK 无关 DTO、Connector/Endpoint 和连接策略；`plugin.py` 在 build 时先检查全部精确目标授权，再打开连接、立即登记 cleanup、发现目录并按显式原名 allowlist 预检。PluginHost 原子发布普通 McpTool；失败、冲突或取消逆序关闭。应用把同一 SchemaValidator 交给插件和 Builder，不修改 Agent loop。
+
+McpTool 始终声明 external、要求审批且不可安全重试/重放。稳定摘要本地名映射回绑定原名，一项调用只提交一次；输出先校验原值和已解析数据预算，再经过 B5 变换进入 Store。结构化封装保留 schema 摘要、协议版本与 null presence；未知结果使用固定错误，取消交给 Session 恢复。连接与请求 capability 事件经隔离观察入口发出，OTel 显式配对，不含参数、输出、地址或凭据。
+
+`testing.FakeMcpConnector/FakeMcpEndpoint` 验证发现至模型续轮、回滚与并发取消隔离，无 SDK/网络。SDK owner、stdio/HTTP、分页、有限队列、wire 预算、凭据解析及 YAML/facade 接线尚未实现；当前解析后预算不能替代原始读取限制。见 [ADR 0036](adr/0036-mcp-fake-tool-slice.md)。

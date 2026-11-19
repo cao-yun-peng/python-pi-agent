@@ -71,11 +71,14 @@ class SubsetSchemaTests(unittest.TestCase):
 import importlib.abc, sys
 class Block(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'jsonschema', 'referencing'}:
+        if fullname.split('.')[0] in {'jsonschema', 'referencing', 'mcp'}:
             raise ModuleNotFoundError('blocked for optional-dependency test')
 sys.meta_path.insert(0, Block())
 from pi_agent_py.api import AgentComponents, SubsetSchemaValidator, JsonSchemaValidator, ConfigurationError
-assert 'jsonschema' not in sys.modules and 'referencing' not in sys.modules
+from pi_agent_py.testing import FakeMcpConnector, FakeMcpEndpoint
+from pi_agent_py.tools.mcp.plugin import mcp_plugin
+from pi_agent_py.tools.mcp.tool import McpTool
+assert not {'jsonschema', 'referencing', 'mcp'} & sys.modules.keys()
 try:
     JsonSchemaValidator()
 except ConfigurationError as error:

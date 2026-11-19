@@ -38,6 +38,56 @@ from pi_agent_py.observability.otel import OtelTelemetrySink
 
 
 class OtelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mcp_connection_and_request_spans_pair_without_remote_content(self):
+        import asyncio
+        import importlib.util
+
+        if importlib.util.find_spec("jsonschema") is None:
+            self.skipTest("install [jsonschema]")
+        from pi_agent_py.api import DeclaredSideEffectGate, JsonSchemaValidator, StaticApprovalPolicy
+        from pi_agent_py.testing import FakeMcpConnector, FakeMcpEndpoint, WaitUntilCancelled
+        from pi_agent_py.tools.mcp.contracts import (
+            AllowedMcpConnections, McpCallResult, McpConnectionSpec, McpContent,
+            McpServerSettings, McpToolDescriptor, McpTransportError,
+        )
+        from pi_agent_py.tools.mcp.plugin import mcp_plugin
+        from pi_agent_py.tools.mcp.tool import mcp_tool_name
+
+        for mode in ("success", "failure", "cancelled"):
+            spec = McpConnectionSpec("private-server", "stdio", command="unused")
+            endpoint = FakeMcpEndpoint((McpToolDescriptor("private-tool", "Private", {"type": "object"}),),
+                {"success": [McpCallResult((McpContent("text", "private-result"),))],
+                 "failure": [McpTransportError("private-error")],
+                 "cancelled": [WaitUntilCancelled()]}[mode])
+            validator = JsonSchemaValidator()
+            provider = FakeProvider([
+                [ToolCall("c", mcp_tool_name(spec.server_id, "private-tool"), {}), Finish("tool_calls")],
+                [Finish()],
+            ])
+            runtime = await (AgentRuntimeBuilder().with_provider(provider)
+                .with_schema_validator(validator).with_approval_policy(StaticApprovalPolicy(True))
+                .with_execution_gate(DeclaredSideEffectGate(allowed_side_effects=("external",)))
+                .with_telemetry_sink(self.sink)
+                .with_plugin("mcp", mcp_plugin((McpServerSettings(spec, ("private-tool",)),),
+                    connector=FakeMcpConnector({spec.server_id: endpoint}), schema_validator=validator,
+                    connection_policy=AllowedMcpConnections((spec,)))).build())
+            async with runtime:
+                task = asyncio.create_task(runtime.run(mode, "private-prompt"))
+                if mode == "cancelled":
+                    await endpoint.blocked.wait()
+                    task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                else:
+                    await task
+        spans = self.exporter.get_finished_spans()
+        connections = [s for s in spans if s.name == "pi_agent.mcp_connection"]
+        requests = [s for s in spans if s.name == "pi_agent.mcp_request"]
+        self.assertEqual(len(connections), 3)
+        self.assertEqual([s.attributes["pi_agent.outcome"] for s in requests], ["success", "error", "cancelled"])
+        self.assertTrue(all(s.end_time >= s.start_time for s in connections + requests))
+        self.assertNotIn("private", repr([dict(s.attributes) for s in connections + requests]))
+
     async def test_middleware_spans_cover_success_failure_and_cancellation(self) -> None:
         from pi_agent_py.api import Middleware, MiddlewareError
         import asyncio

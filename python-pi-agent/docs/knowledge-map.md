@@ -2,7 +2,8 @@
 
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
-| 通用远端工具接缝（E1 阶段 0） | 校验端口、观察借用、显式身份、未知结果 | SchemaValidator、Subset/JsonSchemaValidator、PluginAPI.event_sink、context run/turn | 通用接缝完成；MCP 发现/连接/传输待后续 | 完整 schema、离线引用、审批前顺序、快照、替换、可选依赖、worker 身份、超时/取消 | [第 35 章](../tutorials/35-generic-tool-adapter-seams.md) | 能替换校验器并证明观察和取消不改变安全边界 |
+| MCP Fake 切片（E1 阶段 1） | 发现映射、连接授权、一次调用、结果投影与事务释放 | SDK 无关 DTO/端口、mcp_plugin、McpTool、FakeMcpConnector | 离线端到端完成；真实 SDK/传输、队列和 YAML 后续 | 权限零调用、输入/输出 schema、预算、回滚、取消恢复、并发隔离、JSONL/B5、OTel | [第 36 章](../tutorials/36-mcp-fake-tools.md) | 能追踪发现到 durable 续轮，证明失败不重发且构建失败关闭连接 |
+| 通用远端工具接缝（E1 阶段 0） | 校验端口、观察借用、显式身份、未知结果 | SchemaValidator、Subset/JsonSchemaValidator、PluginAPI.event_sink、context run/turn | 通用接缝完成；MCP Fake 发现见阶段 1，真实传输待后续 | 完整 schema、离线引用、审批前顺序、快照、替换、可选依赖、worker 身份、超时/取消 | [第 35 章](../tutorials/35-generic-tool-adapter-seams.md) | 能替换校验器并证明观察和取消不改变安全边界 |
 | Middleware 链（B5） | 顺序变换、投影与 durable 结果、两种失败策略 | Middleware、ProviderRequestHook、ToolResultHook、ToolResultContext | standalone/Session/Builder/Profile/Plugin；TruncateToolResults | 排序、深拷贝、失败、超时、取消恢复、插件回滚、OTel 与脱敏 | [第 34 章](../tutorials/34-middleware.md) | 能证明检索不进 replay、截断结果持久化，失败不泄漏原文且不诱导重试 |
 | 类型化工具声明（B6） | 签名与 schema 同源、显式组装 | DecoratedTool、tool、ToolError；Optional 列表校验 | 装饰器与可插拔校验器完成；复杂类型推导待后续 | schema 映射、拒绝、返回值、审批、Gate、超时、取消 | [第 33 章](../tutorials/33-tool-decorator.md) | 能从签名推导模型契约并证明普通异常文本不泄漏 |
 | 按功能组织模块 | 稳定入口、定义位置和显式依赖 | application、storage、context、observability、tools 目录及 providers/runtime、runtime 规格和句柄 | 应用组装、资源管理与配置归组；工具按职责拆分；迁移后删除原具体模块 | API/根包对象身份、原模块移除与既有行为回归 | 教程路径由后续任务更新 | 能从公开 API 定位新定义，并解释配置、组装、资源关闭、请求与执行的依赖 |

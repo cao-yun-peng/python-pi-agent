@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import AsyncIterator, Iterable, Sequence
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import TypeAlias
 
 from .domain import (
     Message,
+    JSONObject,
     ModelStreamEvent,
     ProviderRequestContext,
     ToolDefinition,
 )
 from .errors import CompactionError, ProviderError
+from .tools.mcp.contracts import (
+    McpCallResult, McpConnectionError, McpConnectionSpec, McpToolDescriptor,
+    McpTransportError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,3 +95,76 @@ class FakeCompactionStrategy:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+class FakeMcpEndpoint:
+    """Normalized endpoint script, with no SDK, subprocess or network activity.
+
+    Blocking scripts use Events; one cancelled call releases the local lock.
+    Transport owner tasks, bounded queues and wire parsing belong to SDK tests.
+    """
+
+    protocol_version = "2025-11-25"
+
+    def __init__(self, tools: Iterable[McpToolDescriptor],
+                 responses: Iterable[McpCallResult | Exception | WaitUntilCancelled] = (), *,
+                 list_error: Exception | WaitUntilCancelled | None = None) -> None:
+        self._tools = tuple(tools)
+        self._responses = deque(responses)
+        self._list_error = list_error
+        self._lock = asyncio.Lock()
+        self.blocked = asyncio.Event()
+        self.discovery_blocked = asyncio.Event()
+        self.calls: list[tuple[str, JSONObject]] = []
+        self.closed = False
+        self.close_count = 0
+
+    async def list_tools(self) -> tuple[McpToolDescriptor, ...]:
+        if self.closed:
+            raise McpConnectionError("fake MCP endpoint is closed")
+        if isinstance(self._list_error, WaitUntilCancelled):
+            self.discovery_blocked.set()
+            await asyncio.Event().wait()
+        if isinstance(self._list_error, Exception):
+            raise self._list_error
+        return self._tools
+
+    async def call_tool(self, name: str, arguments: JSONObject) -> McpCallResult:
+        async with self._lock:
+            if self.closed:
+                raise McpConnectionError("fake MCP endpoint is closed")
+            self.calls.append((name, deepcopy(arguments)))
+            if not self._responses:
+                raise McpTransportError("fake MCP endpoint has no scripted result left")
+            response = self._responses.popleft()
+            if isinstance(response, WaitUntilCancelled):
+                self.blocked.set()
+                await asyncio.Event().wait()
+                raise AssertionError("unreachable after cancellation")
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+    async def aclose(self) -> None:
+        if not self.closed:
+            self.closed = True
+            self.close_count += 1
+
+
+class FakeMcpConnector:
+    """Explicit per-server endpoints; no process-level state or automatic retries."""
+
+    def __init__(self, endpoints: Mapping[str, FakeMcpEndpoint | Exception]) -> None:
+        self._endpoints = dict(endpoints)
+        self.opens: list[McpConnectionSpec] = []
+
+    async def open(self, spec: McpConnectionSpec) -> FakeMcpEndpoint:
+        self.opens.append(spec)
+        endpoint = self._endpoints.get(spec.server_id)
+        if endpoint is None:
+            raise McpConnectionError("fake MCP server is not configured")
+        if isinstance(endpoint, Exception):
+            raise endpoint
+        if endpoint.closed:
+            raise McpConnectionError("fake MCP connector cannot reopen a closed endpoint")
+        return endpoint
