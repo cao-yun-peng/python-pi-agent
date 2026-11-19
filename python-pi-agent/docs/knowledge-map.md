@@ -2,6 +2,7 @@
 
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
+| MCP 配置（E1 阶段 4） | 纯解析、秘密引用、显式装配与目标授权 | McpCapabilitySettings、SecretResolver、mcp_capability_registration | YAML/稳定 API 完成，复用插件与 owner | 零连接预检、Catalog 双端、Fake 续轮、真实 YAML HTTP、缺 SDK 导入 | [第 38 章](../tutorials/38-mcp-configured-capability.md)、ADR 0039 | 能证明配置不自动授予启动/工具权限，秘密不入 Settings/log |
 | MCP HTTP（E1 阶段 3） | 原始接收与解析后预算、HTTP 所有权和凭据边界 | 受限 httpx2 transport、SDK Streamable HTTP | HTTP 已完成；YAML/凭据引用后续 | 字节流停止、401/断流/超限、modern/legacy、无重发和正常关闭 | [第 37 章](../tutorials/37-mcp-sdk-transports.md)、ADR 0038 | 能证明解析前拒绝，并区分 unknown 与资源清理失败 |
 | MCP SDK owner/stdio（E1 阶段 2） | 同任务上下文、有界队列、取消隔离、真实进程释放 | OwnedMcpEndpoint、SdkMcpConnector、分页 DTO 边界 | stdio 已实现；HTTP/wire 预算后续 | owner/SDK 脚本测试；显式 modern/legacy、远端取消、断连、Windows 树退出 | [第 37 章](../tutorials/37-mcp-sdk-transports.md)、ADR 0037 | 能证明跨任务关闭不泄漏且失败不重发 |
 | MCP Fake 切片（E1 阶段 1） | 发现映射、连接授权、一次调用、结果投影与事务释放 | SDK 无关 DTO/端口、mcp_plugin、McpTool、FakeMcpConnector | 离线端到端完成；真实 SDK/传输、队列和 YAML 后续 | 权限零调用、输入/输出 schema、预算、回滚、取消恢复、并发隔离、JSONL/B5、OTel | [第 36 章](../tutorials/36-mcp-fake-tools.md) | 能追踪发现到 durable 续轮，证明失败不重发且构建失败关闭连接 |

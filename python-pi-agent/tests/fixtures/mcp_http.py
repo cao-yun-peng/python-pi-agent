@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 @contextmanager
-def local_peer(mode="json", token="fixture-only"):
+def local_peer(mode="json", token="fixture-only", started=None, cancelled=None):
     calls, methods, auth = [], [], []
 
     class Handler(BaseHTTPRequestHandler):
@@ -81,6 +81,21 @@ def local_peer(mode="json", token="fixture-only"):
                 }
             elif method == "tools/call":
                 calls.append(frame["params"]["name"])
+                if mode == "wait":
+                    self.send_response(200)
+                    self.send_header("content-type", "text/event-stream")
+                    self.end_headers()
+                    self.wfile.flush()
+                    self.connection.settimeout(3)
+                    if started is not None:
+                        started.set()
+                    try:
+                        if self.connection.recv(1) == b"" and cancelled is not None:
+                            cancelled.set()
+                    except OSError:
+                        pass
+                    self.close_connection = True
+                    return
                 result = {
                     "content": [
                         {"type": "text", "text": frame["params"]["arguments"]["value"]}

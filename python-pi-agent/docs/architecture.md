@@ -195,3 +195,7 @@ OwnedMcpEndpoint 在同一 owner 任务持有 SDK 上下文，以有界队列和
 ## Streamable HTTP（阶段 3）
 
 同一个 SDK owner 显式拥有独立 httpx2 client 与受限 transport。默认 HTTPS，loopback 明文开发另需许可；TLS 保持验证，不继承环境代理/认证。SDK 解码前限制 Content-Length、流累计字节和单 SSE event，拒绝压缩、重定向及网络恢复；解析后预算仍独立执行。预接收拒绝转成固定 SDK 错误响应，流错误转成 StreamError，再由本地 fault 恢复分类，避免污染 task group/关闭。JSON/SSE、modern/legacy 与失败后正常释放均由 loopback 集成验证，见 [ADR 0038](adr/0038-mcp-streamable-http-budgets.md)。
+
+## YAML MCP capability（阶段 4）
+
+application/capabilities/mcp.py 纯解析非秘密 Settings，显式注册 CapabilityCatalog。command/cwd 相对配置目录规范化，args 原样；env/header 只保存引用。应用借用 SecretResolver、共享 SchemaValidator 和精确连接策略，工厂先解析所有引用/验证头，再复用 mcp_plugin 的全部目标预检与事务。默认 Catalog 不变，无自动 SDK 导入或环境读取。稳定 api 导出 DTO/端口、SDK connector/options、Tool 和配置工厂，不暴露 SDK 类型，见 [ADR 0039](adr/0039-configured-mcp-capability.md)。

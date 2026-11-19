@@ -177,3 +177,7 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## MCP 阶段 3：HTTP 与接收预算
 
 继续[第 37 章](../tutorials/37-mcp-sdk-transports.md)的 HTTP 小节，运行示例 39。对照解析前字节、单 SSE event 与解析后结构化预算；用 401、断流、重定向、超大 JSON/SSE 验证固定 unknown、只提交一次以及关闭正常。
+
+## MCP 阶段 4：配置与教学交付
+
+阅读[第 38 章](../tutorials/38-mcp-configured-capability.md)，运行示例 40。沿 Settings → 显式引用 → 目标策略 → 插件事务 → 普通 Tool → durable 结果 → 关闭追踪；证明缺 Catalog/引用/策略时无连接，并能够替换 Connector/SecretResolver 而不改主循环。

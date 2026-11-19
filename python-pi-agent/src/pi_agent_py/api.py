@@ -171,7 +171,49 @@ from .errors import MiddlewareError
 from .tools.gates import DeclaredSideEffectGate
 from .observability.usage import ModelPrice, PricingTable, UsageLedger, UsageSummary
 
+from .tools.mcp.contracts import (
+    AllowedMcpConnections, McpCallResult, McpConnectionSpec, McpContent, McpLimits,
+    McpServerSettings, McpToolDescriptor, McpConnector, McpEndpoint, McpConnectionPolicy,
+    McpConnectionError, McpAuthenticationError, McpProtocolError, McpTransportError,
+    McpResultError, McpRequestNotStartedError,
+)
+from .tools.mcp.tool import McpTool, mcp_tool_name
+from .tools.mcp.plugin import mcp_plugin
+from .tools.mcp.sdk import McpSdkOptions, SdkMcpConnector
+from .application.capabilities.mcp import (
+    SecretResolver, MappingSecretResolver, McpServerConfig, McpCapabilitySettings,
+    parse_mcp_settings, mcp_capability_registration,
+)
+
 __all__ = [
+    "AllowedMcpConnections",
+    "McpCallResult",
+    "McpConnectionSpec",
+    "McpContent",
+    "McpLimits",
+    "McpServerSettings",
+    "McpToolDescriptor",
+    "McpConnector",
+    "McpEndpoint",
+    "McpConnectionPolicy",
+    "McpConnectionError",
+    "McpAuthenticationError",
+    "McpProtocolError",
+    "McpTransportError",
+    "McpResultError",
+    "McpRequestNotStartedError",
+    "McpTool",
+    "mcp_tool_name",
+    "mcp_plugin",
+    "McpSdkOptions",
+    "SdkMcpConnector",
+    "SecretResolver",
+    "MappingSecretResolver",
+    "McpServerConfig",
+    "McpCapabilitySettings",
+    "parse_mcp_settings",
+    "mcp_capability_registration",
+
     "SchemaValidator", "SubsetSchemaValidator", "JsonSchemaValidator",
     "Middleware", "MiddlewareError", "ToolResultContext", "ToolResultHook", "TruncateToolResults",
     "DecoratedTool", "ToolError", "tool",

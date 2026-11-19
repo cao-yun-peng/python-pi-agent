@@ -160,6 +160,23 @@ class McpSdkTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(McpRequestNotStartedError):
             await endpoint.call_tool("one", {})
 
+    async def test_http_fault_keeps_original_transport_cause(self):
+        from mcp.shared.exceptions import MCPError
+        from pi_agent_py.tools.mcp.contracts import McpTransportError
+
+        original = OSError("private transport diagnostic")
+        fault = McpTransportError("MCP HTTP request lost its transport")
+        fault.__cause__ = original
+        session = Session([MCPError(-32603, "fixed SDK error")])
+        endpoint = _SdkEndpoint(
+            session,
+            McpSdkOptions(),
+            transport_failure=lambda: fault if session.requests else None,
+        )
+        with self.assertRaises(McpTransportError) as caught:
+            await endpoint.call_tool("one", {})
+        self.assertIs(caught.exception.__cause__, original)
+
 
 class McpLoggingTests(unittest.TestCase):
     def test_sdk_raw_diagnostics_are_task_scoped_and_filters_are_released(self):

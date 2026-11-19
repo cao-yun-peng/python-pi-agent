@@ -106,7 +106,7 @@ class _SdkEndpoint:
             failure = self._transport_failure()
             if failure is not None:
                 self._invalid = True
-                if failure is cause:
+                if failure is cause or failure.__cause__ is not None or cause is None:
                     raise failure
                 raise failure from cause
 

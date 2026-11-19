@@ -143,3 +143,5 @@ MCP 方案阶段 0 已完成，随 `feat: add generic tool adapter seams` 提交
 阶段 2 的 SDK owner、stdio、完整分页和本地 fixture 已完成，随 `feat: add owned MCP SDK stdio connections` 提交；见 [ADR 0037](adr/0037-mcp-sdk-owner-and-stdio.md)、教程 37、示例 38。两种协议、取消/断连、跨任务关闭及 Windows 进程树有离线证据；下一项为 Streamable HTTP、显式凭据与 wire 预算。
 
 阶段 3 的 Streamable HTTP、显式 headers 和 JSON/SSE 接收预算已完成，随 `feat: add bounded MCP Streamable HTTP transport` 提交；见 [ADR 0038](adr/0038-mcp-streamable-http-budgets.md)、教程 37 HTTP 小节、示例 39。下一项为纯 YAML Settings/显式 SecretResolver/CapabilityCatalog 和稳定 API。
+
+阶段 4 的纯 YAML Settings、显式 SecretResolver、CapabilityCatalog 接线、稳定 API 与教学交付已完成，随 `feat: configure MCP capabilities with explicit secrets` 提交；见 [ADR 0039](adr/0039-configured-mcp-capability.md)、教程 38、示例 40。E1 的首版客户端切片完成；OAuth、动态 exposure、重连、租户池和 stdio 原始行预算继续作为非首版扩展。

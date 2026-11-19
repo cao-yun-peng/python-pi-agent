@@ -48,7 +48,7 @@ stderr 被丢弃；SDK 原始日志在 owner 的 Context 内被可撤销过滤�
 
 练习：分别从三个 asyncio Task build/run/close；阻塞第一次调用，排队第二次后取消第一项；把目录 cursor 改成循环；在远端执行后断开连接并证明调用次数为一。能够区分未发送、结果未知和 durable 恢复，才算掌握本阶段。
 
-当前阶段未实现 HTTP、凭据解析和 YAML，解析后的预算也不是原始传输读取限制。关闭宽限默认 10 秒、owner 本地清理默认 8 秒，为 SDK 平台关闭留出空间。SDK/stdio 不自动进入 Bash 的 Docker 沙箱。取舍见 [ADR 0037](../docs/adr/0037-mcp-sdk-owner-and-stdio.md)。Pi 仍仅映射固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 McpServerRegistry；owner 与独立生命周期是本项目的端口实现，不照搬产品管理层。DeepSeek Harness 对应可替换 Provider 与释放证据思想。
+阶段 2 仅实现 stdio；HTTP 见下节，凭据解析和 YAML 见第 38 章，stdio 的解析后预算不等于原始传输读取限制。关闭宽限默认 10 秒、owner 本地清理默认 8 秒，为 SDK 平台关闭留出空间。SDK/stdio 不自动进入 Bash 的 Docker 沙箱。取舍见 [ADR 0037](../docs/adr/0037-mcp-sdk-owner-and-stdio.md)。Pi 仍仅映射固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 McpServerRegistry；owner 与独立生命周期是本项目的端口实现，不照搬产品管理层。DeepSeek Harness 对应可替换 Provider 与释放证据思想。
 
 
 ## 阶段 3：Streamable HTTP

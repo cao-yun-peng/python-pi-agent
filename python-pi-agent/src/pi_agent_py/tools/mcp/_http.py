@@ -4,59 +4,20 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import cast
-from urllib.parse import urlsplit
 
 import httpx2
 
-from ...errors import AgentError, ConfigurationError
+from ...errors import AgentError
 from .contracts import (
     McpAuthenticationError,
-    McpConnectionSpec,
     McpProtocolError,
     McpResultError,
     McpTransportError,
+    _validate_http_target as validate_http_target,
 )
 
 
-def validate_http_target(
-    spec: McpConnectionSpec, *, allow_insecure_local: bool
-) -> None:
-    raw = spec.url or ""
-    target = urlsplit(raw)
-    if any(ord(char) < 32 or ord(char) == 127 for char in raw):
-        raise ConfigurationError("MCP HTTP URL contains control characters")
-    if target.scheme != "https" and not (
-        allow_insecure_local
-        and target.scheme == "http"
-        and target.hostname in {"127.0.0.1", "::1", "localhost"}
-    ):
-        raise ConfigurationError(
-            "MCP HTTP requires HTTPS or explicit loopback development permission"
-        )
-    reserved = {
-        "host",
-        "content-type",
-        "content-length",
-        "accept",
-        "accept-encoding",
-        "connection",
-        "transfer-encoding",
-        "proxy-authorization",
-        "mcp-session-id",
-        "mcp-protocol-version",
-        "last-event-id",
-    }
-    if any(
-        name.lower() in reserved
-        or "\r" in name
-        or "\n" in name
-        or "\r" in value
-        or "\n" in value
-        for name, value in spec.headers.items()
-    ):
-        raise ConfigurationError(
-            "MCP credential headers contain reserved names or control characters"
-        )
+__all__ = ["BoundedHttpTransport", "validate_http_target"]
 
 
 class _BoundedStream(httpx2.AsyncByteStream):

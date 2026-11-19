@@ -76,3 +76,5 @@ jobs:
         run: python -B -m unittest discover -s tests -p test_mcp_stdio.py -v
       - name: Run loopback HTTP transport tests
         run: python -B -m unittest discover -s tests -p test_mcp_http_integration.py -v
+      - name: Run configured loopback MCP tests
+        run: python -B -m unittest discover -s tests -p test_mcp_configuration_integration.py -v

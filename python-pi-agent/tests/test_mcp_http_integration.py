@@ -1,7 +1,9 @@
 """Explicit loopback HTTP/SSE integration, never public network."""
 
 import importlib.util
+import asyncio
 import os
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -33,6 +35,23 @@ from pi_agent_py.tools.mcp.tool import mcp_tool_name
     "enable loopback MCP integration and install [mcp]",
 )
 class McpHttpIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_modern_http_cancel_closes_active_response_stream(self):
+        started, cancelled = threading.Event(), threading.Event()
+        with local_peer("wait", started=started, cancelled=cancelled) as (
+            url,
+            calls,
+            _,
+            _,
+        ):
+            async with await self.builder(url).build() as runtime:
+                task = asyncio.create_task(runtime.run("s", "q"))
+                self.assertTrue(await asyncio.to_thread(started.wait, 3))
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                self.assertTrue(await asyncio.to_thread(cancelled.wait, 3))
+            self.assertEqual(calls, ["echo"])
+
     def builder(self, url, *, mode="auto", token="fixture-only", limit=1024 * 1024):
         spec = McpConnectionSpec(
             "local", "streamable_http", url=url, headers={"Authorization": token}

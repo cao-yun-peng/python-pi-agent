@@ -7,6 +7,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
+| MCP YAML capability | 固定 Pi McpServerRegistry 的配置/目录组装职责 | 显式 Definition/Provider/Consumer/Lifecycle/Evidence | Python 复用 CapabilityCatalog 与不可变 Settings，秘密引用由应用解析，默认不注册/授权；不复制多层产品配置、OAuth 或热重载 |
 | MCP Streamable HTTP | 固定 Pi McpServerRegistry 的 HTTP 工具接入职责 | 安全接缝、Provider 所有权与证据 | Python 使用独立 SDK httpx2 client、预解析响应预算和显式凭据；不复制 OAuth、自动恢复或动态 exposure |
 | MCP SDK owner 与 stdio | 同一固定 Pi commit 的 McpServerRegistry 生命周期职责 | 可替换 Provider、受控并发与释放证据 | Python 固定官方 SDK 2.3.0；owner 独立于调用任务，以 Session.send_request 避免高层重发。验证实际 Windows 进程树；不提供主机沙箱或自动重连 |
 | `tools/mcp/`、FakeMcpConnector | Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/mcp-servers.ts::McpServerRegistry` 与 `packages/coding-agent/docs/mcp.md` | Definition/Provider/Consumer/Lifecycle/Evidence 能力接缝 | Python 阶段 1 用 SDK 无关 DTO、显式插件事务与普通 Tool 验证发现到 durable 续轮；默认拒绝连接、审批/Gate 独立、不自动重发。未实现 SDK owner、真实传输、分页、队列、OAuth 或动态 exposure；不声称 DeepSeek 有对应 MCP 实现 |

@@ -35,6 +35,7 @@ from pi_agent_py.api import (
 
 _STABLE_EXPORTS = frozenset(
     """
+    AllowedMcpConnections McpCallResult McpConnectionSpec McpContent McpLimits McpServerSettings McpToolDescriptor McpConnector McpEndpoint McpConnectionPolicy McpConnectionError McpAuthenticationError McpProtocolError McpTransportError McpResultError McpRequestNotStartedError McpTool mcp_tool_name mcp_plugin McpSdkOptions SdkMcpConnector SecretResolver MappingSecretResolver McpServerConfig McpCapabilitySettings parse_mcp_settings mcp_capability_registration
     SchemaValidator SubsetSchemaValidator JsonSchemaValidator
     Middleware MiddlewareError ToolResultContext ToolResultHook TruncateToolResults
     DecoratedTool ToolError tool
