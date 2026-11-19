@@ -30,7 +30,7 @@ async def collect_tags(tags: list[str] = ["demo"]) -> list[str]:
 
 
 async def main() -> None:
-    print(json.dumps(read_note.definition.input_schema, ensure_ascii=False, indent=2))
+    print(json.dumps(dict(read_note.definition.input_schema), ensure_ascii=False, indent=2))
     async def invalid_default(limit: int = "ten") -> int:
         """A deliberately invalid default, rejected during tool definition."""
         return limit

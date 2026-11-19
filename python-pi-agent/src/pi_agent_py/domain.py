@@ -126,7 +126,7 @@ class ToolCall:
 
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
-    """Model-facing schema plus runtime safety metadata for a tool."""
+    """Model-facing contract with detached nested schema and safety metadata."""
 
     name: str
     description: str
@@ -142,6 +142,7 @@ class ToolDefinition:
             raise ValueError("tool name must not be empty")
         if not self.description.strip():
             raise ValueError("tool description must not be empty")
+        object.__setattr__(self, "input_schema", _freeze_metadata(self.input_schema))
         if self.input_schema.get("type") != "object":
             raise ValueError("tool input schema must have type='object'")
         if self.timeout_seconds is not None and self.timeout_seconds < 0:

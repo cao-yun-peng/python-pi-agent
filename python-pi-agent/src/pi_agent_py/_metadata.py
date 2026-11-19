@@ -1,4 +1,4 @@
-"""Detached JSON snapshots for non-model Session observation context."""
+"""Detached JSON mappings for domain contracts and observation context."""
 
 from __future__ import annotations
 

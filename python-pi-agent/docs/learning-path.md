@@ -186,3 +186,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## 练习：默认值也是工具契约
 
 运行示例 34，观察错误默认值在定义时被拒绝，以及两次 collect_tags 调用得到相同的独立结果。阅读教程 33 和 ADR 0034，解释显式 null 与省略的区别，以及为什么需要私有快照和每次深拷贝。运行 test_tool_decorator，确认双 Agent、失败及取消都不会污染下一次默认值；直接调用 .fn 仍遵循普通 Python 语义。
+
+
+## 练习：工具定义快照
+
+运行示例 41，修改原 schema 和工具 definition，比较旧 Agent 与新 Agent 的结果和既有 tool_validation_failed/tool_execution_* 事件。阅读第三章新增小节与 ADR 0040，解释为什么隔离嵌套值和固定运行时绑定缺一不可，以及为什么不能 deepcopy handler/连接。通过 test_tool_definition_snapshots 验证审批、Gate、超时和取消；区分 Agent 生命周期与 Session 每个 run 的组装边界。

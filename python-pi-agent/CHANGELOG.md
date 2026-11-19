@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- ToolDefinition 的 input_schema 现在保存有限 JSON 隔离快照；外部原字典或读取出的嵌套值无法修改定义。Agent 捕获并绑定单一工具定义，模型、校验、审批、Gate 与超时使用同一版本，委托原 handler 执行。自定义 Gate 依赖 Tool 协议；schema 序列化使用 dict(input_schema)。新增示例 41、快照回归测试和 ADR 0040。
+
 - 修复 `@tool` 默认值契约：定义时拒绝与参数类型或 Literal 不符的默认值；省略参数时从私有快照逐调用深拷贝，并应用现有类型转换，避免跨调用、跨 Agent 共享列表/字典。显式值优先，原函数直接调用与 MCP 默认值语义不变。示例 34、教程 33 和 ADR 0034 同步更新。
 
 - MCP 阶段 4：新增纯 YAML Settings、显式 SecretResolver/MappingSecretResolver、mcp_capability_registration 与稳定 API 导出。默认 Catalog 不变；全部引用和目标在首个连接前预检，复用现有插件事务。示例 40 与教程 38 完成首版教学链路，见 ADR 0039。

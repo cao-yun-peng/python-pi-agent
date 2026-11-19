@@ -78,3 +78,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## Python 工具默认值绑定补充
 
 对照固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/agent/src/types.ts::AgentTool` 与 `packages/agent/src/agent-loop.ts::prepareToolCall`：本项目保留参数校验后执行工具的边界。Python `@tool` 的定义期默认值验证、私有快照和逐调用副本属于本地函数适配器能力，无直接上游 API 对应；不修改 Pi、不把 MCP schema.default 当作本地绑定指令，也不扩展为通用参数改写/动态定义系统。证据见 test_tool_decorator、教程 33 与 ADR 0034。
+
+
+## 工具定义快照补充
+
+固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/agent/src/types.ts::AgentTool` 和 `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts::wrapToolDefinition` 对应工具协议与适配边界。本项目在 Python ToolDefinition 增加嵌套 JSON 隔离，并在 Agent 构造时固定契约、委托原实现，避免移植动态扩展/UI 注册体系。不是照搬 Pi 的不可变性保证，也不增加定义的 durable 版本或热重载。证据见 ADR 0040、第三章、示例 41 和 test_tool_definition_snapshots。

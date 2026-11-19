@@ -204,3 +204,8 @@ application/capabilities/mcp.py 纯解析非秘密 Settings，显式注册 Capab
 ## Python 工具默认值绑定
 
 `tools/decorator.py` 在定义时以生成的参数 schema 校验有限 JSON 默认值；失败为保留 cause 的 TypeError。DecoratedTool 保存与原函数/schema 标注分离的私有默认值快照，执行时只为省略参数复制默认值，再走已有类型转换。显式值、模型 ToolCall、审批上下文与 durable 参数不变；原函数直接调用和 MCP schema default 的语义不变。该绑定不引入新端口或主循环分支，见 ADR 0034、教程 33。
+
+
+## 工具定义快照
+
+ToolDefinition.input_schema 保存有限 JSON 的隔离 Mapping，嵌套读取值为独立副本。Agent 构造时通过私有 Tool 绑定捕获单一定义，供模型声明、校验、审批、Gate、context 和超时使用；执行委托原 handler，不复制活资源。捕获后的重名立即拒绝，更新需要新 Agent；AgentSession 继续在每个 run 的 Agent 组装点捕获契约。见 ADR 0040、第三章教程与示例 41。

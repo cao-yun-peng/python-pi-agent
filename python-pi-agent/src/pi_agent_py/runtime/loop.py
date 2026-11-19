@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
+from collections import Counter
 from copy import deepcopy
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -68,6 +69,19 @@ class _ModelTurn:
 
 
 @dataclass(frozen=True, slots=True)
+class _BoundTool:
+    """An Agent-owned contract delegating to the original live implementation."""
+
+    definition: ToolDefinition
+    implementation: Tool
+
+    async def execute(
+        self, arguments: JSONObject, context: ToolExecutionContext,
+    ) -> ToolOutput:
+        return await self.implementation.execute(arguments, context)
+
+
+@dataclass(frozen=True, slots=True)
 class _SteeringInstruction:
     prompt: str
     control_id: str
@@ -112,10 +126,14 @@ class Agent:
 
         self._components = components
         tool_entries = tuple(
-            (tool.definition, tool) for tool in self._components.tools
+            _BoundTool(deepcopy(tool.definition), tool) for tool in self._components.tools
         )
-        self._tools = {definition.name: tool for definition, tool in tool_entries}
-        self._tool_definitions = tuple(definition for definition, _ in tool_entries)
+        counts = Counter(tool.definition.name for tool in tool_entries)
+        duplicates = sorted(name for name, count in counts.items() if count > 1)
+        if duplicates:
+            raise ValueError("duplicate tool names: " + ", ".join(duplicates))
+        self._tools = {tool.definition.name: tool for tool in tool_entries}
+        self._tool_definitions = tuple(tool.definition for tool in tool_entries)
         self._event_sink = ensure_isolated_event_sink(event_sink)
         self._middleware = _MiddlewareChain(components.middleware, self._event_sink)
         self._wiring = _AgentWiring()
@@ -750,7 +768,7 @@ class Agent:
         )
         outcome = "success"
         try:
-            timeout = tool.definition.timeout_seconds
+            timeout = context.definition.timeout_seconds
             if timeout is None:
                 output = await self._components.execution_gate.execute(
                     tool,

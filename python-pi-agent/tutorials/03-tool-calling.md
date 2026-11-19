@@ -36,6 +36,14 @@ $env:PYTHONPATH = (Resolve-Path .\python-pi-agent\src).Path
 4. **Lifecycle**：工具在 Agent 构造时显式注入，执行任务跟随 run 的取消和超时作用域。
 5. **Evidence**：`tests/test_tool_runtime.py` 覆盖成功、拒绝、无效参数、超时、取消与未知工具。
 
+## 工具说明书为什么需要快照
+
+ToolDefinition 在创建时隔离 input_schema：修改传入的原字典，或修改读取出的嵌套字段，都不会改变定义。它仍支持 Mapping 读取和普通 JSON 嵌套值；序列化时使用 `dict(definition.input_schema)`。非法 JSON 和非有限值在定义边界拒绝，未知 schema 关键字是否受支持仍由校验器决定。
+
+Agent 构造时捕获一次定义并绑定原工具。模型、参数校验、审批、Gate 和超时使用同一版本；handler 通过 context.definition 读取本次契约。工具后来返回另一份定义不会改变已有 Agent，重新构造 Agent 才使用新版。AgentSession 沿用每次 run 构造 Agent 的边界，在一次 run 的全部模型续轮和工具调用中使用一致版本。
+
+运行 `.\.venv\Scripts\python.exe .\python-pi-agent\examples\41_tool_definition_snapshot.py`：错误字符串参数产生 tool_validation_failed，整数参数执行成功；旧 Agent 输出 Original contract，新 Agent 输出 Updated contract，handler 的调用计数继续增加，说明活资源没有被复制。Gate 接收绑定后的 Tool 协议，应根据 context.definition/工具契约检查策略，不依赖原工具对象身份或具体类型。既有 timeout、异常和取消语义保持；证据见 test_tool_definition_snapshots 与 ADR 0040。
+
 ## 为什么 ToolCall 必须进入 assistant message
 
 工具调用不是临时回调。它是模型已经作出的、可审计的决定。因此 runtime 先提交包含 `tool_calls` 的 assistant message，再提交引用同一 `tool_call_id` 的 tool message。

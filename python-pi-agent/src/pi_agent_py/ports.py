@@ -263,7 +263,7 @@ class Tool(Protocol):
 
     @property
     def definition(self) -> ToolDefinition:
-        """Return model-facing schema and runtime safety metadata."""
+        """Return a contract captured when an Agent is constructed; rebuild to update it."""
         ...
 
     async def execute(
@@ -271,7 +271,7 @@ class Tool(Protocol):
         arguments: JSONObject,
         context: ToolExecutionContext,
     ) -> ToolOutput:
-        """Execute validated arguments with a frozen invocation snapshot."""
+        """Execute using context.definition as the authoritative invocation contract."""
         ...
 
 
@@ -284,7 +284,7 @@ class ToolExecutionGate(Protocol):
         arguments: JSONObject,
         context: ToolExecutionContext,
     ) -> ToolOutput:
-        """Invoke the tool or raise ToolExecutionGateError without claiming isolation."""
+        """Apply policy to the bound Tool contract and invoke it; this is not OS isolation."""
         ...
 
 
