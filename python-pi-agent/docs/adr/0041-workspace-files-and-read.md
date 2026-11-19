@@ -13,6 +13,7 @@ Bash 已隔离到 workspace，新增文件工具需要共享路径/权限与预�
 3. InMemoryWorkspaceFiles 位于 testing，快照初始字节目录，复用正式投影函数。SandboxedWorkspaceFiles 借用 ProcessSandbox，以固定隔离 Python argv、只读挂载、full enforcement 读取 /workspace；没有宿主回退。Linux 逐组件 no-follow 打开、非阻塞打开和 regular-file 检查；有限读、变更检测、安全错误码和响应限额。
 4. ReadTool 默认无需独立审批，声明 read、可重试但不可重放；Gate 默认仍拒绝 read。read_only_profile 仅允许 read，coding_profile 扩充为 bash/read；工具和 backend 均需显式组装。借用服务无空闲资源，每次进程由 sandbox 取消/关闭；PluginAPI 注册句柄由 Host 撤销。
 5. 正文预算不包括固定提示和 metadata。版本用于识别内容变化，不承诺跨进程事务；完整文件超预算即失败，不边截断边伪造完整版本。schema 支持检查与完整输出 schema 的通用演进不在此阶段。
+6. 文件能力源码归入 tools/workspace/：read.py 为模型工具，sandbox_backend.py 为文件访问后端与共用投影。__init__.py 无自动注册或重导出，稳定 api/根包导入不变。通用 tools/sandbox.py 和 shell.py 保持原职责与路径。
 
 ## 备选方案
 

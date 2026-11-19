@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from ..domain import JSONObject, ToolDefinition, ToolExecutionContext, ToolOutput, WorkspaceReadRequest
-from ..errors import WorkspaceFileError
-from ..ports import WorkspaceFiles
+from ...domain import JSONObject, ToolDefinition, ToolExecutionContext, ToolOutput, WorkspaceReadRequest
+from ...errors import WorkspaceFileError
+from ...ports import WorkspaceFiles
 
 
 class ReadTool:

@@ -13,10 +13,12 @@
 ## 契约与语义
 
 - Definition：WorkspaceReadRequest(path, offset=1, limit=200)、WorkspaceReadLimits 和 WorkspaceReadResult。
-- Provider：testing.InMemoryWorkspaceFiles 和 tools.workspace.SandboxedWorkspaceFiles。
+- Provider：testing.InMemoryWorkspaceFiles 和 tools.workspace.sandbox_backend.SandboxedWorkspaceFiles。
 - Consumer：ReadTool，只依赖 ports.WorkspaceFiles。read 声明 side_effects=read、retry_safe=True、replay_safe=False；默认不单独询问审批，但必须由 Gate 明确允许。需要审批时设置 requires_approval=True。
 - Lifecycle：文件服务与沙箱由应用显式传入。服务不持有空闲文件句柄/后台任务；每次沙箱请求拥有并释放进程，超时和取消交给既有 ProcessSandbox；PluginHost 拥有工具注册，不关闭借用依赖。
 - Evidence：test_workspace_read、示例 42、ADR 0041。
+
+文件工具源码集中在 tools/workspace/：read.py 提供 ReadTool，sandbox_backend.py 提供文件沙箱后端和共用文本投影。包的 __init__.py 仅作目录说明；应用仍通过 pi_agent_py.api 导入工具，通用 tools/sandbox.py 继续负责进程隔离。
 
 路径只接受 workspace 相对 POSIX 文件名。拒绝绝对路径、Windows 盘符/反斜杠/ADS、`..`、`~`、NUL 和超过 4096 UTF-8 字节的路径。`./a//b` 规范为 `a/b`。schema 先检查参数形状；正整数与路径语义在 ReadTool 构造请求时检查，发生于审批/Gate 之后、任何文件 I/O 之前。错误默认不回显原始路径、参数和底层异常。
 

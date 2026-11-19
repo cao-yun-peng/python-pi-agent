@@ -188,8 +188,8 @@ from .application.capabilities.mcp import (
 from .domain import WorkspaceReadLimits, WorkspaceReadRequest, WorkspaceReadResult
 from .ports import WorkspaceFiles
 from .errors import WorkspaceFileError
-from .tools.read import ReadTool
-from .tools.workspace import SandboxedWorkspaceFiles
+from .tools.workspace.read import ReadTool
+from .tools.workspace.sandbox_backend import SandboxedWorkspaceFiles
 from .application.profiles import read_only_profile
 
 __all__ = [

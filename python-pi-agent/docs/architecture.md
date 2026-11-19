@@ -213,4 +213,4 @@ ToolDefinition.input_schema 保存有限 JSON 的隔离 Mapping，嵌套读取�
 
 ## WorkspaceFiles 与 read
 
-WorkspaceReadRequest/WorkspaceReadLimits/WorkspaceReadResult 是纯领域契约；ports.WorkspaceFiles 先提供 read_text。ReadTool 只依赖端口，testing.InMemoryWorkspaceFiles 与 tools.workspace.SandboxedWorkspaceFiles 复用有界 UTF-8 页投影，后者借用 ProcessSandbox 执行固定 argv、只读 /workspace、逐组件 no-follow 和有限读取。路径/页/文件预算及安全错误在能力边界落实，完整原字节版本和 next_offset 进入 tool result。借用服务无后台资源，插件注册由 Host 释放；无新 loop 分支或 YAML 自动注册。见 ADR 0041、第 39 章与示例 42。
+WorkspaceReadRequest/WorkspaceReadLimits/WorkspaceReadResult 是纯领域契约；ports.WorkspaceFiles 先提供 read_text。ReadTool 只依赖端口，testing.InMemoryWorkspaceFiles 与 tools.workspace.sandbox_backend.SandboxedWorkspaceFiles 复用有界 UTF-8 页投影，后者借用 ProcessSandbox 执行固定 argv、只读 /workspace、逐组件 no-follow 和有限读取。路径/页/文件预算及安全错误在能力边界落实，完整原字节版本和 next_offset 进入 tool result。借用服务无后台资源，插件注册由 Host 释放；无新 loop 分支或 YAML 自动注册。见 ADR 0041、第 39 章与示例 42。

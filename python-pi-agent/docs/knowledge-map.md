@@ -57,4 +57,4 @@
 
 | 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|
-| WorkspaceFiles 与 read | 路径边界、no-follow、有限读取、UTF-8 完整行分页、版本和借用生命周期 | 领域 DTO + WorkspaceFiles + ReadTool + 沙箱 Provider；内存替身共用投影 | test_workspace_read：字节/行预算、EOF、编码、Gate/审批、取消、POSIX/Docker 集成 | 第 39 章 / 示例 42 / ADR 0041 | 能替换 backend，解释只读挂载与路径检查、页截断与完整文件版本；write/edit 待后续 |
+| WorkspaceFiles 与 read | 路径边界、no-follow、有限读取、UTF-8 完整行分页、版本和借用生命周期 | 领域 DTO + WorkspaceFiles + tools/workspace/ 下的 ReadTool/沙箱后端；内存替身共用投影 | test_workspace_read：字节/行预算、EOF、编码、Gate/审批、取消、POSIX/Docker 集成 | 第 39 章 / 示例 42 / ADR 0041 | 能替换 backend，解释只读挂载与路径检查、页截断与完整文件版本；write/edit 待后续 |

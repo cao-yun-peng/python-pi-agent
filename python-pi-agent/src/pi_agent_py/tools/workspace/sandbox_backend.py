@@ -8,11 +8,11 @@ import hashlib
 import json
 from math import isfinite
 
-from ..domain import (
+from ...domain import (
     SandboxProcessRequest, WorkspaceReadLimits, WorkspaceReadRequest, WorkspaceReadResult,
 )
-from ..errors import WorkspaceFileError
-from ..ports import ProcessSandbox
+from ...errors import WorkspaceFileError
+from ...ports import ProcessSandbox
 
 
 def project_workspace_text(

@@ -114,13 +114,15 @@ class PublicApiTests(unittest.TestCase):
         )
         from pi_agent_py.tools.function import FunctionTool
         from pi_agent_py.tools.gates import DeclaredSideEffectGate
+        from pi_agent_py.tools.workspace.read import ReadTool
+        from pi_agent_py.tools.workspace.sandbox_backend import SandboxedWorkspaceFiles
 
         objects = (
             ModelCompactionStrategy, FullHistoryContextStrategy, EventHub,
             CallbackEventSink, LoggingTelemetrySink, UsageLedger,
             JsonlSessionStore, InMemorySessionStore,
             DeclaredSideEffectGate, DenyByDefaultApprovalPolicy,
-            FunctionTool, StaticApprovalPolicy,
+            FunctionTool, StaticApprovalPolicy, ReadTool, SandboxedWorkspaceFiles,
         )
         for exported in objects:
             with self.subTest(exported=exported.__name__):

@@ -19,7 +19,7 @@ from .domain import (
 from .errors import CompactionError, ProviderError
 from .domain import WorkspaceReadLimits, WorkspaceReadRequest, WorkspaceReadResult
 from .errors import WorkspaceFileError
-from .tools.workspace import project_workspace_text
+from .tools.workspace.sandbox_backend import project_workspace_text
 from .tools.mcp.contracts import (
     McpCallResult, McpConnectionError, McpConnectionSpec, McpToolDescriptor,
     McpTransportError,

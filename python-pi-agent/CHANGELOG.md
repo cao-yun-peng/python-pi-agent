@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- workspace 文件工具归入 tools/workspace/：ReadTool 位于 read.py，SandboxedWorkspaceFiles 与文本投影位于 sandbox_backend.py。稳定 API 导入不变，Shell 与通用进程沙箱保持原路径。
+
 - 新增 WorkspaceFiles、类型化读取 DTO/预算、ReadTool 和 SandboxedWorkspaceFiles；固定 Python helper 在只读 workspace 中拒绝符号链接/非普通文件，限制原始读取并返回有界 UTF-8 页面、版本与续页位置。InMemoryWorkspaceFiles 为离线测试替身；read_only_profile 仅放行 read，coding_profile 扩充为 bash/read。示例 42、教程 39、ADR 0041 与显式 Docker 集成覆盖完整链路。
 
 - ToolDefinition 的 input_schema 现在保存有限 JSON 隔离快照；外部原字典或读取出的嵌套值无法修改定义。Agent 捕获并绑定单一工具定义，模型、校验、审批、Gate 与超时使用同一版本，委托原 handler 执行。自定义 Gate 依赖 Tool 协议；schema 序列化使用 dict(input_schema)。新增示例 41、快照回归测试和 ADR 0040。
