@@ -17,7 +17,11 @@ from .configuration import (
     AppConfigSpec,
     LoadedAppConfig,
     ProviderResilienceSettings,
+    ProviderRuntimeConfig,
+    ProviderSettings,
+    format_config_diagnostics,
     load_app_config,
+    parse_app_config,
 )
 from .context import FullHistoryContextStrategy, TokenBudgetContextStrategy
 from .domain import (
@@ -128,6 +132,7 @@ from .ports import (
     ToolExecutionGate,
 )
 from .profiles import AgentProfile, coding_profile, minimal_profile
+from .provider_catalog import ProviderRegistration, ProviderSettingsParser
 from .run_handle import RunHandle
 from .runtime.loop import Agent
 from .runtime.session import AgentSession
@@ -193,6 +198,7 @@ __all__ = [
     "EventSinkFailure",
     "EventSubscription",
     "Finish",
+    "format_config_diagnostics",
     "FullHistoryContextStrategy",
     "FunctionTool",
     "InMemoryEventSink",
@@ -215,6 +221,7 @@ __all__ = [
     "NextTurnHook",
     "OverflowPolicy",
     "PendingControl",
+    "parse_app_config",
     "PluginAPI",
     "PluginError",
     "PluginFactory",
@@ -223,6 +230,10 @@ __all__ = [
     "ProviderCatalog",
     "ProviderError",
     "ProviderRateLimitError",
+    "ProviderRegistration",
+    "ProviderRuntimeConfig",
+    "ProviderSettings",
+    "ProviderSettingsParser",
     "ProviderRequestContext",
     "ProviderRequestHook",
     "ProviderResilienceSettings",

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
-from types import MappingProxyType
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import TypeVar, cast
 
 from ._runtime_observation import _RuntimeObservation
@@ -16,7 +14,6 @@ from .configuration import (
     DockerBashSettings,
     LoadedAppConfig,
     ProviderResilienceSettings,
-    ProviderRuntimeConfig,
 )
 from .domain import Message, NextTurnContext, ToolSideEffects
 from .errors import ConfigurationError, RuntimeBuildError, RuntimeCloseError
@@ -44,15 +41,12 @@ from .ports import (
     ToolExecutionGate,
 )
 from .profiles import AgentProfile, minimal_profile
-from .providers import (
-    DeepSeekConfig,
-    DeepSeekProvider,
-    GLMConfig,
-    GLMProvider,
-    KimiConfig,
-    KimiProvider,
-    TimiccResponsesConfig,
-    TimiccResponsesProvider,
+from .provider_catalog import (
+    BuiltProvider as BuiltProvider,
+    ProviderCatalog as ProviderCatalog,
+    ProviderFactory as ProviderFactory,
+    ProviderRegistration as ProviderRegistration,
+    default_provider_catalog as default_provider_catalog,
 )
 from .session import InMemorySessionStore
 from .sandbox import DockerProcessSandbox
@@ -60,104 +54,7 @@ from .shell import BashTool, SandboxedBashExecutor
 from .usage import PricingTable
 
 T = TypeVar("T")
-ProviderFactory = Callable[
-    [ProviderRuntimeConfig],
-    ModelProvider | Awaitable[ModelProvider],
-]
 _UNSET = object()
-
-
-@dataclass(frozen=True, slots=True)
-class ProviderRegistration:
-    """One explicit provider factory plus routing metadata."""
-
-    name: str
-    factory: ProviderFactory
-    supports_tools: bool = True
-    state_owners: frozenset[str] = frozenset()
-
-    def __post_init__(self) -> None:
-        if not self.name.strip():
-            raise ValueError("provider registration name must not be empty")
-
-
-@dataclass(frozen=True, slots=True)
-class BuiltProvider:
-    name: str
-    provider: ModelProvider
-    supports_tools: bool
-    state_owners: frozenset[str]
-
-
-class ProviderCatalog:
-    """Immutable, explicitly supplied provider factory catalog."""
-
-    def __init__(self, registrations: Sequence[ProviderRegistration]) -> None:
-        values = tuple(registrations)
-        names = [item.name for item in values]
-        if len(set(names)) != len(names):
-            raise ValueError("provider registration names must be unique")
-        self._registrations: Mapping[str, ProviderRegistration] = MappingProxyType(
-            {item.name: item for item in values}
-        )
-
-    @property
-    def names(self) -> tuple[str, ...]:
-        return tuple(self._registrations)
-
-    async def build(
-        self,
-        name: str,
-        config: ProviderRuntimeConfig,
-    ) -> BuiltProvider:
-        registration = self._registrations.get(name)
-        if registration is None:
-            raise ConfigurationError(
-                f'provider "{name}" is not registered in this application'
-            )
-        value = registration.factory(config)
-        provider = await value if inspect.isawaitable(value) else value
-        if not callable(getattr(provider, "stream", None)):
-            raise TypeError("provider factory must return a ModelProvider")
-        return BuiltProvider(
-            name=name,
-            provider=provider,
-            supports_tools=registration.supports_tools,
-            state_owners=registration.state_owners,
-        )
-
-
-def default_provider_catalog() -> ProviderCatalog:
-    """Return built-in registrations without mutating process-global state."""
-    return ProviderCatalog(
-        (
-            ProviderRegistration(
-                "deepseek",
-                lambda config: DeepSeekProvider(
-                    _expect_config(config, DeepSeekConfig, "deepseek")
-                ),
-            ),
-            ProviderRegistration(
-                "kimi",
-                lambda config: KimiProvider(
-                    _expect_config(config, KimiConfig, "kimi")
-                ),
-            ),
-            ProviderRegistration(
-                "glm",
-                lambda config: GLMProvider(
-                    _expect_config(config, GLMConfig, "glm")
-                ),
-            ),
-            ProviderRegistration(
-                "timicc",
-                lambda config: TimiccResponsesProvider(
-                    _expect_config(config, TimiccResponsesConfig, "timicc")
-                ),
-                state_owners=frozenset({"timicc-responses"}),
-            ),
-        )
-    )
 
 
 class AgentRuntimeBuilder:
@@ -673,15 +570,3 @@ async def _rollback(*scopes: LifecycleScope) -> tuple[BaseException, ...]:
         except BaseException as error:
             failures.append(error)
     return tuple(failures)
-
-
-def _expect_config(
-    config: ProviderRuntimeConfig,
-    expected: type[T],
-    provider_name: str,
-) -> T:
-    if not isinstance(config, expected):
-        raise ConfigurationError(
-            f'provider "{provider_name}" received incompatible configuration'
-        )
-    return config

@@ -56,6 +56,8 @@ GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包�
 
 ## 快速开始
 
+通过 YAML 接入自定义模型供应商时，为 ProviderRegistration 提供 `parse_settings` 和 `factory`，并把同一 Catalog 传给配置加载器与 Builder。[外部 Provider 示例](examples/32_registered_provider.py)和[第 31 章](tutorials/31-registered-provider-settings.md)可离线运行。
+
 在仓库根目录执行。首次使用可以先安装为 editable package：
 
 ```powershell

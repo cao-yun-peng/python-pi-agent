@@ -2,6 +2,7 @@
 
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
+| Provider 配置扩展 | 原始字段、类型化 Settings、凭据解析与资源工厂 | ProviderRegistration.parse_settings、开放 Settings/Config Protocol | 显式不可变 Catalog、内置/外部统一解析、Builder 生命周期 | src 外独立包、凭据优先级、非法配置、运行事件、取消与回滚 | [第 31 章](../tutorials/31-registered-provider-settings.md)、ADR 0030 | 能在下游包注册供应商，通过 YAML 启动并解释每个阶段的数据和资源所有权 |
 | Session 规格解析 | caller hints、完整组件选择、controller 固定规格与观察上下文 | SessionOpenRequest、SessionSpec、StaticSessionSpecResolver | Builder resolver/factory、池外解析和锁内冲突检查、深层 metadata 快照与事件传播 | 能力隔离、同 ID 冲突、并发、取消、失败、回滚、驱逐恢复及 metadata 可见性 | [第 30 章](../tutorials/30-session-spec.md)、ADR 0028 | 能按角色选择工具和 Provider，说明能力实例为何必须复用，并验证 metadata 的观察范围 |
 | Run 失败分类 | 调用边界、异常链、取消和 run 终态 | Provider、SessionStore 与 runtime 分别分类 | 已覆盖入队后准备、模型流、提交和控制调度失败，事件携带稳定分类 | 原生 Store/Provider 异常、协议、内部错误、取消和 dispatcher 恢复 | [第 13 章](../tutorials/13-safe-event-observation.md#8-run-失败分类) | 能从 live 事件定位故障子系统，并从异常链取得原始诊断 |
 | Agent 组装规格 | 默认 factory、解析后配置、资源所有权 | `AgentProfile.build_components()`、冻结的 `AgentComponents` 与公开兼容入口 | 已贯通 Builder → Runtime → Session → Agent | 全字段实际消费、覆盖跳过原 factory、配置验证、兼容告警、插件和压缩路径 | [第 25 章](../tutorials/25-application-runtime-assembly.md) | 能独立构造组件对象、解释哪些字段影响模型行为，并用 FakeProvider 证明下游实际使用 |

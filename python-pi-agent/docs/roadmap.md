@@ -45,7 +45,7 @@
 |---|---|---|---|---|
 | B1 | P0 | 同一组组件在 5 处重复声明并逐个透传，新增一个端口要改 5 个文件 | `Agent.__init__`（`runtime.py:115`）、`AgentSession.__init__`（`runtime.py:1087`）、`AgentProfile`（`profiles.py:29`）、`AgentRuntimeBuilder`（`assembly.py:159`）、`AgentRuntime._new_session`（`app_runtime.py:353`） | 冻结值对象 `AgentComponents`，见 [ADR 0028](adr/0028-unified-agent-components-and-session-spec.md) |
 | B2 | P1 | 已实现按 Session 选择组件与 metadata | `open_session(session_id, request=...)`、`tests/test_session_spec.py` | `SessionSpec` + `SessionSpecResolver`，见 ADR 0028 |
-| B3 | P1 | Provider 配置为封闭联合：新增供应商必须修改 `configuration.py` 的硬编码分支 | `_parse_provider`（`configuration.py:546`） | `ProviderRegistration` 自带 `parse_settings`；配置层把未知 provider 的原始 mapping 交给 Catalog。待独立 ADR |
+| B3 | P1 | 已实现可注册的 Provider 配置解析 | `ProviderRegistration.parse_settings`、`tests/downstream_provider/echo.py` | 开放 Settings/Config 协议与显式 Catalog，见 ADR 0030 |
 | B4 | P1 | 配置驱动的工具（Bash）在 Builder 内硬编码 | `_build_configured_bash`（`assembly.py:591`） | 抽象为“带配置 schema 的 capability 注册”，与 B3 同一机制 |
 | B5 | P1 | 拦截点只有 `NextTurnHook` 与 `ProviderRequestHook`；缺 run 开始前（记忆/RAG 注入）、tool result 回填前（截断/脱敏）、assistant 完成后（校验） | `ports.py` | 按 AGENTS.md §8 九阶段定义带类型的 middleware 链，统一顺序、超时、错误语义。待独立 ADR |
 | B6 | P1 | 工具编写成本高：`FunctionTool` 需手写 `ToolDefinition` 与 JSON Schema；校验器为自研子集 | `tools.py:31`、`tools.py:225` | `@tool` 装饰器从类型标注 / dataclass 生成 schema；`SchemaValidator` 端口，可选 jsonschema/pydantic extra |
@@ -108,7 +108,8 @@
 ### 阶段 3：开放扩展点（B2、B3、B4、B5、B6）
 
 - B2 已实现按 Session 解析完整组件与观察 metadata，包含规格冲突拒绝、并发与取消、资源生命周期。见[教程](../tutorials/30-session-spec.md)和[示例](../examples/31_session_spec.py)。
-- B3、B4、B5、B6 继续按独立能力推进。
+- B3 已实现 ProviderRegistration.parse_settings，内置和外部 Provider 统一通过 Catalog 解析 YAML。见 [ADR 0030](adr/0030-register-provider-settings-parsers.md)、[教程](../tutorials/31-registered-provider-settings.md)和[示例](../examples/32_registered_provider.py)。
+- B4、B5、B6 继续按独立能力推进。
 - 交付：`SessionSpecResolver`；可注册 Provider/capability 配置；middleware 链 ADR 与实现；`@tool` 装饰器。
 - 验收：在 `examples/` 外的独立测试包中新增一个 Provider 与一个配置驱动工具，不修改 `src/pi_agent_py` 任何文件。
 

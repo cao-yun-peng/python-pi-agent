@@ -1,4 +1,4 @@
-"""Explicit application-boundary configuration for first-party providers.
+"""Explicit application-boundary configuration for registered providers.
 
 YAML contains non-secret provider settings and the name of an environment
 variable. Secrets are resolved separately from an explicit override, the
@@ -14,9 +14,12 @@ import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, TypeAlias, cast
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypeVar, cast
 
 import yaml
+
+if TYPE_CHECKING:
+    from .provider_catalog import ProviderCatalog
 
 from .domain import WorkspaceAccessMode
 from .errors import ConfigurationError
@@ -51,11 +54,35 @@ from .providers._provider_support import (
     TIMICC_DEFAULT_BASE_URL,
 )
 
-ProviderName: TypeAlias = Literal["deepseek", "kimi", "glm", "timicc"]
+ProviderName: TypeAlias = str
 CredentialSource: TypeAlias = Literal["explicit", "process_env", "dotenv"]
-ProviderRuntimeConfig: TypeAlias = (
-    DeepSeekConfig | KimiConfig | GLMConfig | TimiccResponsesConfig
-)
+
+
+class ProviderRuntimeConfig(Protocol):
+    """Common read-only model identity on an adapter's typed runtime config."""
+
+    @property
+    def model(self) -> str: ...
+
+
+class ProviderSettings(Protocol):
+    """Validated non-secret settings, resolved before a Provider is constructed."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def api_key_env(self) -> str: ...
+
+    @property
+    def model(self) -> str: ...
+
+    def build(self, api_key: str) -> ProviderRuntimeConfig:
+        """Build a config value without creating I/O resources."""
+        ...
+
+
+SettingsT = TypeVar("SettingsT", bound=ProviderSettings)
 
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DOTENV_ASSIGNMENT = re.compile(
@@ -349,11 +376,6 @@ class DockerBashSettings:
             raise ConfigurationError("bash.network_enabled must be a boolean")
 
 
-ProviderSettings: TypeAlias = (
-    DeepSeekSettings | KimiSettings | GLMSettings | TimiccSettings
-)
-
-
 @dataclass(frozen=True, slots=True)
 class AppConfigSpec:
     """Validated, non-secret configuration parsed from one YAML file."""
@@ -380,7 +402,7 @@ class LoadedAppConfig:
     """Resolved application configuration passed into assembly code."""
 
     spec: AppConfigSpec
-    provider_config: ProviderRuntimeConfig
+    provider_config: ProviderRuntimeConfig = field(repr=False)
     credential: CredentialDiagnostic
 
     @property
@@ -397,7 +419,9 @@ class SecretWriteResult:
     replaced: bool
 
 
-def parse_app_config(config_path: str | Path) -> AppConfigSpec:
+def parse_app_config(
+    config_path: str | Path, *, provider_catalog: ProviderCatalog | None = None
+) -> AppConfigSpec:
     """Parse and validate one explicit YAML configuration path."""
     path = Path(config_path).resolve()
     root = _load_yaml_mapping(path)
@@ -409,12 +433,10 @@ def parse_app_config(config_path: str | Path) -> AppConfigSpec:
     provider_raw = root.get("provider")
     if not isinstance(provider_raw, dict):
         raise ConfigurationError("configuration provider must be a mapping")
-    provider = _parse_provider(provider_raw)
+    provider = _parse_provider(provider_raw, provider_catalog)
     resilience = _parse_resilience(root.get("resilience"))
     bash = _parse_bash(root.get("bash"), config_path=path)
 
-    # Validate all non-secret provider options before credential resolution.
-    provider.build("configuration-validation-placeholder")
     return AppConfigSpec(
         provider=provider,
         config_path=path,
@@ -429,13 +451,14 @@ def load_app_config(
     env_path: str | Path | None = None,
     environ: Mapping[str, str] | None = None,
     api_key_override: str | None = None,
+    provider_catalog: ProviderCatalog | None = None,
 ) -> LoadedAppConfig:
     """Load YAML once and resolve its API key without mutating global state.
 
     Credential precedence is explicit override, process environment, then the
     explicitly selected dotenv file. The loader never searches parent folders.
     """
-    spec = parse_app_config(config_path)
+    spec = parse_app_config(config_path, provider_catalog=provider_catalog)
     selected_env_path = Path(env_path).resolve() if env_path is not None else None
     key, diagnostic = _resolve_api_key(
         spec.provider.api_key_env,
@@ -443,9 +466,20 @@ def load_app_config(
         environ=os.environ if environ is None else environ,
         api_key_override=api_key_override,
     )
+    try:
+        provider_config = spec.provider.build(key)
+    except ConfigurationError:
+        raise
+    except Exception as error:
+        raise ConfigurationError("provider configuration resolution failed") from error
+    if (
+        not isinstance(getattr(provider_config, "model", None), str)
+        or not provider_config.model.strip()
+    ):
+        raise ConfigurationError("provider config must expose a non-empty model")
     return LoadedAppConfig(
         spec=spec,
-        provider_config=spec.provider.build(key),
+        provider_config=provider_config,
         credential=diagnostic,
     )
 
@@ -543,116 +577,135 @@ def write_env_secret(
     return SecretWriteResult(path=path, variable=variable, replaced=replaced)
 
 
-def _parse_provider(values: dict[object, object]) -> ProviderSettings:
-    if "api_key" in values:
-        raise ConfigurationError(
-            "inline provider.api_key is not supported; use provider.api_key_env "
-            "and store the secret in the selected .env file or process environment"
-        )
+def _parse_provider(
+    values: dict[object, object], catalog: ProviderCatalog | None
+) -> ProviderSettings:
+    from .provider_catalog import default_provider_catalog
+
+    if any(not isinstance(key, str) for key in values):
+        raise ConfigurationError("provider settings keys must be strings")
     name = values.get("name")
-    if name == "deepseek":
-        _reject_unknown_keys(values, _DEEPSEEK_KEYS, context="DeepSeek provider")
-        return DeepSeekSettings(
-            api_key_env=_env_name(
-                values,
-                "api_key_env",
-                DEEPSEEK_DEFAULT_API_KEY_ENV,
-            ),
-            model=_string(values, "model", DEEPSEEK_DEFAULT_MODEL),
-            base_url=_string(values, "base_url", DEEPSEEK_DEFAULT_BASE_URL),
-            timeout_seconds=_positive_number(
-                values,
-                "timeout_seconds",
-                DEFAULT_TIMEOUT_SECONDS,
-            ),
-            thinking=cast(
-                ThinkingMode,
-                _string(values, "thinking", DEEPSEEK_DEFAULT_THINKING),
-            ),
-            reasoning_effort=cast(
-                ReasoningEffort | None,
-                _optional_string(values, "reasoning_effort"),
-            ),
-            max_tokens=_optional_positive_int(values, "max_tokens"),
-            user_id=_optional_string(values, "user_id"),
-        )
-    if name == "kimi":
-        _reject_unknown_keys(values, _KIMI_KEYS, context="Kimi provider")
-        return KimiSettings(
-            api_key_env=_env_name(values, "api_key_env", KIMI_DEFAULT_API_KEY_ENV),
-            model=_string(values, "model", KIMI_DEFAULT_MODEL),
-            base_url=_string(values, "base_url", KIMI_DEFAULT_BASE_URL),
-            timeout_seconds=_positive_number(
-                values,
-                "timeout_seconds",
-                DEFAULT_TIMEOUT_SECONDS,
-            ),
-            thinking=cast(
-                KimiThinkingMode | None,
-                _optional_string(values, "thinking"),
-            ),
-            thinking_keep=cast(
-                KimiThinkingKeep | None,
-                _optional_string(values, "thinking_keep"),
-            ),
-            reasoning_effort=cast(
-                KimiReasoningEffort | None,
-                _optional_string(values, "reasoning_effort"),
-            ),
-            max_tokens=_optional_positive_int(values, "max_tokens"),
-        )
-    if name == "glm":
-        _reject_unknown_keys(values, _GLM_KEYS, context="GLM provider")
-        return GLMSettings(
-            api_key_env=_env_name(values, "api_key_env", GLM_DEFAULT_API_KEY_ENV),
-            model=_string(values, "model", GLM_DEFAULT_MODEL),
-            base_url=_string(values, "base_url", GLM_DEFAULT_BASE_URL),
-            timeout_seconds=_positive_number(
-                values,
-                "timeout_seconds",
-                DEFAULT_TIMEOUT_SECONDS,
-            ),
-            thinking=cast(
-                GLMThinkingMode | None,
-                _optional_string(values, "thinking"),
-            ),
-            reasoning_effort=cast(
-                GLMReasoningEffort | None,
-                _optional_string(values, "reasoning_effort"),
-            ),
-            max_tokens=_optional_positive_int(values, "max_tokens"),
-            user_id=_optional_string(values, "user_id"),
-        )
-    if name == "timicc":
-        _reject_unknown_keys(values, _TIMICC_KEYS, context="TiMi provider")
-        return TimiccSettings(
-            api_key_env=_env_name(
-                values,
-                "api_key_env",
-                TIMICC_DEFAULT_API_KEY_ENV,
-            ),
-            model=_required_string(values, "model"),
-            base_url=_string(values, "base_url", TIMICC_DEFAULT_BASE_URL),
-            timeout_seconds=_positive_number(
-                values,
-                "timeout_seconds",
-                DEFAULT_TIMEOUT_SECONDS,
-            ),
-            reasoning_effort=cast(
-                TimiccReasoningEffort | None,
-                _optional_string(values, "reasoning_effort"),
-            ),
-            reasoning_summary=cast(
-                TimiccReasoningSummary | None,
-                _optional_string(values, "reasoning_summary"),
-            ),
-            max_output_tokens=_optional_positive_int(
-                values,
-                "max_output_tokens",
-            ),
-        )
-    raise ConfigurationError(
-        "provider.name must be 'deepseek', 'kimi', 'glm', or 'timicc'"
+    if not isinstance(name, str) or not name.strip():
+        raise ConfigurationError("provider.name must be a non-empty string")
+    selected = catalog if catalog is not None else default_provider_catalog()
+    return selected.parse_settings(name, cast(Mapping[str, object], values))
+
+
+def _validated_builtin_settings(settings: SettingsT) -> SettingsT:
+    settings.build("configuration-validation-placeholder")
+    return settings
+
+
+def _parse_deepseek_settings(values: Mapping[str, object]) -> DeepSeekSettings:
+    options: dict[object, object] = dict(values)
+    _reject_unknown_keys(options, _DEEPSEEK_KEYS, context="DeepSeek provider")
+    return DeepSeekSettings(
+        api_key_env=_env_name(
+            options,
+            "api_key_env",
+            DEEPSEEK_DEFAULT_API_KEY_ENV,
+        ),
+        model=_string(options, "model", DEEPSEEK_DEFAULT_MODEL),
+        base_url=_string(options, "base_url", DEEPSEEK_DEFAULT_BASE_URL),
+        timeout_seconds=_positive_number(
+            options,
+            "timeout_seconds",
+            DEFAULT_TIMEOUT_SECONDS,
+        ),
+        thinking=cast(
+            ThinkingMode,
+            _string(options, "thinking", DEEPSEEK_DEFAULT_THINKING),
+        ),
+        reasoning_effort=cast(
+            ReasoningEffort | None,
+            _optional_string(options, "reasoning_effort"),
+        ),
+        max_tokens=_optional_positive_int(options, "max_tokens"),
+        user_id=_optional_string(options, "user_id"),
+    )
+
+
+def _parse_kimi_settings(values: Mapping[str, object]) -> KimiSettings:
+    options: dict[object, object] = dict(values)
+    _reject_unknown_keys(options, _KIMI_KEYS, context="Kimi provider")
+    return KimiSettings(
+        api_key_env=_env_name(options, "api_key_env", KIMI_DEFAULT_API_KEY_ENV),
+        model=_string(options, "model", KIMI_DEFAULT_MODEL),
+        base_url=_string(options, "base_url", KIMI_DEFAULT_BASE_URL),
+        timeout_seconds=_positive_number(
+            options,
+            "timeout_seconds",
+            DEFAULT_TIMEOUT_SECONDS,
+        ),
+        thinking=cast(
+            KimiThinkingMode | None,
+            _optional_string(options, "thinking"),
+        ),
+        thinking_keep=cast(
+            KimiThinkingKeep | None,
+            _optional_string(options, "thinking_keep"),
+        ),
+        reasoning_effort=cast(
+            KimiReasoningEffort | None,
+            _optional_string(options, "reasoning_effort"),
+        ),
+        max_tokens=_optional_positive_int(options, "max_tokens"),
+    )
+
+
+def _parse_glm_settings(values: Mapping[str, object]) -> GLMSettings:
+    options: dict[object, object] = dict(values)
+    _reject_unknown_keys(options, _GLM_KEYS, context="GLM provider")
+    return GLMSettings(
+        api_key_env=_env_name(options, "api_key_env", GLM_DEFAULT_API_KEY_ENV),
+        model=_string(options, "model", GLM_DEFAULT_MODEL),
+        base_url=_string(options, "base_url", GLM_DEFAULT_BASE_URL),
+        timeout_seconds=_positive_number(
+            options,
+            "timeout_seconds",
+            DEFAULT_TIMEOUT_SECONDS,
+        ),
+        thinking=cast(
+            GLMThinkingMode | None,
+            _optional_string(options, "thinking"),
+        ),
+        reasoning_effort=cast(
+            GLMReasoningEffort | None,
+            _optional_string(options, "reasoning_effort"),
+        ),
+        max_tokens=_optional_positive_int(options, "max_tokens"),
+        user_id=_optional_string(options, "user_id"),
+    )
+
+
+def _parse_timicc_settings(values: Mapping[str, object]) -> TimiccSettings:
+    options: dict[object, object] = dict(values)
+    _reject_unknown_keys(options, _TIMICC_KEYS, context="TiMi provider")
+    return TimiccSettings(
+        api_key_env=_env_name(
+            options,
+            "api_key_env",
+            TIMICC_DEFAULT_API_KEY_ENV,
+        ),
+        model=_required_string(options, "model"),
+        base_url=_string(options, "base_url", TIMICC_DEFAULT_BASE_URL),
+        timeout_seconds=_positive_number(
+            options,
+            "timeout_seconds",
+            DEFAULT_TIMEOUT_SECONDS,
+        ),
+        reasoning_effort=cast(
+            TimiccReasoningEffort | None,
+            _optional_string(options, "reasoning_effort"),
+        ),
+        reasoning_summary=cast(
+            TimiccReasoningSummary | None,
+            _optional_string(options, "reasoning_summary"),
+        ),
+        max_output_tokens=_optional_positive_int(
+            options,
+            "max_output_tokens",
+        ),
     )
 
 

@@ -82,7 +82,7 @@ TiMi 的 key 分组决定可用模型，因此 `model` 没有默认值，必须�
 `parse_app_config()` 只读取 YAML，返回不含秘密的 `AppConfigSpec`。这一步会检查：
 
 - `version` 必须为整数 `1`；
-- Provider 和字段名必须在白名单中；
+- Provider 名称必须在所选 Catalog 中注册，字段由该注册的解析器验证；
 - YAML 不得出现重复键；
 - 数字、字符串和环境变量名称必须类型正确；
 - Kimi/DeepSeek/GLM/TiMi 的模型能力组合必须通过各自 `Config` 校验。
@@ -110,11 +110,13 @@ loaded = load_app_config(
     env_path=root / ".env",
 )
 
-# 这是四种一等 Provider config 的联合类型，已经完成边界验证。
+# 运行配置提供 ProviderRuntimeConfig 协议，具体适配器使用自己的 dataclass。
 provider_config = loaded.provider_config
 ```
 
 这种设计避免包内部根据当前工作目录猜配置文件，也避免测试或嵌入式应用被意外的父目录 `.env` 接管。
+
+自定义供应商通过 `load_app_config(..., provider_catalog=catalog)` 选择注册解析器。Settings、Config 与工厂的完整接入流程见[第 31 章](31-registered-provider-settings.md)。
 
 ## 友好的显式写入
 

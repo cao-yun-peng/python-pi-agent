@@ -65,6 +65,8 @@ _STABLE_EXPORTS = frozenset(
     EventFilter EventHub EventSubscription LoggingTelemetrySink ModelPrice
     OverflowPolicy PricingTable RunHandle TelemetryEvent TelemetrySink UsageLedger UsageSummary
     SessionOpenRequest SessionSpec SessionSpecResolver StaticSessionSpecResolver
+    ProviderRegistration ProviderRuntimeConfig ProviderSettings ProviderSettingsParser
+    parse_app_config format_config_diagnostics
     """.split()
 )
 

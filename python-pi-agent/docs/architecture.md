@@ -46,6 +46,7 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 - `CompactionComponents` 始终携带摘要策略，可选自动触发策略。Session 通过模块内接线连接 durable 提交、steer 和 per-session Provider Hook。新构造入口接收组件对象，原有构造参数通过带弃用警告的适配层保留一个 minor 版本。
 - `lifecycle.py` 明确区分 owned/borrowed 资源，在关闭或构造回滚时逆序尝试全部 cleanup。
 - `assembly.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
+- `provider_catalog.py` 把每个 Provider 的纯 Settings parser、构造工厂和路由能力放在不可变 ProviderRegistration 中。配置层按名称调用注册解析器，把原始 YAML 转为开放的 ProviderSettings/ProviderRuntimeConfig 协议值，Builder 再创建活的 Provider。默认四家的解析也使用此接缝，assembly 保留原有导入身份。
 - `context.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。
 - `compaction.py` 提供 token threshold policy、选择可安全替换的完整旧 turn，并通过可替换模型 Provider 生成摘要。
 - `session_transitions.py` 集中实现 replay、append 与 fork 的校验和事件生成，不执行 I/O 或修改调用者状态。
