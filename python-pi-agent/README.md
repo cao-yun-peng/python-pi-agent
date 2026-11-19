@@ -56,6 +56,8 @@ GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包�
 
 ## 快速开始
 
+通过 YAML 启用自定义工具或 Hook 时，可注册 CapabilityRegistration，并把 capability_catalog 传给加载器与 Builder。[配置驱动能力示例](examples/33_configured_capability.py)展示初始化、工具调用、关闭和失败回滚，[第 32 章](tutorials/32-configured-capabilities.md)解释完整契约。
+
 通过 YAML 接入自定义模型供应商时，为 ProviderRegistration 提供 `parse_settings` 和 `factory`，并把同一 Catalog 传给配置加载器与 Builder。[外部 Provider 示例](examples/32_registered_provider.py)和[第 31 章](tutorials/31-registered-provider-settings.md)可离线运行。
 
 在仓库根目录执行。首次使用可以先安装为 editable package：

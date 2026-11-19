@@ -10,12 +10,12 @@ from typing import TypeVar, cast
 from ._runtime_observation import _RuntimeObservation
 from .app_runtime import AgentRuntime, SessionPoolPolicy
 from .components import AgentComponents
+from .capability_catalog import CapabilityCatalog, default_capability_catalog
 from .configuration import (
-    DockerBashSettings,
     LoadedAppConfig,
     ProviderResilienceSettings,
 )
-from .domain import Message, NextTurnContext, ToolSideEffects
+from .domain import Message, NextTurnContext
 from .errors import ConfigurationError, RuntimeBuildError, RuntimeCloseError
 from .lifecycle import Cleanup, LifecycleScope, ManagedResource, ResourceOwnership
 from .model_runtime import (
@@ -49,8 +49,6 @@ from .provider_catalog import (
     default_provider_catalog as default_provider_catalog,
 )
 from .session import InMemorySessionStore
-from .sandbox import DockerProcessSandbox
-from .shell import BashTool, SandboxedBashExecutor
 from .usage import PricingTable
 
 T = TypeVar("T")
@@ -63,6 +61,7 @@ class AgentRuntimeBuilder:
     def __init__(self) -> None:
         self._loaded_config: LoadedAppConfig | None = None
         self._provider_catalog: ProviderCatalog | None = None
+        self._capability_catalog: CapabilityCatalog | None = None
         self._provider: ManagedResource[ModelProvider] | None = None
         self._provider_name = "direct"
         self._provider_model: str | None = None
@@ -98,10 +97,12 @@ class AgentRuntimeBuilder:
         config: LoadedAppConfig,
         *,
         provider_catalog: ProviderCatalog,
+        capability_catalog: CapabilityCatalog | None = None,
     ) -> AgentRuntimeBuilder:
         builder = cls()
         builder._loaded_config = config
         builder._provider_catalog = provider_catalog
+        builder._capability_catalog = capability_catalog
         builder._resilience = config.spec.resilience
         return builder
 
@@ -310,6 +311,17 @@ class AgentRuntimeBuilder:
                     ownership="owned",
                 )
             )
+            configured_plugins: list[tuple[str, PluginFactory]] = []
+            if self._loaded_config is not None:
+                catalog = (
+                    self._capability_catalog
+                    if self._capability_catalog is not None
+                    else default_capability_catalog()
+                )
+                configured_plugins = [
+                    (f"capability:{item.name}", catalog.plugin_for(item))
+                    for item in self._loaded_config.spec.configured_capabilities
+                ]
             built_provider = await self._build_provider()
             raw_provider = lifecycle.manage(
                 ManagedResource(
@@ -336,7 +348,7 @@ class AgentRuntimeBuilder:
             components = self._effective_profile().build_components(provider)
 
             session_plugin_host: PluginHost | None = None
-            if self._plugins:
+            if configured_plugins or self._plugins:
                 plugin_host = lifecycle.manage(
                     ManagedResource(
                         name="plugin-host",
@@ -344,7 +356,7 @@ class AgentRuntimeBuilder:
                         ownership="owned",
                     )
                 )
-                for name, factory in self._plugins:
+                for name, factory in (*configured_plugins, *self._plugins):
                     await plugin_host.load(name, factory)
                 capabilities = plugin_host.snapshot()
                 if capabilities.tools or capabilities.next_turn_hook is not None:
@@ -402,11 +414,6 @@ class AgentRuntimeBuilder:
         tool_factories = profile.tool_factories
         if self._tools is not None:
             tool_factories = tuple(_constant_factory(tool) for tool in self._tools)
-        if self._loaded_config is not None:
-            bash = self._loaded_config.spec.bash
-            if bash is not None:
-                tool_factories += (lambda: _build_configured_bash(bash),)
-
         policy_factory = _override_factory(
             self._compaction_policy, profile.compaction_policy_factory
         )
@@ -530,34 +537,6 @@ def _override_factory(
     factory: Callable[[], T] | None,
 ) -> Callable[[], T] | None:
     return _constant_factory(override) if override is not None else factory
-
-
-def _build_configured_bash(settings: DockerBashSettings) -> BashTool:
-    sandbox = DockerProcessSandbox(
-        settings.workspace_root,
-        image=settings.image,
-        docker_executable=settings.docker_executable,
-        network_enabled=settings.network_enabled,
-        max_output_bytes=settings.max_output_bytes,
-    )
-    executor = SandboxedBashExecutor(
-        sandbox,
-        mode=settings.mode,
-        default_timeout_seconds=settings.default_timeout_seconds,
-        max_timeout_seconds=settings.max_timeout_seconds,
-    )
-    side_effects: ToolSideEffects
-    if settings.network_enabled:
-        side_effects = "external"
-    elif settings.mode == "read-only":
-        side_effects = "read"
-    else:
-        side_effects = "write"
-    return BashTool(
-        executor,
-        requires_approval=True,
-        side_effects=side_effects,
-    )
 
 
 async def _rollback(*scopes: LifecycleScope) -> tuple[BaseException, ...]:

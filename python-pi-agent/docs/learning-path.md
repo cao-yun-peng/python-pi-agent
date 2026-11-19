@@ -31,6 +31,7 @@
 - Runtime 拆分后，从 `runtime/control.py` 追踪一个排队 run，进入 `runtime/session.py` 恢复历史和装配，再到 `runtime/loop.py` 运行模型和工具。对照 [Session 控制测试](../tests/test_session_control.py) 观察取消和队列恢复。
 - 基座阶段 3 B2 已完成。阅读[第 30 章](../tutorials/30-session-spec.md)，从 SessionOpenRequest 追踪 resolver、池内规格比较和 metadata envelope，再运行双角色示例验证工具选择、冲突拒绝和观察范围。
 - 基座阶段 3 B3 已完成。阅读[第 31 章](../tutorials/31-registered-provider-settings.md)，沿 YAML → parser → Settings → 凭据 → Config → factory 跟踪外部 Provider，并通过 src 外的测试适配器验证取消和回滚。
+- 基座阶段 3 B4 已完成。阅读[第 32 章](../tutorials/32-configured-capabilities.md)，沿 capabilities → Settings → PluginAPI → PluginHost snapshot 跟踪工具和 Hook，再验证初始化取消与逆序回滚。比较 Bash 两种配置形式得到的统一序列。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 

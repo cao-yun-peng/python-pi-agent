@@ -40,6 +40,8 @@ bash:
 
 `bash` 整节可省略；省略后 Builder 不注册该工具。相对 `workspace_root` 按配置文件目录解析，而不是按当前工作目录解析，因此从不同目录启动应用不会悄悄改变挂载范围。
 
+第 32 章将这一路径接入通用 CapabilityCatalog。新项目也可把同一组字段放在 capabilities.bash 下，Builder 通过 PluginHost 加载内置 Bash 注册。顶层 bash 保留为兼容入口，两种形式的对照见[配置驱动能力教程](32-configured-capabilities.md)。
+
 镜像必须预先存在并包含 `/bin/bash`。运行时仍使用 `--pull never`，不会在一次 Agent run 中隐式下载镜像。
 
 ## 4. 为什么 Profile 不创建 Docker

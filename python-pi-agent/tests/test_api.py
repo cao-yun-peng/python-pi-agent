@@ -67,6 +67,8 @@ _STABLE_EXPORTS = frozenset(
     SessionOpenRequest SessionSpec SessionSpecResolver StaticSessionSpecResolver
     ProviderRegistration ProviderRuntimeConfig ProviderSettings ProviderSettingsParser
     parse_app_config format_config_diagnostics
+    CapabilityCatalog CapabilityConfigContext CapabilityFactory CapabilityRegistration
+    CapabilitySettings CapabilitySettingsParser ConfiguredCapability default_capability_catalog
     """.split()
 )
 

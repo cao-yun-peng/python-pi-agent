@@ -22,6 +22,12 @@ if TYPE_CHECKING:
     from .provider_catalog import ProviderCatalog
 
 from .domain import WorkspaceAccessMode
+from .capability_catalog import (
+    CapabilityCatalog,
+    CapabilityConfigContext,
+    ConfiguredCapability,
+    default_capability_catalog,
+)
 from .errors import ConfigurationError
 from .providers import (
     DeepSeekConfig,
@@ -88,7 +94,7 @@ _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DOTENV_ASSIGNMENT = re.compile(
     r"^\s*(?:export\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$"
 )
-_ROOT_KEYS = {"version", "provider", "resilience", "bash"}
+_ROOT_KEYS = {"version", "provider", "resilience", "bash", "capabilities"}
 _RESILIENCE_KEYS = {
     "enabled",
     "max_attempts_per_provider",
@@ -327,6 +333,7 @@ class DockerBashSettings:
     max_output_bytes: int = 1_000_000
     network_enabled: bool = False
     provider: Literal["docker"] = field(default="docker", init=False)
+    name: Literal["bash"] = field(default="bash", init=False)
 
     def __post_init__(self) -> None:
         if (
@@ -385,6 +392,29 @@ class AppConfigSpec:
     resilience: ProviderResilienceSettings = ProviderResilienceSettings()
     bash: DockerBashSettings | None = None
     version: Literal[1] = 1
+    capabilities: tuple[ConfiguredCapability, ...] = ()
+
+    def __post_init__(self) -> None:
+        capabilities = tuple(self.capabilities)
+        if any(not isinstance(item, ConfiguredCapability) for item in capabilities):
+            raise ConfigurationError(
+                "capabilities must contain ConfiguredCapability values"
+            )
+        names = [item.name for item in capabilities]
+        if self.bash is not None:
+            names.append("bash")
+        if len(set(names)) != len(names):
+            raise ConfigurationError(
+                "capabilities must have unique names, including legacy bash"
+            )
+        object.__setattr__(self, "capabilities", capabilities)
+
+    @property
+    def configured_capabilities(self) -> tuple[ConfiguredCapability, ...]:
+        """Include the legacy Bash selection in the common assembly sequence."""
+        if self.bash is None:
+            return self.capabilities
+        return (ConfiguredCapability("bash", self.bash), *self.capabilities)
 
 
 @dataclass(frozen=True, slots=True)
@@ -420,7 +450,10 @@ class SecretWriteResult:
 
 
 def parse_app_config(
-    config_path: str | Path, *, provider_catalog: ProviderCatalog | None = None
+    config_path: str | Path,
+    *,
+    provider_catalog: ProviderCatalog | None = None,
+    capability_catalog: CapabilityCatalog | None = None,
 ) -> AppConfigSpec:
     """Parse and validate one explicit YAML configuration path."""
     path = Path(config_path).resolve()
@@ -435,13 +468,32 @@ def parse_app_config(
         raise ConfigurationError("configuration provider must be a mapping")
     provider = _parse_provider(provider_raw, provider_catalog)
     resilience = _parse_resilience(root.get("resilience"))
-    bash = _parse_bash(root.get("bash"), config_path=path)
+    selected_capabilities = (
+        capability_catalog
+        if capability_catalog is not None
+        else default_capability_catalog()
+    )
+    context = CapabilityConfigContext(path)
+    capabilities = _parse_capabilities(
+        root.get("capabilities"), selected_capabilities, context
+    )
+    bash = None
+    legacy_bash = root.get("bash")
+    if legacy_bash is not None:
+        if not isinstance(legacy_bash, dict):
+            raise ConfigurationError("configuration bash must be a mapping")
+        raw_bash = _capability_mapping(legacy_bash)
+        parsed_bash = selected_capabilities.parse_settings("bash", raw_bash, context)
+        if not isinstance(parsed_bash.settings, DockerBashSettings):
+            raise ConfigurationError("legacy bash requires DockerBashSettings")
+        bash = parsed_bash.settings
 
     return AppConfigSpec(
         provider=provider,
         config_path=path,
         resilience=resilience,
         bash=bash,
+        capabilities=capabilities,
     )
 
 
@@ -452,13 +504,18 @@ def load_app_config(
     environ: Mapping[str, str] | None = None,
     api_key_override: str | None = None,
     provider_catalog: ProviderCatalog | None = None,
+    capability_catalog: CapabilityCatalog | None = None,
 ) -> LoadedAppConfig:
     """Load YAML once and resolve its API key without mutating global state.
 
     Credential precedence is explicit override, process environment, then the
     explicitly selected dotenv file. The loader never searches parent folders.
     """
-    spec = parse_app_config(config_path, provider_catalog=provider_catalog)
+    spec = parse_app_config(
+        config_path,
+        provider_catalog=provider_catalog,
+        capability_catalog=capability_catalog,
+    )
     selected_env_path = Path(env_path).resolve() if env_path is not None else None
     key, diagnostic = _resolve_api_key(
         spec.provider.api_key_env,
@@ -493,7 +550,15 @@ def format_config_diagnostics(config: LoadedAppConfig) -> str:
         source = "process environment"
     else:
         source = f"dotenv {credential.source_path}"
-    bash = config.spec.bash
+    configured = config.spec.configured_capabilities
+    bash = next(
+        (
+            item.settings
+            for item in configured
+            if isinstance(item.settings, DockerBashSettings)
+        ),
+        None,
+    )
     bash_diagnostic = "bash: disabled"
     if bash is not None:
         network = "enabled" if bash.network_enabled else "disabled"
@@ -514,6 +579,7 @@ def format_config_diagnostics(config: LoadedAppConfig) -> str:
                 else "disabled"
             ),
             f"config: {config.spec.config_path}",
+            "capabilities: " + (", ".join(item.name for item in configured) or "none"),
             bash_diagnostic,
             f"credential: {credential.variable} from {source} "
             f"({credential.masked_value})",
@@ -738,6 +804,24 @@ def _parse_resilience(value: object) -> ProviderResilienceSettings:
             "max_delay_seconds",
             8.0,
         ),
+    )
+
+
+def _capability_mapping(value: object) -> Mapping[str, object]:
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise ConfigurationError("capability settings must be a mapping with string keys")
+    return cast(Mapping[str, object], value)
+
+
+def _parse_capabilities(
+    value: object, catalog: CapabilityCatalog, context: CapabilityConfigContext
+) -> tuple[ConfiguredCapability, ...]:
+    if value is None:
+        return ()
+    values = _capability_mapping(value)
+    return tuple(
+        catalog.parse_settings(name, _capability_mapping(raw), context)
+        for name, raw in values.items()
     )
 
 

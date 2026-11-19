@@ -47,6 +47,7 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 - `lifecycle.py` 明确区分 owned/borrowed 资源，在关闭或构造回滚时逆序尝试全部 cleanup。
 - `assembly.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
 - `provider_catalog.py` 把每个 Provider 的纯 Settings parser、构造工厂和路由能力放在不可变 ProviderRegistration 中。配置层按名称调用注册解析器，把原始 YAML 转为开放的 ProviderSettings/ProviderRuntimeConfig 协议值，Builder 再创建活的 Provider。默认四家的解析也使用此接缝，assembly 保留原有导入身份。
+- `capability_catalog.py` 定义配置驱动能力的 Settings、parser 和 factory。YAML capabilities 按名称解析为 ConfiguredCapability，Builder 按顺序通过 PluginHost.load 初始化，再从 snapshot 组装工具、Hook 和 Session 插件。资源归入既有 cleanup/rollback 管线，`configured_bash.py` 提供 Bash 的内置注册，顶层 bash 由兼容配置接口归一化。
 - `context.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。
 - `compaction.py` 提供 token threshold policy、选择可安全替换的完整旧 turn，并通过可替换模型 Provider 生成摘要。
 - `session_transitions.py` 集中实现 replay、append 与 fork 的校验和事件生成，不执行 I/O 或修改调用者状态。

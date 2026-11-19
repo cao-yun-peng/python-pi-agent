@@ -13,6 +13,16 @@ from .app_runtime import (
 from .assembly import AgentRuntimeBuilder, ProviderCatalog, default_provider_catalog
 from .compaction import ModelCompactionStrategy, TokenThresholdCompactionPolicy
 from .components import AgentComponents, CompactionComponents
+from .capability_catalog import (
+    CapabilityCatalog,
+    CapabilityConfigContext,
+    CapabilityFactory,
+    CapabilityRegistration,
+    CapabilitySettings,
+    CapabilitySettingsParser,
+    ConfiguredCapability,
+    default_capability_catalog,
+)
 from .configuration import (
     AppConfigSpec,
     LoadedAppConfig,
@@ -168,6 +178,12 @@ __all__ = [
     "ApprovalPolicy",
     "BufferedEventSink",
     "CallbackEventSink",
+    "CapabilityCatalog",
+    "CapabilityConfigContext",
+    "CapabilityFactory",
+    "CapabilityRegistration",
+    "CapabilitySettings",
+    "CapabilitySettingsParser",
     "Cleanup",
     "coding_profile",
     "CompactionComponents",
@@ -177,6 +193,7 @@ __all__ = [
     "CompactionPolicy",
     "CompactionStrategy",
     "ConfigurationError",
+    "ConfiguredCapability",
     "ContextPlan",
     "ContextPreparationError",
     "ContextStrategy",
@@ -186,6 +203,7 @@ __all__ = [
     "ControlTransition",
     "DeclaredSideEffectGate",
     "default_provider_catalog",
+    "default_capability_catalog",
     "DenyByDefaultApprovalPolicy",
     "DurableSessionEvent",
     "EventChannel",
