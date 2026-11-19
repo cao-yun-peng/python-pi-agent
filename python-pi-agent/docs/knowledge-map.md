@@ -2,6 +2,7 @@
 
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
+| MCP HTTP（E1 阶段 3） | 原始接收与解析后预算、HTTP 所有权和凭据边界 | 受限 httpx2 transport、SDK Streamable HTTP | HTTP 已完成；YAML/凭据引用后续 | 字节流停止、401/断流/超限、modern/legacy、无重发和正常关闭 | [第 37 章](../tutorials/37-mcp-sdk-transports.md)、ADR 0038 | 能证明解析前拒绝，并区分 unknown 与资源清理失败 |
 | MCP SDK owner/stdio（E1 阶段 2） | 同任务上下文、有界队列、取消隔离、真实进程释放 | OwnedMcpEndpoint、SdkMcpConnector、分页 DTO 边界 | stdio 已实现；HTTP/wire 预算后续 | owner/SDK 脚本测试；显式 modern/legacy、远端取消、断连、Windows 树退出 | [第 37 章](../tutorials/37-mcp-sdk-transports.md)、ADR 0037 | 能证明跨任务关闭不泄漏且失败不重发 |
 | MCP Fake 切片（E1 阶段 1） | 发现映射、连接授权、一次调用、结果投影与事务释放 | SDK 无关 DTO/端口、mcp_plugin、McpTool、FakeMcpConnector | 离线端到端完成；真实 SDK/传输、队列和 YAML 后续 | 权限零调用、输入/输出 schema、预算、回滚、取消恢复、并发隔离、JSONL/B5、OTel | [第 36 章](../tutorials/36-mcp-fake-tools.md) | 能追踪发现到 durable 续轮，证明失败不重发且构建失败关闭连接 |
 | 通用远端工具接缝（E1 阶段 0） | 校验端口、观察借用、显式身份、未知结果 | SchemaValidator、Subset/JsonSchemaValidator、PluginAPI.event_sink、context run/turn | 通用接缝完成；MCP Fake 发现见阶段 1，真实传输待后续 | 完整 schema、离线引用、审批前顺序、快照、替换、可选依赖、worker 身份、超时/取消 | [第 35 章](../tutorials/35-generic-tool-adapter-seams.md) | 能替换校验器并证明观察和取消不改变安全边界 |

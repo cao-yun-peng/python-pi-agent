@@ -19,6 +19,10 @@ class McpConnectionError(AgentError):
     """Connection startup or local authorization failed."""
 
 
+class McpAuthenticationError(McpConnectionError):
+    """An MCP endpoint rejected explicit credentials or access."""
+
+
 class McpProtocolError(AgentError):
     """The peer violated the normalized MCP contract."""
 

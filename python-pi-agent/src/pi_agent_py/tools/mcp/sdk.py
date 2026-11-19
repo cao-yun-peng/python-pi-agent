@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 import math
 import os
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Literal, cast
 
 from ...domain import JSONObject, JSONValue
-from ...errors import ConfigurationError
+from ...errors import AgentError, ConfigurationError
 from ._logging import sdk_log_privacy
 from .connection import OwnedMcpEndpoint
 from .contracts import (
@@ -43,8 +43,13 @@ class McpSdkOptions:
     open_timeout_seconds: float = 10
     request_timeout_seconds: float = 30
     cleanup_timeout_seconds: float = 8
+    allow_insecure_local: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.allow_insecure_local, bool):
+            raise ConfigurationError(
+                "MCP loopback development permission must be boolean"
+            )
         if self.mode not in {"auto", "legacy", "2026-07-28"}:
             raise ConfigurationError("unsupported MCP SDK negotiation mode")
         for value in (self.max_discovery_pages, self.max_pending_requests):
@@ -70,10 +75,17 @@ class McpSdkOptions:
 
 
 class _SdkEndpoint:
-    def __init__(self, session: ClientSession, options: McpSdkOptions) -> None:
+    def __init__(
+        self,
+        session: ClientSession,
+        options: McpSdkOptions,
+        *,
+        transport_failure: Callable[[], AgentError | None] | None = None,
+    ) -> None:
         self._session = session
         self._options = options
         self._invalid = False
+        self._transport_failure = transport_failure
         self.protocol_version = session.protocol_version or ""
 
     async def on_message(self, message: IncomingMessage) -> None:
@@ -83,8 +95,20 @@ class _SdkEndpoint:
             self._invalid = True
 
     def _check(self) -> None:
-        if self._invalid:
+        if self._invalid or (
+            self._transport_failure is not None
+            and self._transport_failure() is not None
+        ):
             raise McpRequestNotStartedError("MCP connection requires rebuilding")
+
+    def _raise_transport_failure(self, cause: Exception | None = None) -> None:
+        if self._transport_failure is not None:
+            failure = self._transport_failure()
+            if failure is not None:
+                self._invalid = True
+                if failure is cause:
+                    raise failure
+                raise failure from cause
 
     async def list_tools(self) -> tuple[McpToolDescriptor, ...]:
         from mcp_types import ListToolsRequest, ListToolsResult, PaginatedRequestParams
@@ -156,6 +180,7 @@ class _SdkEndpoint:
             self._invalid = True
             raise
         except Exception as error:
+            self._raise_transport_failure(error)
             self._invalid = True
             raise McpProtocolError("MCP discovery failed") from error
 
@@ -177,6 +202,7 @@ class _SdkEndpoint:
                 ),
                 TypeAdapter(CallToolResult | InputRequiredResult),
             )
+            self._raise_transport_failure()
             if self._invalid:
                 raise McpProtocolError(
                     "MCP catalog or transport changed during invocation"
@@ -224,6 +250,7 @@ class _SdkEndpoint:
             self._invalid = True
             raise
         except MCPError as error:
+            self._raise_transport_failure(error)
             self._invalid = True
             raise McpProtocolError(
                 "MCP request failed at the protocol boundary"
@@ -231,6 +258,7 @@ class _SdkEndpoint:
         except (ValidationError, ValueError, TypeError, RecursionError) as error:
             raise McpResultError("MCP result could not be normalized") from error
         except Exception as error:
+            self._raise_transport_failure(error)
             self._invalid = True
             raise McpTransportError("MCP transport failed during invocation") from error
 
@@ -253,37 +281,81 @@ async def _open_sdk(
         raise ConfigurationError(
             "install pi-agent-py[mcp] to use the SDK connector"
         ) from error
-    if spec.transport != "stdio":
-        raise ConfigurationError("this MCP connector stage supports stdio only")
+    transport_failure: Callable[[], AgentError | None] | None = None
     try:
         with sdk_log_privacy(), open(os.devnull, "w", encoding="utf-8") as stderr:
-            transport = stdio_client(
-                StdioServerParameters(
-                    command=spec.command or "",
-                    args=list(spec.args),
-                    cwd=spec.cwd,
-                    env=dict(spec.env),
-                ),
-                errlog=stderr,
-            )
-            endpoint: _SdkEndpoint | None = None
+            async with AsyncExitStack() as stack:
+                if spec.transport == "stdio":
+                    transport = stdio_client(
+                        StdioServerParameters(
+                            command=spec.command or "",
+                            args=list(spec.args),
+                            cwd=spec.cwd,
+                            env=dict(spec.env),
+                        ),
+                        errlog=stderr,
+                    )
+                else:
+                    import httpx2
+                    from mcp.client.streamable_http import streamable_http_client
+                    from ._http import BoundedHttpTransport, validate_http_target
 
-            async def message_handler(message: IncomingMessage) -> None:
-                if endpoint is not None:
-                    await endpoint.on_message(message)
+                    validate_http_target(
+                        spec, allow_insecure_local=options.allow_insecure_local
+                    )
+                    guarded = BoundedHttpTransport(
+                        httpx2.AsyncHTTPTransport(
+                            verify=True, trust_env=False, retries=0
+                        ),
+                        max_bytes=options.limits.max_result_bytes,
+                    )
 
-            async with Client(
-                transport,
-                mode=options.mode,
-                cache=None,
-                message_handler=message_handler,
-            ) as client:
+                    def transport_failure() -> AgentError | None:
+                        return guarded.failure
+
+                    client_http = await stack.enter_async_context(
+                        httpx2.AsyncClient(
+                            transport=guarded,
+                            headers=dict(spec.headers),
+                            trust_env=False,
+                            follow_redirects=False,
+                            timeout=httpx2.Timeout(options.request_timeout_seconds),
+                        )
+                    )
+                    transport = streamable_http_client(
+                        spec.url or "",
+                        http_client=client_http,
+                        max_sse_event_size=options.limits.max_result_bytes,
+                    )
+                endpoint: _SdkEndpoint | None = None
+
+                async def message_handler(message: IncomingMessage) -> None:
+                    if endpoint is not None:
+                        await endpoint.on_message(message)
+
+                client = await stack.enter_async_context(
+                    Client(
+                        transport,
+                        mode="legacy" if options.mode == "legacy" else "auto",
+                        cache=None,
+                        message_handler=message_handler,
+                    )
+                )
                 capabilities = client.session.server_capabilities
+                if (
+                    options.mode == "2026-07-28"
+                    and client.session.protocol_version != options.mode
+                ):
+                    raise McpProtocolError(
+                        "MCP server did not negotiate the required protocol version"
+                    )
                 if capabilities is None or capabilities.tools is None:
                     raise McpProtocolError(
                         "MCP server does not advertise tools capability"
                     )
-                endpoint = _SdkEndpoint(client.session, options)
+                endpoint = _SdkEndpoint(
+                    client.session, options, transport_failure=transport_failure
+                )
                 try:
                     yield endpoint
                 finally:
@@ -291,6 +363,9 @@ async def _open_sdk(
     except (ConfigurationError, McpProtocolError, McpTransportError):
         raise
     except Exception as error:
+        failure = None if transport_failure is None else transport_failure()
+        if failure is not None and failure is not error:
+            raise failure from error
         raise McpConnectionError("MCP SDK connection lifecycle failed") from error
 
 

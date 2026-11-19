@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP 阶段 3：新增独立 Streamable HTTP client、显式 headers、HTTPS/loopback 策略与 JSON/SSE 接收预算；拒绝压缩、重定向与网络恢复。失败通过 SDK 兼容通道返回 unknown，正常释放资源；本地集成验证两种协议，见 ADR 0038。
+
 - MCP 阶段 2：可选 [mcp] 固定 SDK 2.3.0；新增独立连接 owner、有界队列、完整分页和真实 stdio。未发送失败区分 not_started；SDK 日志按 owner Context 隔离。cleanup grace 默认由 5 调整为 10 秒，为 SDK 的关闭/强杀/回收留出空间；owner 默认清理 8 秒。真实子进程集成需显式启用，见 ADR 0037。
 
 - MCP 阶段 1：新增 SDK 无关契约、显式连接策略、mcp_plugin、McpTool 和 FakeMcpConnector/FakeMcpEndpoint。打通发现、前置校验、审批/Gate、单次远端调用、输出校验/预算、B5 变换、durable 续轮与离线恢复；覆盖事务回滚、超时/取消及 MCP OTel span。定义模块入口已可使用；SDK/stdio/HTTP、凭据解析与 YAML/稳定 facade 接线留待后续阶段，详见 ADR 0036。

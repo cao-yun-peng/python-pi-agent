@@ -74,3 +74,5 @@ jobs:
         run: python -m pip install ".[mcp]"
       - name: Run local stdio lifecycle tests
         run: python -B -m unittest discover -s tests -p test_mcp_stdio.py -v
+      - name: Run loopback HTTP transport tests
+        run: python -B -m unittest discover -s tests -p test_mcp_http_integration.py -v

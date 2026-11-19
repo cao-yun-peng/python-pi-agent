@@ -173,3 +173,7 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## MCP 阶段 2：SDK owner 与 stdio
 
 阅读[第 37 章](../tutorials/37-mcp-sdk-transports.md)，运行示例 38，再显式开启本地集成。用不同任务执行 build/run/close，解释同任务 SDK enter/exit、有界排队与取消隔离；同时区分 Python Task 完成与实际父/子进程退出。
+
+## MCP 阶段 3：HTTP 与接收预算
+
+继续[第 37 章](../tutorials/37-mcp-sdk-transports.md)的 HTTP 小节，运行示例 39。对照解析前字节、单 SSE event 与解析后结构化预算；用 401、断流、重定向、超大 JSON/SSE 验证固定 unknown、只提交一次以及关闭正常。

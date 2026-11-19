@@ -191,3 +191,7 @@ McpTool 始终声明 external、要求审批且不可安全重试/重放。稳�
 ## MCP SDK owner 与 stdio（阶段 2）
 
 OwnedMcpEndpoint 在同一 owner 任务持有 SDK 上下文，以有界队列和请求子任务处理取消；build/run/close 可以来自不同任务。SdkMcpConnector 延迟加载固定 SDK 2.3.0，协商 modern/legacy；Session.send_request 单次提交工具操作，完整分页后固定快照。拒绝发生于发送前时结果为 not_started；协议/目录失效要求重建。stdio 精确 argv、显式 env、丢弃 stderr，owner Context 内的 SDK 日志过滤器在关闭时撤销。默认 cleanup grace 调整为 10 秒，owner 清理为 8 秒；实际 Windows 进程树退出有显式本地集成证据。HTTP 与 wire 预算仍待阶段 3，见 [ADR 0037](adr/0037-mcp-sdk-owner-and-stdio.md)。
+
+## Streamable HTTP（阶段 3）
+
+同一个 SDK owner 显式拥有独立 httpx2 client 与受限 transport。默认 HTTPS，loopback 明文开发另需许可；TLS 保持验证，不继承环境代理/认证。SDK 解码前限制 Content-Length、流累计字节和单 SSE event，拒绝压缩、重定向及网络恢复；解析后预算仍独立执行。预接收拒绝转成固定 SDK 错误响应，流错误转成 StreamError，再由本地 fault 恢复分类，避免污染 task group/关闭。JSON/SSE、modern/legacy 与失败后正常释放均由 loopback 集成验证，见 [ADR 0038](adr/0038-mcp-streamable-http-budgets.md)。

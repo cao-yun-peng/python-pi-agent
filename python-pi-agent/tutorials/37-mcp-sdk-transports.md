@@ -49,3 +49,16 @@ stderr 被丢弃；SDK 原始日志在 owner 的 Context 内被可撤销过滤�
 练习：分别从三个 asyncio Task build/run/close；阻塞第一次调用，排队第二次后取消第一项；把目录 cursor 改成循环；在远端执行后断开连接并证明调用次数为一。能够区分未发送、结果未知和 durable 恢复，才算掌握本阶段。
 
 当前阶段未实现 HTTP、凭据解析和 YAML，解析后的预算也不是原始传输读取限制。关闭宽限默认 10 秒、owner 本地清理默认 8 秒，为 SDK 平台关闭留出空间。SDK/stdio 不自动进入 Bash 的 Docker 沙箱。取舍见 [ADR 0037](../docs/adr/0037-mcp-sdk-owner-and-stdio.md)。Pi 仍仅映射固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 McpServerRegistry；owner 与独立生命周期是本项目的端口实现，不照搬产品管理层。DeepSeek Harness 对应可替换 Provider 与释放证据思想。
+
+
+## 阶段 3：Streamable HTTP
+
+运行 `.venv/Scripts/python.exe -B python-pi-agent/examples/39_mcp_http_tools.py`。它在 loopback 的临时端口启动官方 SDK server，使用演示头认证，通过正式客户端和 FakeProvider 完成续轮并关闭。真实服务默认需要 HTTPS；本机明文同时要求 `McpSdkOptions(allow_insecure_local=True)` 和连接策略批准精确目标。
+
+Client 和 AsyncHTTPTransport 由 owner 的 AsyncExitStack 持有，独立于模型的 httpx client；保持 TLS 校验，禁用环境代理/认证、连接重试、重定向。凭据只从 spec.headers 进入，不放入 repr、工具结果和观察事件。YAML 的变量引用留到下一章。
+
+字节预算在 SDK JSON/SSE 解码之前执行：声明过大立即关闭；实际流超过预算就停止消费。每个 SSE event 也有 SDK 上限；为避免解压扩大绕过限制，只接受 identity 编码。工具返回后的结构化、深度和文本预算继续独立执行。不能把这些限制理解为任意内存/CPU 的沙箱。
+
+固定 SDK 的 POST 子任务不接收任意 transport 异常，因此拒绝会转换成固定 HTTP 400 JSON-RPC error，流错误转成 SDK 可处理的 StreamError；本地 fault 保存原分类。这样超大结果仍是 unknown，而不是关闭时再抛一次相同故障。重定向拒绝，带 Last-Event-ID 的恢复请求在网络前拒绝；SDK 可能内部尝试退避，但不会重发 tools/call 或访问恢复地址，总期限仍然生效。
+
+开启 PI_AGENT_MCP_INTEGRATION 后运行 test_mcp_http_integration.py，覆盖 JSON/SSE、modern/legacy、401、超大结果、断流与不重发。练习：把 max_result_bytes 调小，分别观察声明过大和流中途超限；省略 loopback 许可，证明任何连接前拒绝；让服务返回带 event ID 的半截 SSE，验证工具调用次数仍为一。取舍见 [ADR 0038](../docs/adr/0038-mcp-streamable-http-budgets.md)。

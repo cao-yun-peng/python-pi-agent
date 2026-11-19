@@ -1,6 +1,6 @@
 # MCP 客户端工具适配器：开发方案
 
-> 状态：阶段 0–2 已实现（ADR 0035–0037）；阶段 3–4 仍待开发。
+> 状态：阶段 0–3 已实现（ADR 0035–0038）；阶段 4 仍待开发。
 > 编写日期：2026-11-19。
 > 本仓库基线：`2291a38e20e351cbc337f2e70f6b26c4300c74fb`。
 > 范围：路线图 E1，MCP tools 客户端，stdio 与 Streamable HTTP。
@@ -282,7 +282,7 @@ connect/list 阶段没有 run/turn，允许 envelope 为空；调用阶段显式
 | 0（已完成） | 通用 SchemaValidator、插件观察入口、调用身份、超时语义，见 ADR 0035 | 旧默认行为不变；复杂 schema 在审批前校验；新字段透传完整；超时没有“安全重试”的暗示 |
 | 1（已完成） | contracts + FakeMcpConnector + McpTool + 插件初始化，见 ADR 0036 | 无 SDK、无网络、FakeProvider 能发现/调用/提交/续轮；冲突与失败全回滚 |
 | 2（已完成） | SDK owner + stdio + 本地 fixture server，见 ADR 0037 | build/run/close 分别在不同任务仍能关闭；取消后无后台任务/子进程泄漏 |
-| 3 | Streamable HTTP + 显式凭据 + 接收预算 | 本机测试 server，无公网；两种协议基线、401、断流、超大结果、HTTP client 关闭 |
+| 3（已完成） | Streamable HTTP + 显式凭据 + 接收预算，见 ADR 0038 | 本机测试 server，无公网；两种协议基线、401、断流、超大结果、HTTP client 关闭 |
 | 4 | YAML capability + 稳定 API + 教学材料 | Catalog 两端显式注入；语法/策略错误无连接，发现错误不发布工具并关闭连接；可复现取消/关闭和多 server 回滚 |
 
 每阶段一个意图提交，默认复用当前分支。不要以“加 MCP”混入其他已知问题修复。
