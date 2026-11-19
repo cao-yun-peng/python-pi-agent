@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from uuid import uuid4
 from warnings import warn
 
-from ..components import AgentComponents, _resolve_components
+from .components import AgentComponents, _resolve_components
 from ..domain import (
     AgentResult,
     ApprovalDecision,

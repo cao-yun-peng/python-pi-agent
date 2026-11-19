@@ -3,9 +3,9 @@
 ## 当前边界
 
 ```text
-domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
+domain.py <- ports.py <- runtime/ <- application/ <- apps
                ^           |             ^
-               |           ├── components.py resolves model-visible configuration
+               |           ├── runtime/components.py resolves model-visible configuration
                |           ├── context/strategies.py implements ContextStrategy
                |           ├── context/compaction.py implements CompactionStrategy
                |           ├── plugins.py assembles Tool / NextTurnHook
@@ -14,11 +14,11 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
                |           ├── tools/validation.py validates tool arguments
                |           ├── tools/shell.py consumes ShellExecutor as BashTool
                |           └── tools/sandbox.py implements ProcessSandbox
-               |                         ├── profiles.py defines product defaults
-               |                         ├── lifecycle.py owns explicit cleanup
-               |                         └── assembly.py builds AgentRuntime
+               |                         ├── application/profiles.py defines product defaults
+               |                         ├── application/lifecycle.py owns explicit cleanup
+               |                         └── application/builder.py builds AgentRuntime
                ├── observability/events.py implements isolation, redaction, and buffering
-               ├── configuration.py parses explicit YAML and secret references
+               ├── application/configuration.py parses explicit YAML and secret references
                ├── providers/runtime.py composes routing, retry, backoff, and fallback
                ├── storage/transitions.py provides pure state transitions
                ├── storage/memory.py implements SessionStore
@@ -42,22 +42,22 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 - `runtime/run_handle.py` 提供单个排队 run 的身份、事件流、结果等待和定向取消。结果等待者取消或关闭事件流不会自动取消 run。
 - `runtime/compaction_orchestration.py` 执行手动和自动压缩，通过同一 Session writer 提交摘要。自动压缩接入 run 准备和工具续轮前的 Hook。
 - `pi_agent_py.runtime` 提供 `Agent` 与 `AgentSession` 的兼容导入。run 订阅在入队前绑定，应用层通过 SessionSpec 选择每个 controller 的组件。
-- `app_runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
-- `profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 只提供默认拒绝审批与 bash-only Gate，不创建 Docker。
+- `application/runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
+- `application/profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 只提供默认拒绝审批与 bash-only Gate，不创建 Docker。
 - `AgentProfile.build_components(provider)` 解析出冻结的默认 `AgentComponents`。Builder 应用显式覆盖，并组合 Provider、部署配置和插件能力。SessionSpecResolver 选择组件后交给 Session 与 Agent 消费。Store、EventSink、PluginHost 及资源所有权由应用组装层独立管理。
-- `session_spec.py` 定义冻结的 SessionSpec 和默认静态 resolver，`domain.SessionOpenRequest` 表达调用方 hints。Runtime 每次打开均在池锁外调用 resolver，再在锁内比较已有规格。能力实例、prompt、上限和 metadata 固定至 controller 实际退出池。Builder 支持显式 resolver 或从完整默认组件创建的 owned factory。
+- `runtime/session_spec.py` 定义冻结的 SessionSpec 和默认静态 resolver，`domain.SessionOpenRequest` 表达调用方 hints。Runtime 每次打开均在池锁外调用 resolver，再在锁内比较已有规格。能力实例、prompt、上限和 metadata 固定至 controller 实际退出池。Builder 支持显式 resolver 或从完整默认组件创建的 owned factory。
 - `CompactionComponents` 始终携带摘要策略，可选自动触发策略。Session 通过模块内接线连接 durable 提交、steer 和 per-session Provider Hook。新构造入口接收组件对象，原有构造参数通过带弃用警告的适配层保留一个 minor 版本。
-- `lifecycle.py` 明确区分 owned/borrowed 资源，在关闭或构造回滚时逆序尝试全部 cleanup。
-- `assembly.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
-- `provider_catalog.py` 把每个 Provider 的纯 Settings parser、构造工厂和路由能力放在不可变 ProviderRegistration 中。配置层按名称调用注册解析器，把原始 YAML 转为开放的 ProviderSettings/ProviderRuntimeConfig 协议值，Builder 再创建活的 Provider。默认四家的解析也使用此接缝，assembly 保留原有导入身份。
-- `capability_catalog.py` 定义配置驱动能力的 Settings、parser 和 factory。YAML capabilities 按名称解析为 ConfiguredCapability，Builder 按顺序通过 PluginHost.load 初始化，再从 snapshot 组装工具、Hook 和 Session 插件。资源归入既有 cleanup/rollback 管线，`configured_bash.py` 提供 Bash 的内置注册，顶层 bash 由兼容配置接口归一化。
+- `application/lifecycle.py` 明确区分 owned/borrowed 资源，在关闭或构造回滚时逆序尝试全部 cleanup。
+- `application/builder.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
+- `application/provider_catalog.py` 把每个 Provider 的纯 Settings parser、构造工厂和路由能力放在不可变 ProviderRegistration 中。配置层按名称调用注册解析器，把原始 YAML 转为开放的 ProviderSettings/ProviderRuntimeConfig 协议值，Builder 再创建活的 Provider。默认四家的解析也使用此接缝，稳定 API 直接引用 Catalog 的定义模块。
+- `application/capability_catalog.py` 定义配置驱动能力的 Settings、parser 和 factory。YAML capabilities 按名称解析为 ConfiguredCapability，Builder 按顺序通过 PluginHost.load 初始化，再从 snapshot 组装工具、Hook 和 Session 插件。资源归入既有 cleanup/rollback 管线，`application/capabilities/bash.py` 提供 Bash 的内置注册，顶层 bash 由兼容配置接口归一化。
 - `context/strategies.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。
 - `context/compaction.py` 提供 token threshold policy、选择可安全替换的完整旧 turn，并通过可替换模型 Provider 生成摘要。
 - `storage/transitions.py` 集中实现 replay、append 与 fork 的校验和事件生成，不执行 I/O 或修改调用者状态。
 - `storage/memory.py` 提供 `InMemorySessionStore`，只负责内存事件容器。
 - `storage/jsonl.py` 提供带格式版本、严格解码和刷盘语义的 `JsonlSessionStore`。
 - `observability/events.py` 提供同步观察适配器、runtime 失败隔离、日志脱敏和显式关闭的有界后台投递。
-- `configuration.py` 是应用组装边界：把显式 YAML 解析成不含密钥的强类型 spec，再按 override → process env → 指定 dotenv 解析凭据；可选 Bash 节只保存 Docker workspace、镜像、资源边界和网络开关。它不搜索父目录、不修改进程环境，并只暴露脱敏诊断。
+- `application/configuration.py` 是应用组装边界：把显式 YAML 解析成不含密钥的强类型 spec，再按 override → process env → 指定 dotenv 解析凭据；可选 Bash 节只保存 Docker workspace、镜像、资源边界和网络开关。它不搜索父目录、不修改进程环境，并只暴露脱敏诊断。
 - `providers/runtime.py` 在原始 `ModelProvider` 之上提供一次调用且保留原始错误的 `DirectModelRuntime`，以及组合 `RoutePolicy`、`RetryPolicy` 和 `BackoffStrategy` 的 `ResilientModelRuntime`。它不解析供应商 wire protocol，也不改变 Agent loop 的逻辑请求计数。
 - `testing.py` 是确定性 Provider 实现，也是 Provider 契约的第一份证据。
 - `providers/_sse.py` 只处理 SSE event/data framing；`providers/_openai_compat.py` 只处理 OpenAI-compatible Chat Completions 的消息/工具序列化、tool call 分片与 usage 归一化。二者都不拥有认证、URL 或模型能力。
@@ -74,9 +74,11 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 
 ## 功能目录
 
+应用配置、Catalog、Profile、Builder、Runtime facade、观察接线与资源清理集中在 `application/`，Bash 注册位于 `application/capabilities/bash.py`。`application/__init__.py` 与 `application/capabilities/__init__.py` 仅提供目录说明；导入不会隐式注册能力。组件规格位于 `runtime/components.py`，Session 规格位于 `runtime/session_spec.py`，由运行时和应用层共同消费。旧根模块已删除，稳定 API 和根包导出直接引用新定义；API 过渡逻辑仍按原契约保留，后续独立清理。
+
 存储实现、回放转换和逐消息 writer 集中在 `storage/`。上下文投影和摘要机制集中在 `context/`。事件、订阅、遥测和用量记账集中在 `observability/`。三个子包的初始化文件仅提供目录说明，具体能力由定义模块显式导入。
 
-工具适配、审批、执行 Gate 和参数校验分别位于 `tools/function.py`、`tools/approval.py`、`tools/gates.py` 和 `tools/validation.py`；Shell 语义与 Docker 进程隔离分别位于 `tools/shell.py` 和 `tools/sandbox.py`。`tools/__init__.py` 仅提供目录说明。`configured_bash.py` 在应用组装边界解析 Settings 并通过 PluginAPI 注册工具；工具实现只依赖领域对象和端口，运行时负责调用顺序、超时与取消传播。
+工具适配、审批、执行 Gate 和参数校验分别位于 `tools/function.py`、`tools/approval.py`、`tools/gates.py` 和 `tools/validation.py`；Shell 语义与 Docker 进程隔离分别位于 `tools/shell.py` 和 `tools/sandbox.py`。`tools/__init__.py` 仅提供目录说明。`application/capabilities/bash.py` 在应用组装边界解析 Settings 并通过 PluginAPI 注册工具；工具实现只依赖领域对象和端口，运行时负责调用顺序、超时与取消传播。
 
 模型请求的路由、重试与 attempt 观察归入 `providers/runtime.py`，消费 run 的句柄归入 `runtime/run_handle.py`。迁移后原具体模块与临时归组模块 `tools/core.py` 已删除，稳定入口 `pi_agent_py.api` 与根包公开对象直接引用新定义。路径映射列在 CHANGELOG，教程、示例和下游示范代码在后续任务调整。
 

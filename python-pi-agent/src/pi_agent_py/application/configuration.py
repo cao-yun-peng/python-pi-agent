@@ -21,15 +21,15 @@ import yaml
 if TYPE_CHECKING:
     from .provider_catalog import ProviderCatalog
 
-from .domain import WorkspaceAccessMode
+from ..domain import WorkspaceAccessMode
 from .capability_catalog import (
     CapabilityCatalog,
     CapabilityConfigContext,
     ConfiguredCapability,
     default_capability_catalog,
 )
-from .errors import ConfigurationError
-from .providers import (
+from ..errors import ConfigurationError
+from ..providers import (
     DeepSeekConfig,
     GLMConfig,
     GLMReasoningEffort,
@@ -44,7 +44,7 @@ from .providers import (
     TimiccResponsesConfig,
     ThinkingMode,
 )
-from .providers._provider_support import (
+from ..providers._provider_support import (
     DEEPSEEK_DEFAULT_API_KEY_ENV,
     DEEPSEEK_DEFAULT_BASE_URL,
     DEEPSEEK_DEFAULT_MODEL,

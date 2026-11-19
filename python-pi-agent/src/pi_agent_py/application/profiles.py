@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .components import (
+from ..runtime.components import (
     AgentComponents,
     CompactionComponents,
     _DEFAULT_MAX_MODEL_REQUESTS,
 )
-from .context.strategies import FullHistoryContextStrategy
-from .ports import (
+from ..context.strategies import FullHistoryContextStrategy
+from ..ports import (
     ApprovalPolicy,
     CompactionPolicy,
     CompactionStrategy,
@@ -21,8 +21,8 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .tools.approval import DenyByDefaultApprovalPolicy
-from .tools.gates import DeclaredSideEffectGate
+from ..tools.approval import DenyByDefaultApprovalPolicy
+from ..tools.gates import DeclaredSideEffectGate
 
 ToolFactory = Callable[[], Tool]
 ApprovalPolicyFactory = Callable[[], ApprovalPolicy]

@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from typing import Literal
 from warnings import warn
 
-from ._runtime_observation import _RuntimeObservation
-from .components import AgentComponents, _resolve_components
-from .domain import (
+from ._observation import _RuntimeObservation
+from ..runtime.components import AgentComponents, _resolve_components
+from ..domain import (
     AgentResult,
     EventKind,
     JSONValue,
@@ -20,18 +20,18 @@ from .domain import (
     SessionSnapshot,
     SessionState,
 )
-from .errors import (
+from ..errors import (
     AgentError,
     ConfigurationError,
     RuntimeCapacityError,
     RuntimeCloseError,
     RuntimeStateError,
 )
-from .observability.event_hub import EventHub
-from .observability.events import EventSinkFailure, make_agent_event
+from ..observability.event_hub import EventHub
+from ..observability.events import EventSinkFailure, make_agent_event
 from .lifecycle import LifecycleScope
-from .plugins import PluginHost
-from .ports import (
+from ..plugins import PluginHost
+from ..ports import (
     ApprovalPolicy,
     CompactionPolicy,
     CompactionStrategy,
@@ -45,11 +45,11 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .storage._writer import _call_session_store
-from .runtime.session import AgentSession
-from .runtime.run_handle import RunHandle
-from .session_spec import SessionSpec, StaticSessionSpecResolver
-from .observability.usage import PricingTable, UsageLedger, UsageSummary
+from ..storage._writer import _call_session_store
+from ..runtime.session import AgentSession
+from ..runtime.run_handle import RunHandle
+from ..runtime.session_spec import SessionSpec, StaticSessionSpecResolver
+from ..observability.usage import PricingTable, UsageLedger, UsageSummary
 
 RuntimeState = Literal["running", "closing", "closed"]
 Clock = Callable[[], float]

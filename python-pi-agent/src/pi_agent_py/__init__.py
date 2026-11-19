@@ -3,21 +3,21 @@
 Application and extension contracts are documented in :mod:`pi_agent_py.api`.
 """
 
-from .app_runtime import (
+from .application.runtime import (
     AgentRuntime,
     RuntimeSession,
     RuntimeState,
     SessionPoolPolicy,
 )
-from .assembly import (
-    AgentRuntimeBuilder,
+from .application.builder import AgentRuntimeBuilder
+from .application.provider_catalog import (
     BuiltProvider,
     ProviderCatalog,
     ProviderRegistration,
     default_provider_catalog,
 )
 
-from .components import AgentComponents, CompactionComponents
+from .runtime.components import AgentComponents, CompactionComponents
 from .context.compaction import (
     CompactionPreparation,
     ModelCompactionStrategy,
@@ -32,7 +32,7 @@ from .context.strategies import (
     TokenBudgetContextStrategy,
     group_context_messages,
 )
-from .configuration import (
+from .application.configuration import (
     AppConfigSpec,
     CredentialDiagnostic,
     DeepSeekSettings,
@@ -140,7 +140,7 @@ from .errors import (
     ToolExecutionDeniedError,
     ToolExecutionGateError,
 )
-from .lifecycle import LifecycleScope, ManagedResource, ResourceOwnership
+from .application.lifecycle import LifecycleScope, ManagedResource, ResourceOwnership
 from .observability.events import (
     BufferedEventSink,
     CallbackEventSink,
@@ -195,7 +195,7 @@ from .ports import (
     TokenEstimator,
     ToolExecutionGate,
 )
-from .profiles import AgentProfile, coding_profile, minimal_profile
+from .application.profiles import AgentProfile, coding_profile, minimal_profile
 from .runtime import Agent, AgentSession
 from .tools.sandbox import DockerProcessSandbox
 from .tools.shell import BashTool, SandboxedBashExecutor, SandboxedShellTool

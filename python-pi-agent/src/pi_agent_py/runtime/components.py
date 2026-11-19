@@ -8,9 +8,9 @@ from dataclasses import dataclass, field, replace
 from typing import Self, TypedDict, Unpack
 from warnings import warn
 
-from .context.strategies import FullHistoryContextStrategy
-from .errors import ConfigurationError
-from .ports import (
+from ..context.strategies import FullHistoryContextStrategy
+from ..errors import ConfigurationError
+from ..ports import (
     ApprovalPolicy,
     CompactionPolicy,
     CompactionStrategy,
@@ -20,8 +20,8 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .tools.approval import DenyByDefaultApprovalPolicy
-from .tools.gates import DeclaredSideEffectGate
+from ..tools.approval import DenyByDefaultApprovalPolicy
+from ..tools.gates import DeclaredSideEffectGate
 
 
 _DEFAULT_MAX_MODEL_REQUESTS = 8

@@ -52,3 +52,19 @@
 - 包内消费、TYPE_CHECKING 引用、稳定 API 和根包导出都直接指向新定义；原路径不留兼容模块。教程、示例和下游代码仍由后续任务更新。
 
 验证包括拆分前后每个定义的语法树对比、公开对象身份和原路径移除，以及模型重试/回退/取消、run 等待和定向取消、工具失败与取消的离线回归。工具子包保持仅含说明的初始化文件。
+
+## 第四批：应用组装与共同消费的规格
+
+2026-11-19 按用户确认的边界归组：
+
+- assembly.py、app_runtime.py、lifecycle.py 分别迁入 `application/builder.py`、`application/runtime.py`、`application/lifecycle.py`。
+- configuration.py、profiles.py 和两个 Catalog 迁入 application 下的同名模块；应用级观察接线迁入 `application/_observation.py`。
+- configured_bash.py 迁入 `application/capabilities/bash.py`，默认 Catalog 继续通过显式工厂获取注册。两级新包的初始化文件仅提供说明，不注册插件或转导出实现。
+- components.py、session_spec.py 迁入 `runtime/components.py`、`runtime/session_spec.py`，让运行时与应用层共同消费。
+- 稳定 API 和根包直接引用新的定义位置。包内相对导入、类型检查导入和延迟导入同步迁移，11 个旧根模块全部删除。
+
+本批只调整定义位置与导入。旧构造参数适配、内部接线参数、follow_up_id 和顶层 bash 配置仍按既有接口契约运行，由后续变更独立移除。教程、示例和下游示范代码继续留待后续调整。
+
+通过语法树对比确认全部 17 个受影响源码模块的执行逻辑不变；验证新定义与公开导出的对象身份、旧模块移除，以及配置驱动能力、SessionSpec、资源关闭和构造回滚等离线行为，并从干净源构建 wheel 验证模块打包。
+
+现有 CI 范围的 Ruff 和 mypy 检查通过。额外对整个 application 和两个 runtime 规格模块运行 strict 检查时有 11 项错误；在同一环境对迁移前 HEAD 的独立源码副本检查，也得到相同的 11 项错误，涉及动态 cleanup 类型、配置局部变量和泛型推断，以及缺少 PyYAML 类型桩。本批不扩大为类型标注修正任务。

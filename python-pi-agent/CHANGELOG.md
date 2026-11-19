@@ -23,6 +23,17 @@
   | `pi_agent_py.sandbox` | `pi_agent_py.tools.sandbox` |
   | `pi_agent_py.model_runtime` | `pi_agent_py.providers.runtime` |
   | `pi_agent_py.run_handle` | `pi_agent_py.runtime.run_handle` |
+  | `pi_agent_py.assembly` | `pi_agent_py.application.builder` |
+  | `pi_agent_py.app_runtime` | `pi_agent_py.application.runtime` |
+  | `pi_agent_py.lifecycle` | `pi_agent_py.application.lifecycle` |
+  | `pi_agent_py.configuration` | `pi_agent_py.application.configuration` |
+  | `pi_agent_py.profiles` | `pi_agent_py.application.profiles` |
+  | `pi_agent_py.provider_catalog` | `pi_agent_py.application.provider_catalog` |
+  | `pi_agent_py.capability_catalog` | `pi_agent_py.application.capability_catalog` |
+  | `pi_agent_py._runtime_observation` | `pi_agent_py.application._observation` |
+  | `pi_agent_py.configured_bash` | `pi_agent_py.application.capabilities.bash` |
+  | `pi_agent_py.components` | `pi_agent_py.runtime.components` |
+  | `pi_agent_py.session_spec` | `pi_agent_py.runtime.session_spec` |
 
   | 工具对象 | 定义模块 |
   |---|---|
@@ -33,6 +44,8 @@
   | `SandboxedShellTool` | `pi_agent_py.tools.shell` |
 
   教程、示例和下游示范包的具体路径在后续任务调整。
+
+  应用层迁移只调整目录、定义引用和导入；旧构造参数、内部接线参数、follow_up_id 与顶层 bash 配置的移除由后续变更处理。
 
 - 新增 CapabilityCatalog、类型化 Settings 和 capabilities YAML 节，通过既有 PluginHost 事务注册工具、Hook、Session 插件及资源 cleanup。Bash 迁入内置注册，顶层 bash 配置继续作为兼容入口，和 capabilities.bash 重复配置时拒绝。
 

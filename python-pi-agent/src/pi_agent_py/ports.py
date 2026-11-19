@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Sequence
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from .session_spec import SessionSpec
+    from .runtime.session_spec import SessionSpec
     from .providers.runtime import (
         AttemptFailure,
         ProviderCandidate,

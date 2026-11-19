@@ -170,6 +170,39 @@ class PublicApiTests(unittest.TestCase):
 
         self.assertIs(api.RunHandle, RunHandle)
 
+    def test_application_modules_supply_the_public_objects(self) -> None:
+        import pi_agent_py
+        import pi_agent_py.application as application
+        import pi_agent_py.application.capabilities as capabilities
+        from pi_agent_py.application.builder import AgentRuntimeBuilder
+        from pi_agent_py.application.capabilities.bash import bash_capability_registration
+        from pi_agent_py.application.capability_catalog import CapabilityCatalog
+        from pi_agent_py.application.configuration import AppConfigSpec, load_app_config
+        from pi_agent_py.application.lifecycle import LifecycleScope, ManagedResource
+        from pi_agent_py.application.profiles import AgentProfile, coding_profile
+        from pi_agent_py.application.provider_catalog import (
+            ProviderCatalog,
+            ProviderRegistration,
+            default_provider_catalog,
+        )
+        from pi_agent_py.application.runtime import AgentRuntime, RuntimeSession, SessionPoolPolicy
+        from pi_agent_py.runtime.components import AgentComponents, CompactionComponents
+        from pi_agent_py.runtime.session_spec import SessionSpec, StaticSessionSpecResolver
+
+        for exported in (
+            AgentRuntimeBuilder, CapabilityCatalog, AppConfigSpec, load_app_config,
+            AgentProfile, coding_profile, ProviderCatalog, ProviderRegistration,
+            default_provider_catalog, AgentRuntime, RuntimeSession, SessionPoolPolicy,
+            AgentComponents, CompactionComponents, SessionSpec, StaticSessionSpecResolver,
+        ):
+            with self.subTest(exported=exported.__name__):
+                self.assertIs(getattr(api, exported.__name__), exported)
+                self.assertFalse(hasattr(application, exported.__name__))
+        self.assertIs(pi_agent_py.LifecycleScope, LifecycleScope)
+        self.assertIs(pi_agent_py.ManagedResource, ManagedResource)
+        self.assertEqual(bash_capability_registration().name, "bash")
+        self.assertFalse(hasattr(capabilities, "bash_capability_registration"))
+
     def test_relocated_module_paths_are_removed(self) -> None:
         for name in (
             "compaction", "session", "session_jsonl", "session_transitions",
@@ -177,6 +210,9 @@ class PublicApiTests(unittest.TestCase):
             "runtime._persistence", "runtime._observation",
             "shell", "sandbox",
             "model_runtime", "run_handle", "tools.core",
+            "assembly", "app_runtime", "lifecycle", "configuration", "profiles",
+            "provider_catalog", "capability_catalog", "_runtime_observation",
+            "configured_bash", "components", "session_spec",
         ):
             with self.subTest(module=name):
                 self.assertIsNone(find_spec(f"pi_agent_py.{name}"))
@@ -188,7 +224,7 @@ class PublicApiTests(unittest.TestCase):
 
     def test_legacy_exports_keep_the_same_objects(self) -> None:
         import pi_agent_py
-        from pi_agent_py.app_runtime import AgentRuntime
+        from pi_agent_py.application.runtime import AgentRuntime
         from pi_agent_py.ports import EventSink, ModelProvider, Tool
         from pi_agent_py.runtime import Agent, AgentSession
 

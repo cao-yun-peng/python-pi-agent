@@ -12,7 +12,7 @@ from ..context.compaction import (
     build_summary_message,
     prepare_compaction,
 )
-from ..components import CompactionComponents
+from .components import CompactionComponents
 from ..domain import (
     CompactionDecision,
     EventProvenance,

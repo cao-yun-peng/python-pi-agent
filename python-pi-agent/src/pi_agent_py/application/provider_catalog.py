@@ -19,9 +19,9 @@ from .configuration import (
     _validate_env_name,
     _validated_builtin_settings,
 )
-from .errors import ConfigurationError
-from .ports import ModelProvider
-from .providers import (
+from ..errors import ConfigurationError
+from ..ports import ModelProvider
+from ..providers import (
     DeepSeekConfig,
     DeepSeekProvider,
     GLMConfig,

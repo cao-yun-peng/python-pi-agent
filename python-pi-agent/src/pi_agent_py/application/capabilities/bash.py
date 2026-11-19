@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from .capability_catalog import (
+from ..capability_catalog import (
     CapabilityConfigContext,
     CapabilityRegistration,
     CapabilitySettings,
 )
-from .configuration import DockerBashSettings, _parse_bash
-from .domain import ToolSideEffects
-from .errors import ConfigurationError
-from .plugins import PluginAPI
-from .tools.sandbox import DockerProcessSandbox
-from .tools.shell import BashTool, SandboxedBashExecutor
+from ..configuration import DockerBashSettings, _parse_bash
+from ...domain import ToolSideEffects
+from ...errors import ConfigurationError
+from ...plugins import PluginAPI
+from ...tools.sandbox import DockerProcessSandbox
+from ...tools.shell import BashTool, SandboxedBashExecutor
 
 
 def _parse(

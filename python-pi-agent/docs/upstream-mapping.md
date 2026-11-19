@@ -7,6 +7,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
+| `application/` 与 `runtime/components.py`、`runtime/session_spec.py` | coding-agent 的组装与会话配置职责 | 显式配置、能力工厂和资源所有权接缝 | 应用层拥有配置、Catalog、Builder、Runtime facade 和 Lifecycle；运行时保留共同消费的组件/Session 规格。仅迁移定义位置，不改变取消和回滚语义 |
 | `storage/`、`context/`、`observability/`、`tools/` | Pi 会话、压缩、观察与工具执行的职责 | 按能力组织实现与消费接缝 | 单一 Python 分发包内归组功能模块；工具、Shell 与进程隔离的机制映射见下表，端口仍由 ports 定义 |
 | `runtime/loop.py::Agent.run()` | `packages/agent/src/agent-loop.ts::agentLoop()` | Runtime 消费已注册能力 | 通过显式接线提交消息、接收 steer 和调用 Hook，执行顺序工具循环 |
 | `runtime/session.py`、`runtime/control.py`、`runtime/compaction_orchestration.py` | `packages/coding-agent/src/core/agent-session.ts::AgentSession` 的会话生命周期、控制与压缩 | 独立组织运行编排与能力接缝 | Python Session 组合 FIFO 控制与压缩，并通过同一个 Store 提交消息和控制转移 |

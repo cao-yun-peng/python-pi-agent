@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Generic, Literal, TypeVar
 
-from .errors import RuntimeCloseError, RuntimeStateError
+from ..errors import RuntimeCloseError, RuntimeStateError
 
 T = TypeVar("T")
 ResourceOwnership = Literal["owned", "borrowed"]

@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable, Sequence
 from uuid import uuid4
 
-from ..components import AgentComponents, _resolve_components
+from .components import AgentComponents, _resolve_components
 from ..domain import (
     AgentResult,
     EventProvenance,

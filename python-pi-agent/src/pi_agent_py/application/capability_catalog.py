@@ -10,8 +10,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol
 
-from .errors import ConfigurationError
-from .plugins import PluginAPI, PluginFactory
+from ..errors import ConfigurationError
+from ..plugins import PluginAPI, PluginFactory
 
 
 class CapabilitySettings(Protocol):
@@ -120,6 +120,6 @@ class CapabilityCatalog:
 
 
 def default_capability_catalog() -> CapabilityCatalog:
-    from .configured_bash import bash_capability_registration
+    from .capabilities.bash import bash_capability_registration
 
     return CapabilityCatalog((bash_capability_registration(),))

@@ -7,26 +7,26 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import TypeVar, cast
 
-from ._runtime_observation import _RuntimeObservation
-from .app_runtime import AgentRuntime, SessionPoolPolicy
-from .components import AgentComponents
+from ._observation import _RuntimeObservation
+from .runtime import AgentRuntime, SessionPoolPolicy
+from ..runtime.components import AgentComponents
 from .capability_catalog import CapabilityCatalog, default_capability_catalog
 from .configuration import (
     LoadedAppConfig,
     ProviderResilienceSettings,
 )
-from .domain import Message, NextTurnContext
-from .errors import ConfigurationError, RuntimeBuildError, RuntimeCloseError
+from ..domain import Message, NextTurnContext
+from ..errors import ConfigurationError, RuntimeBuildError, RuntimeCloseError
 from .lifecycle import Cleanup, LifecycleScope, ManagedResource, ResourceOwnership
-from .providers.runtime import (
+from ..providers.runtime import (
     DefaultRetryPolicy,
     DirectModelRuntime,
     FullJitterBackoff,
     ProviderCandidate,
     ResilientModelRuntime,
 )
-from .plugins import PluginFactory, PluginHost
-from .ports import (
+from ..plugins import PluginFactory, PluginHost
+from ..ports import (
     ApprovalPolicy,
     CompactionPolicy,
     CompactionStrategy,
@@ -48,8 +48,8 @@ from .provider_catalog import (
     ProviderRegistration as ProviderRegistration,
     default_provider_catalog as default_provider_catalog,
 )
-from .storage.memory import InMemorySessionStore
-from .observability.usage import PricingTable
+from ..storage.memory import InMemorySessionStore
+from ..observability.usage import PricingTable
 
 T = TypeVar("T")
 _UNSET = object()

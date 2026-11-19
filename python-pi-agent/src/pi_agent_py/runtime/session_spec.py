@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
 
-from ._metadata import _freeze_metadata
+from .._metadata import _freeze_metadata
 from .components import AgentComponents
-from .domain import JSONValue, SessionOpenRequest
+from ..domain import JSONValue, SessionOpenRequest
 
 
 @dataclass(frozen=True, slots=True)

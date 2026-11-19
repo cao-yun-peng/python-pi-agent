@@ -15,9 +15,11 @@
 
 ## 当前进度
 
+- 应用层归组后，按 `application/configuration.py` → 两个 Catalog → `application/builder.py` → `application/runtime.py` 阅读加载、初始化与 Session 池，再通过 `application/lifecycle.py` 理解所有权和逆序关闭。共同消费的规格位于 `runtime/components.py` 和 `runtime/session_spec.py`。对照配置、Catalog、Lifecycle、Runtime 和 SessionSpec 测试验证取消、回滚与关闭顺序。
+
 - 第一批功能归组后，从 `storage/memory.py` 和 `storage/jsonl.py` 阅读存储，从 `context/strategies.py` 和 `context/compaction.py` 阅读上下文，从 `observability/` 阅读事件、遥测与用量。现有测试覆盖新实现，原具体模块路径已移除。
 
-- 工具能力从 `tools/function.py` 阅读函数适配，经 `tools/validation.py`、`tools/approval.py` 和 `tools/gates.py` 理解参数校验、审批与执行策略，再沿 `tools/shell.py` → `tools/sandbox.py` 跟踪 Bash 请求与 Docker 隔离。对照 `test_tool_runtime.py`、`test_shell.py` 和 `test_sandbox.py` 验证拒绝、超时与取消；配置注册仍从 `configured_bash.py` 进入。
+- 工具能力从 `tools/function.py` 阅读函数适配，经 `tools/validation.py`、`tools/approval.py` 和 `tools/gates.py` 理解参数校验、审批与执行策略，再沿 `tools/shell.py` → `tools/sandbox.py` 跟踪 Bash 请求与 Docker 隔离。对照 `test_tool_runtime.py`、`test_shell.py` 和 `test_sandbox.py` 验证拒绝、超时与取消；配置注册仍从 `application/capabilities/bash.py` 进入。
 
 - 第三批归组后，从 `providers/runtime.py` 跟踪逻辑请求、路由、重试与物理 attempt，再从 `runtime/run_handle.py` 区分 run 取消、等待者取消和事件流关闭。对照 `test_model_runtime.py` 与 `test_run_observation.py` 验证流开始后的重试限制和定向取消。
 

@@ -4,16 +4,16 @@ The export list defines the supported surface. Implementations live in the
 modules that own their contracts.
 """
 
-from .app_runtime import (
+from .application.runtime import (
     AgentRuntime,
     RuntimeSession,
     RuntimeState,
     SessionPoolPolicy,
 )
-from .assembly import AgentRuntimeBuilder, ProviderCatalog, default_provider_catalog
+from .application.builder import AgentRuntimeBuilder
 from .context.compaction import ModelCompactionStrategy, TokenThresholdCompactionPolicy
-from .components import AgentComponents, CompactionComponents
-from .capability_catalog import (
+from .runtime.components import AgentComponents, CompactionComponents
+from .application.capability_catalog import (
     CapabilityCatalog,
     CapabilityConfigContext,
     CapabilityFactory,
@@ -23,7 +23,7 @@ from .capability_catalog import (
     ConfiguredCapability,
     default_capability_catalog,
 )
-from .configuration import (
+from .application.configuration import (
     AppConfigSpec,
     LoadedAppConfig,
     ProviderResilienceSettings,
@@ -116,7 +116,7 @@ from .observability.events import (
     agent_event_record,
     serialize_agent_event,
 )
-from .lifecycle import Cleanup, ResourceOwnership
+from .application.lifecycle import Cleanup, ResourceOwnership
 from .plugins import (
     PluginAPI,
     PluginFactory,
@@ -141,14 +141,19 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .profiles import AgentProfile, coding_profile, minimal_profile
-from .provider_catalog import ProviderRegistration, ProviderSettingsParser
+from .application.profiles import AgentProfile, coding_profile, minimal_profile
+from .application.provider_catalog import (
+    ProviderCatalog,
+    ProviderRegistration,
+    ProviderSettingsParser,
+    default_provider_catalog,
+)
 from .runtime.run_handle import RunHandle
 from .runtime.loop import Agent
 from .runtime.session import AgentSession
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
-from .session_spec import SessionSpec, StaticSessionSpecResolver
+from .runtime.session_spec import SessionSpec, StaticSessionSpecResolver
 from .observability.telemetry import LoggingTelemetrySink
 from .tools.approval import (
     DenyByDefaultApprovalPolicy,

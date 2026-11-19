@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from pi_agent_py import ConfigurationError
-from pi_agent_py.configuration import (
+from pi_agent_py.application.configuration import (
     DeepSeekSettings,
     DockerBashSettings,
     GLMSettings,
