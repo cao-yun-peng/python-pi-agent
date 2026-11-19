@@ -13,8 +13,8 @@ from .configuration import DockerBashSettings, _parse_bash
 from .domain import ToolSideEffects
 from .errors import ConfigurationError
 from .plugins import PluginAPI
-from .sandbox import DockerProcessSandbox
-from .shell import BashTool, SandboxedBashExecutor
+from .tools.sandbox import DockerProcessSandbox
+from .tools.shell import BashTool, SandboxedBashExecutor
 
 
 def _parse(

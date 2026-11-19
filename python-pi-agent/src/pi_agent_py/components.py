@@ -20,7 +20,7 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .tools import DeclaredSideEffectGate, DenyByDefaultApprovalPolicy
+from .tools.core import DeclaredSideEffectGate, DenyByDefaultApprovalPolicy
 
 
 _DEFAULT_MAX_MODEL_REQUESTS = 8

@@ -17,6 +17,8 @@
 
 - 第一批功能归组后，从 `storage/memory.py` 和 `storage/jsonl.py` 阅读存储，从 `context/strategies.py` 和 `context/compaction.py` 阅读上下文，从 `observability/` 阅读事件、遥测与用量。现有测试覆盖新实现，原具体模块路径已移除。
 
+- 第二批功能归组后，从 `tools/core.py` 阅读函数工具、参数校验、审批和声明式 Gate，再沿 `tools/shell.py` → `tools/sandbox.py` 跟踪 Bash 请求与 Docker 隔离。对照 `test_tool_runtime.py`、`test_shell.py` 和 `test_sandbox.py` 验证拒绝、超时与取消；配置注册仍从 `configured_bash.py` 进入。
+
 - 阶段 1、2、3 已完成：最小循环、DeepSeek/Kimi/GLM Chat Completions、TiMi Codex/GPT/Grok Responses、共享 SSE framing、强类型 YAML/dotenv 组装和顺序工具调用已经形成可运行纵向切片。
 - 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v6、durable event log、replay、持久化 fork、compaction event、provider-owned state，以及 steer/follow-up 的 enqueue/claim/deliver/cancel 恢复语义。多进程文件锁和数据库事务留给后续存储 Provider。
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。

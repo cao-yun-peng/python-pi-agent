@@ -9,9 +9,9 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
                |           ├── context/strategies.py implements ContextStrategy
                |           ├── context/compaction.py implements CompactionStrategy
                |           ├── plugins.py assembles Tool / NextTurnHook
-               |           ├── tools.py provides generic tools, approval, and gates
-               |           ├── shell.py consumes ShellExecutor as BashTool
-               |           └── sandbox.py implements ProcessSandbox
+               |           ├── tools/core.py provides generic tools, approval, and gates
+               |           ├── tools/shell.py consumes ShellExecutor as BashTool
+               |           └── tools/sandbox.py implements ProcessSandbox
                |                         ├── profiles.py defines product defaults
                |                         ├── lifecycle.py owns explicit cleanup
                |                         └── assembly.py builds AgentRuntime
@@ -61,9 +61,9 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 - `providers/_provider_support.py` 集中一等 Provider 的默认模型/端点、基础配置校验和通用 HTTP 状态分类；它不读取配置文件、不拥有流式控制流，也不形成 Provider 基类。
 - `providers/deepseek.py`、`providers/kimi.py` 与 `providers/glm.py` 分别隔离各自 HTTP 认证、模型参数、完成判据、错误体解析和供应商特例，并组合共享 wire codec/support；它们不是继承同一个可变大基类。GLM 适配器还负责标准 API 的 `request_id`、`tool_stream`、模型级 thinking/reasoning 约束和业务错误码映射。
 - `providers/timicc_responses.py` 独立实现 Responses API 的 typed SSE、扁平 function tool、output item 与 usage 语义，只复用 SSE framing 和基础配置/HTTP 分类。它固定发送 `store: false`，将 completed output item 保存为 provider-owned opaque state，以支持 Codex/GPT/Grok reasoning/tool 续轮；不把两套 wire format 塞进 Chat Completions codec，也不引入 `BaseOpenAIProvider`。
-- `tools.py` 提供 `FunctionTool`、审批策略、声明式副作用 Gate、兼容期 `SandboxedShellTool` 和可替换的 schema 校验边界。
-- `shell.py` 提供模型侧 `BashTool` Consumer 和 `SandboxedBashExecutor` Provider；前者只投影命名后的 `command/workdir/timeout_seconds`，后者把工作目录限制在 `/workspace`、施加超时上限，并以固定 `/bin/bash -lc` argv 消费 `ProcessSandbox`。
-- `sandbox.py` 提供真正的 `ProcessSandbox` Provider；首个实现通过 Docker 隔离 workspace Shell。
+- `tools/core.py` 提供 `FunctionTool`、审批策略、声明式副作用 Gate、兼容期 `SandboxedShellTool` 和可替换的 schema 校验边界。
+- `tools/shell.py` 提供模型侧 `BashTool` Consumer 和 `SandboxedBashExecutor` Provider；前者只投影命名后的 `command/workdir/timeout_seconds`，后者把工作目录限制在 `/workspace`、施加超时上限，并以固定 `/bin/bash -lc` argv 消费 `ProcessSandbox`。
+- `tools/sandbox.py` 提供真正的 `ProcessSandbox` Provider；首个实现通过 Docker 隔离 workspace Shell。
 - `plugins.py` 提供显式、事务化的 `PluginHost`，把 Tool、Hook 与 cleanup 组合成不可变能力快照。
 
 ## 功能目录
@@ -71,6 +71,8 @@ domain.py <- ports.py <- runtime/ <- app_runtime.py <- apps
 存储实现、回放转换和逐消息 writer 集中在 `storage/`。上下文投影和摘要机制集中在 `context/`。事件、订阅、遥测和用量记账集中在 `observability/`。三个子包的初始化文件仅提供目录说明，具体能力由定义模块显式导入。
 
 第一批迁移删除原具体模块，包内引用和测试使用新路径。稳定入口 `pi_agent_py.api` 与根包公开对象指向迁移后的定义。具体模块路径映射列在 CHANGELOG，教程、示例和下游示范代码在后续任务调整。
+
+第二批把工具适配、审批与声明式执行策略归入 `tools/core.py`，把 Shell 语义与 Docker 进程隔离分别归入 `tools/shell.py` 和 `tools/sandbox.py`。`tools/__init__.py` 仅提供目录说明，原 `tools.py`、`shell.py` 和 `sandbox.py` 已删除。`configured_bash.py` 继续在应用组装边界解析 Settings 并通过 PluginAPI 注册工具；工具实现只依赖领域对象和端口，运行时仍负责调用顺序、超时与取消传播。
 
 ## 状态模型
 

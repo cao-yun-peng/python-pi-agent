@@ -102,21 +102,51 @@ class PublicApiTests(unittest.TestCase):
         from pi_agent_py.observability.usage import UsageLedger
         from pi_agent_py.storage.jsonl import JsonlSessionStore
         from pi_agent_py.storage.memory import InMemorySessionStore
+        from pi_agent_py.tools.core import (
+            DeclaredSideEffectGate,
+            DenyByDefaultApprovalPolicy,
+            FunctionTool,
+            StaticApprovalPolicy,
+        )
 
         objects = (
             ModelCompactionStrategy, FullHistoryContextStrategy, EventHub,
             CallbackEventSink, LoggingTelemetrySink, UsageLedger,
             JsonlSessionStore, InMemorySessionStore,
+            DeclaredSideEffectGate, DenyByDefaultApprovalPolicy,
+            FunctionTool, StaticApprovalPolicy,
         )
         for exported in objects:
             with self.subTest(exported=exported.__name__):
                 self.assertIs(getattr(api, exported.__name__), exported)
+
+    def test_tool_modules_supply_root_exports_without_package_aliases(self) -> None:
+        import pi_agent_py
+        import pi_agent_py.tools as tools
+        from pi_agent_py.tools.core import (
+            FunctionTool,
+            SandboxedShellTool,
+            TrustedToolExecutionGate,
+            validate_tool_arguments,
+        )
+        from pi_agent_py.tools.sandbox import DockerProcessSandbox
+        from pi_agent_py.tools.shell import BashTool, SandboxedBashExecutor
+
+        for exported in (
+            FunctionTool, SandboxedShellTool, TrustedToolExecutionGate,
+            validate_tool_arguments, DockerProcessSandbox, BashTool,
+            SandboxedBashExecutor,
+        ):
+            with self.subTest(exported=exported.__name__):
+                self.assertIs(getattr(pi_agent_py, exported.__name__), exported)
+                self.assertFalse(hasattr(tools, exported.__name__))
 
     def test_relocated_module_paths_are_removed(self) -> None:
         for name in (
             "compaction", "session", "session_jsonl", "session_transitions",
             "events", "event_hub", "telemetry", "otel", "usage",
             "runtime._persistence", "runtime._observation",
+            "shell", "sandbox",
         ):
             with self.subTest(module=name):
                 self.assertIsNone(find_spec(f"pi_agent_py.{name}"))

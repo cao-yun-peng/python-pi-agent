@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 
-from .domain import (
+from ..domain import (
     ApprovalDecision,
     JSONObject,
     JSONValue,
@@ -15,12 +15,12 @@ from .domain import (
     ToolSideEffects,
     WorkspaceAccessMode,
 )
-from .errors import (
+from ..errors import (
     SandboxUnavailableError,
     ToolExecutionDeniedError,
     ToolValidationError,
 )
-from .ports import ProcessSandbox, Tool
+from ..ports import ProcessSandbox, Tool
 
 ToolHandler = Callable[
     [JSONObject, ToolExecutionContext],
@@ -280,9 +280,9 @@ def _validate_object(
     required_value = schema.get("required", [])
     required = required_value if isinstance(required_value, list) else []
 
-    for name in required:
-        if isinstance(name, str) and name not in value:
-            violations.append(f"{path}.{name}: required property is missing")
+    for required_name in required:
+        if isinstance(required_name, str) and required_name not in value:
+            violations.append(f"{path}.{required_name}: required property is missing")
 
     allow_additional = schema.get("additionalProperties", True) is not False
     for name, item in value.items():

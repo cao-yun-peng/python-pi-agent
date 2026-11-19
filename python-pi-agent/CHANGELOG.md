@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- 存储、上下文和可观测性按功能归组，原具体模块已删除。稳定入口 `pi_agent_py.api` 和根包导出引用新定义，具体模块导入按下表迁移。
+- 存储、上下文、可观测性和工具执行按功能归组，原具体模块已删除。稳定入口 `pi_agent_py.api` 和根包导出引用新定义，具体模块导入按下表迁移。
 
   | 原模块 | 新模块 |
   |---|---|
@@ -18,6 +18,9 @@
   | `pi_agent_py.otel` | `pi_agent_py.observability.otel` |
   | `pi_agent_py.usage` | `pi_agent_py.observability.usage` |
   | `pi_agent_py.runtime._observation` | `pi_agent_py.observability._session_events` |
+  | `pi_agent_py.tools` 的工具、审批和校验对象 | `pi_agent_py.tools.core` |
+  | `pi_agent_py.shell` | `pi_agent_py.tools.shell` |
+  | `pi_agent_py.sandbox` | `pi_agent_py.tools.sandbox` |
 
   教程、示例和下游示范包的具体路径在后续任务调整。
 

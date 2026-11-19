@@ -197,8 +197,8 @@ from .ports import (
 )
 from .profiles import AgentProfile, coding_profile, minimal_profile
 from .runtime import Agent, AgentSession
-from .sandbox import DockerProcessSandbox
-from .shell import BashTool, SandboxedBashExecutor
+from .tools.sandbox import DockerProcessSandbox
+from .tools.shell import BashTool, SandboxedBashExecutor
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
 from .storage.transitions import (
@@ -212,7 +212,7 @@ from .storage.transitions import (
     replay_session,
 )
 from .testing import FakeCompactionStrategy, FakeProvider, WaitUntilCancelled
-from .tools import (
+from .tools.core import (
     DeclaredSideEffectGate,
     DenyByDefaultApprovalPolicy,
     FunctionTool,

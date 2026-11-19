@@ -6,7 +6,7 @@ import asyncio
 from math import isfinite
 from pathlib import PurePosixPath
 
-from .domain import (
+from ..domain import (
     JSONObject,
     JSONValue,
     ShellCollectedOutput,
@@ -21,8 +21,8 @@ from .domain import (
     ToolSideEffects,
     WorkspaceAccessMode,
 )
-from .errors import SandboxTimeoutError, SandboxUnavailableError
-from .ports import ProcessSandbox, ShellExecutor
+from ..errors import SandboxTimeoutError, SandboxUnavailableError
+from ..ports import ProcessSandbox, ShellExecutor
 
 
 class SandboxedBashExecutor:

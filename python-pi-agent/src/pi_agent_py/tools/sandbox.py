@@ -10,21 +10,26 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
-from .domain import SandboxProcessRequest, SandboxProcessResult
-from .errors import (
+from ..domain import SandboxProcessRequest, SandboxProcessResult
+from ..errors import (
     SandboxTimeoutError,
     SandboxUnavailableError,
 )
 
 
 class _AsyncReader(Protocol):
-    async def read(self, count: int = -1) -> bytes: ...
+    async def read(self, count: int = -1, /) -> bytes: ...
 
 
 class _RunningProcess(Protocol):
-    returncode: int | None
-    stdout: _AsyncReader | None
-    stderr: _AsyncReader | None
+    @property
+    def returncode(self) -> int | None: ...
+
+    @property
+    def stdout(self) -> _AsyncReader | None: ...
+
+    @property
+    def stderr(self) -> _AsyncReader | None: ...
 
     async def communicate(self) -> tuple[bytes, bytes]: ...
 

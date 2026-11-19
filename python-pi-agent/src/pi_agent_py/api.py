@@ -150,7 +150,7 @@ from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
 from .session_spec import SessionSpec, StaticSessionSpecResolver
 from .observability.telemetry import LoggingTelemetrySink
-from .tools import (
+from .tools.core import (
     DeclaredSideEffectGate,
     DenyByDefaultApprovalPolicy,
     FunctionTool,

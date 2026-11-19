@@ -28,3 +28,15 @@
 ## 验证方式
 
 对比迁移前后除导入外的语法树。验证稳定 API 对象身份和原模块移除。执行聚焦回归、包级离线测试、Ruff 和 mypy，并从干净源构建 wheel 验证安装后的模块。
+
+## 第二批：工具与执行边界
+
+2026-11-19 继续沿用按功能归组、删除原具体模块的决定：
+
+- `tools.py` 迁入 `tools/core.py`，保存函数工具、参数校验、审批与声明式 Gate。
+- `shell.py` 迁入 `tools/shell.py`，保存 Bash Consumer 和 SandboxedBashExecutor。
+- `sandbox.py` 迁入 `tools/sandbox.py`，保存 DockerProcessSandbox 与输出捕获、清理机制。
+- `tools/__init__.py` 仅说明目录职责，不转导出原 `tools.py` 的对象。
+- `configured_bash.py` 继续属于应用组装边界。工具实现依赖 domain/ports，组装边界依赖工具实现，运行时保留执行编排。
+
+此次调整定义位置与导入，并修正迁移模块的类型描述：进程协议使用只读属性，读取方法声明按位置传参；JSON 校验避免在不同类型的循环中复用变量名。稳定 API 和根包公开对象直接引用新定义；既有审批拒绝、超时、取消与 fail-closed 测试继续验证执行契约。教程、示例和下游示范代码仍在后续任务调整。

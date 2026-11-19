@@ -57,7 +57,7 @@ from ..ports import (
     Tool,
     ToolExecutionGate,
 )
-from ..tools import validate_tool_arguments
+from ..tools.core import validate_tool_arguments
 from ..observability._session_events import _duration_ms, _message_payload, _run_error_fields, _turn_id
 
 
