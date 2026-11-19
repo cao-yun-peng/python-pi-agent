@@ -7,8 +7,8 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .context import CharacterTokenEstimator, group_context_messages
-from .domain import (
+from .strategies import CharacterTokenEstimator, group_context_messages
+from ..domain import (
     CompactionDecision,
     Finish,
     Message,
@@ -19,12 +19,12 @@ from .domain import (
     TokenUsage,
     ToolCall,
 )
-from .errors import (
+from ..errors import (
     CompactionError,
     CompactionNotNeededError,
     CompactionPolicyError,
 )
-from .ports import ModelProvider, TokenEstimator
+from ..ports import ModelProvider, TokenEstimator
 
 _TOOL_RESULT_MAX_CHARS = 2_000
 _SUMMARY_PREFIX = "<conversation-summary>"

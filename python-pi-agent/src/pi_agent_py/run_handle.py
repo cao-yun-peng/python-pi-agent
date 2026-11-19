@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from .domain import AgentResult
-from .event_hub import EventSubscription
+from .observability.event_hub import EventSubscription
 
 
 class RunHandle:

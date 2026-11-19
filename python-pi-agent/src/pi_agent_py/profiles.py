@@ -10,7 +10,7 @@ from .components import (
     CompactionComponents,
     _DEFAULT_MAX_MODEL_REQUESTS,
 )
-from .context import FullHistoryContextStrategy
+from .context.strategies import FullHistoryContextStrategy
 from .ports import (
     ApprovalPolicy,
     CompactionPolicy,

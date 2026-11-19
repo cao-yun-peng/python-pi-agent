@@ -15,7 +15,7 @@ from ..domain import (
     SessionEventContext,
 )
 from ..errors import AgentError, _error_category
-from ..events import make_agent_event
+from .events import make_agent_event
 from ..ports import EventSink
 
 

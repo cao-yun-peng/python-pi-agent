@@ -8,7 +8,7 @@ from opentelemetry.context import Context
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, Status, StatusCode, Tracer, set_span_in_context
 
-from .domain import AgentEventEnvelope, EventKind, TelemetryEvent
+from ..domain import AgentEventEnvelope, EventKind, TelemetryEvent
 
 _START: dict[EventKind, str] = {
     "model_request_started": "model_request",

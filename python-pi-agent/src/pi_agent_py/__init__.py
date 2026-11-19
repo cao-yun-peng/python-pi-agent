@@ -18,7 +18,7 @@ from .assembly import (
 )
 
 from .components import AgentComponents, CompactionComponents
-from .compaction import (
+from .context.compaction import (
     CompactionPreparation,
     ModelCompactionStrategy,
     TokenThresholdCompactionPolicy,
@@ -26,7 +26,7 @@ from .compaction import (
     prepare_compaction,
     serialize_conversation,
 )
-from .context import (
+from .context.strategies import (
     CharacterTokenEstimator,
     FullHistoryContextStrategy,
     TokenBudgetContextStrategy,
@@ -141,7 +141,7 @@ from .errors import (
     ToolExecutionGateError,
 )
 from .lifecycle import LifecycleScope, ManagedResource, ResourceOwnership
-from .events import (
+from .observability.events import (
     BufferedEventSink,
     CallbackEventSink,
     EventRedactionPolicy,
@@ -199,9 +199,9 @@ from .profiles import AgentProfile, coding_profile, minimal_profile
 from .runtime import Agent, AgentSession
 from .sandbox import DockerProcessSandbox
 from .shell import BashTool, SandboxedBashExecutor
-from .session import InMemorySessionStore
-from .session_jsonl import JsonlSessionStore
-from .session_transitions import (
+from .storage.memory import InMemorySessionStore
+from .storage.jsonl import JsonlSessionStore
+from .storage.transitions import (
     SessionAppendPlan,
     SessionCompactionPlan,
     SessionControlPlan,

@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 
-from .domain import (
+from ..domain import (
     ControlCancellation,
     ControlClaim,
     ControlDelivery,
@@ -20,7 +20,7 @@ from .domain import (
     SessionSnapshot,
     ToolCall,
 )
-from .errors import (
+from ..errors import (
     SessionConflictError,
     SessionReplayError,
     SessionValidationError,

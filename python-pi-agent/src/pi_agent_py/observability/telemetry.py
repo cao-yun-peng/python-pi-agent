@@ -6,7 +6,7 @@ import logging
 import re
 from dataclasses import asdict, replace
 
-from .domain import AgentEvent, TelemetryEvent
+from ..domain import AgentEvent, TelemetryEvent
 from .usage import _reported_usage
 
 _NAME = re.compile(r"[a-zA-Z0-9_.:/-]{1,80}")

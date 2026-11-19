@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from types import MappingProxyType
 
-from .domain import AgentEvent, TokenUsage
+from ..domain import AgentEvent, TokenUsage
 
 
 @dataclass(frozen=True, slots=True)

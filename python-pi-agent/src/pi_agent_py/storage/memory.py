@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .domain import (
+from ..domain import (
     ControlTransition,
     DurableSessionEvent,
     Message,
@@ -11,8 +11,8 @@ from .domain import (
     SessionEventKind,
     SessionSnapshot,
 )
-from .errors import SessionConflictError, SessionValidationError
-from .session_transitions import (
+from ..errors import SessionConflictError, SessionValidationError
+from .transitions import (
     fork_session_events,
     prepare_session_append,
     prepare_session_compaction,

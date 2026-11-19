@@ -11,7 +11,7 @@ from .app_runtime import (
     SessionPoolPolicy,
 )
 from .assembly import AgentRuntimeBuilder, ProviderCatalog, default_provider_catalog
-from .compaction import ModelCompactionStrategy, TokenThresholdCompactionPolicy
+from .context.compaction import ModelCompactionStrategy, TokenThresholdCompactionPolicy
 from .components import AgentComponents, CompactionComponents
 from .capability_catalog import (
     CapabilityCatalog,
@@ -33,7 +33,7 @@ from .configuration import (
     load_app_config,
     parse_app_config,
 )
-from .context import FullHistoryContextStrategy, TokenBudgetContextStrategy
+from .context.strategies import FullHistoryContextStrategy, TokenBudgetContextStrategy
 from .domain import (
     AGENT_EVENT_SCHEMA_VERSION,
     AgentEvent,
@@ -105,8 +105,8 @@ from .errors import (
     ToolExecutionGateError,
     ToolValidationError,
 )
-from .event_hub import EventFilter, EventHub, EventSubscription, OverflowPolicy
-from .events import (
+from .observability.event_hub import EventFilter, EventHub, EventSubscription, OverflowPolicy
+from .observability.events import (
     BufferedEventSink,
     CallbackEventSink,
     EventRedactionPolicy,
@@ -146,17 +146,17 @@ from .provider_catalog import ProviderRegistration, ProviderSettingsParser
 from .run_handle import RunHandle
 from .runtime.loop import Agent
 from .runtime.session import AgentSession
-from .session import InMemorySessionStore
-from .session_jsonl import JsonlSessionStore
+from .storage.memory import InMemorySessionStore
+from .storage.jsonl import JsonlSessionStore
 from .session_spec import SessionSpec, StaticSessionSpecResolver
-from .telemetry import LoggingTelemetrySink
+from .observability.telemetry import LoggingTelemetrySink
 from .tools import (
     DeclaredSideEffectGate,
     DenyByDefaultApprovalPolicy,
     FunctionTool,
     StaticApprovalPolicy,
 )
-from .usage import ModelPrice, PricingTable, UsageLedger, UsageSummary
+from .observability.usage import ModelPrice, PricingTable, UsageLedger, UsageSummary
 
 __all__ = [
     "Agent",

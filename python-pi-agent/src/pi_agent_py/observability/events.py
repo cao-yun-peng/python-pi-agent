@@ -6,10 +6,10 @@ import asyncio
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Literal, Mapping
+from typing import Literal, Mapping, cast
 
-from .domain import AgentEvent, AgentEventEnvelope, EventChannel, EventKind
-from .ports import EventSink
+from ..domain import AgentEvent, AgentEventEnvelope, EventChannel, EventKind, JSONValue
+from ..ports import EventSink
 
 
 _QUEUE_STOP = object()
@@ -374,7 +374,10 @@ def redact_event(
         envelope=(
             replace(
                 event.envelope,
-                metadata=_redact_sensitive_values(event.envelope.metadata, selected),
+                metadata=cast(
+                    Mapping[str, JSONValue],
+                    _redact_sensitive_values(event.envelope.metadata, selected),
+                ),
             )
             if event.envelope.metadata
             else event.envelope

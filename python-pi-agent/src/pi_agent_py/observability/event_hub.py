@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from .domain import AgentEvent, EventChannel, EventKind
+from ..domain import AgentEvent, EventChannel, EventKind
 
 OverflowPolicy = Literal["drop_oldest", "drop_newest", "close"]
 

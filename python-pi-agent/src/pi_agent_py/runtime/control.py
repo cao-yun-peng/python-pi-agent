@@ -22,8 +22,8 @@ from ..domain import (
 )
 from ..errors import AgentError, InternalError, SessionControlError
 from ..ports import SessionStore
-from ._observation import _SessionEvents, _run_error_fields
-from ._persistence import _call_session_store
+from ..observability._session_events import _SessionEvents, _run_error_fields
+from ..storage._writer import _call_session_store
 from .loop import _SteeringInstruction
 
 

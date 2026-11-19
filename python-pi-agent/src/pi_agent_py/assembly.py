@@ -48,8 +48,8 @@ from .provider_catalog import (
     ProviderRegistration as ProviderRegistration,
     default_provider_catalog as default_provider_catalog,
 )
-from .session import InMemorySessionStore
-from .usage import PricingTable
+from .storage.memory import InMemorySessionStore
+from .observability.usage import PricingTable
 
 T = TypeVar("T")
 _UNSET = object()

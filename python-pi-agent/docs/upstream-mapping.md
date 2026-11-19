@@ -7,6 +7,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 
 | 本项目 | Pi 概念 | DeepSeek Harness 思想 | 当前差异 |
 |---|---|---|---|
+| `storage/`、`context/`、`observability/` | Pi durable、coding-agent compaction 与 telemetry 的职责 | 按能力组织实现与消费接缝 | 单一 Python 分发包内归组功能模块，具体机制映射见下表 |
 | `runtime/loop.py::Agent.run()` | `packages/agent/src/agent-loop.ts::agentLoop()` | Runtime 消费已注册能力 | 通过显式接线提交消息、接收 steer 和调用 Hook，执行顺序工具循环 |
 | `runtime/session.py`、`runtime/control.py`、`runtime/compaction_orchestration.py` | `packages/coding-agent/src/core/agent-session.ts::AgentSession` 的会话生命周期、控制与压缩 | 独立组织运行编排与能力接缝 | Python Session 组合 FIFO 控制与压缩，并通过同一个 Store 提交消息和控制转移 |
 | `run_failed.error_category` | `packages/agent/src/agent-loop.ts` 的运行失败终态 | 按 Provider / Consumer 能力边界定位故障 | Python 调用方收到领域异常和原始 cause，观察者收到异常类名和稳定分类 |

@@ -27,7 +27,7 @@ from .errors import (
     ProviderTimeoutError,
     ProviderTransportError,
 )
-from .events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
+from .observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from .ports import BackoffStrategy, EventSink, ModelProvider, RetryPolicy, RoutePolicy
 
 RetryAction = Literal["retry_same", "try_next", "fail"]

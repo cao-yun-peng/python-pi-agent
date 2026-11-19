@@ -27,8 +27,8 @@ from .errors import (
     RuntimeCloseError,
     RuntimeStateError,
 )
-from .event_hub import EventHub
-from .events import EventSinkFailure, make_agent_event
+from .observability.event_hub import EventHub
+from .observability.events import EventSinkFailure, make_agent_event
 from .lifecycle import LifecycleScope
 from .plugins import PluginHost
 from .ports import (
@@ -45,11 +45,11 @@ from .ports import (
     Tool,
     ToolExecutionGate,
 )
-from .runtime._persistence import _call_session_store
+from .storage._writer import _call_session_store
 from .runtime.session import AgentSession
 from .run_handle import RunHandle
 from .session_spec import SessionSpec, StaticSessionSpecResolver
-from .usage import PricingTable, UsageLedger, UsageSummary
+from .observability.usage import PricingTable, UsageLedger, UsageSummary
 
 RuntimeState = Literal["running", "closing", "closed"]
 Clock = Callable[[], float]

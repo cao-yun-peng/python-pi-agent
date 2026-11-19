@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, replace
 from typing import Self, TypedDict, Unpack
 from warnings import warn
 
-from .context import FullHistoryContextStrategy
+from .context.strategies import FullHistoryContextStrategy
 from .errors import ConfigurationError
 from .ports import (
     ApprovalPolicy,

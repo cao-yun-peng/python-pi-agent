@@ -34,7 +34,7 @@ from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from pi_agent_py.otel import OtelTelemetrySink
+from pi_agent_py.observability.otel import OtelTelemetrySink
 
 
 class OtelTests(unittest.IsolatedAsyncioTestCase):

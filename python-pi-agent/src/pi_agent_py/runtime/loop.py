@@ -46,7 +46,7 @@ from ..errors import (
     ToolExecutionDeniedError,
     ToolValidationError,
 )
-from ..events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
+from ..observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from ..ports import (
     ApprovalPolicy,
     ContextStrategy,
@@ -58,7 +58,7 @@ from ..ports import (
     ToolExecutionGate,
 )
 from ..tools import validate_tool_arguments
-from ._observation import _duration_ms, _message_payload, _run_error_fields, _turn_id
+from ..observability._session_events import _duration_ms, _message_payload, _run_error_fields, _turn_id
 
 
 @dataclass(frozen=True, slots=True)

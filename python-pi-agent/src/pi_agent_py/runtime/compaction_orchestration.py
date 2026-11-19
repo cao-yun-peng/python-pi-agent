@@ -7,7 +7,7 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from uuid import uuid4
 
-from ..compaction import (
+from ..context.compaction import (
     CompactionPreparation,
     build_summary_message,
     prepare_compaction,
@@ -32,8 +32,8 @@ from ..errors import (
     ContextPreparationError,
 )
 from ..ports import NextTurnHook
-from ._observation import _SessionEvents, _duration_ms
-from ._persistence import _SessionWriter, _latest_durable_identity
+from ..observability._session_events import _SessionEvents, _duration_ms
+from ..storage._writer import _SessionWriter, _latest_durable_identity
 
 
 class _SessionCompactor:

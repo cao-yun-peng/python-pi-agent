@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from collections.abc import AsyncIterator, Sequence
+from importlib.util import find_spec
 
 import pi_agent_py.api as api
 from pi_agent_py.api import (
@@ -92,6 +93,34 @@ class _AppProvider:
 
 
 class PublicApiTests(unittest.TestCase):
+    def test_functional_modules_supply_the_public_objects(self) -> None:
+        from pi_agent_py.context.compaction import ModelCompactionStrategy
+        from pi_agent_py.context.strategies import FullHistoryContextStrategy
+        from pi_agent_py.observability.event_hub import EventHub
+        from pi_agent_py.observability.events import CallbackEventSink
+        from pi_agent_py.observability.telemetry import LoggingTelemetrySink
+        from pi_agent_py.observability.usage import UsageLedger
+        from pi_agent_py.storage.jsonl import JsonlSessionStore
+        from pi_agent_py.storage.memory import InMemorySessionStore
+
+        objects = (
+            ModelCompactionStrategy, FullHistoryContextStrategy, EventHub,
+            CallbackEventSink, LoggingTelemetrySink, UsageLedger,
+            JsonlSessionStore, InMemorySessionStore,
+        )
+        for exported in objects:
+            with self.subTest(exported=exported.__name__):
+                self.assertIs(getattr(api, exported.__name__), exported)
+
+    def test_relocated_module_paths_are_removed(self) -> None:
+        for name in (
+            "compaction", "session", "session_jsonl", "session_transitions",
+            "events", "event_hub", "telemetry", "otel", "usage",
+            "runtime._persistence", "runtime._observation",
+        ):
+            with self.subTest(module=name):
+                self.assertIsNone(find_spec(f"pi_agent_py.{name}"))
+
     def test_explicit_exports_match_the_stable_contract(self) -> None:
         self.assertCountEqual(api.__all__, _STABLE_EXPORTS)
         visible_names = {name for name in vars(api) if not name.startswith("_")}

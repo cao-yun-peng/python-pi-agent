@@ -17,8 +17,8 @@ from ..domain import (
     SessionState,
 )
 from ..errors import ConfigurationError, SessionControlError
-from ..event_hub import EventFilter, EventHub
-from ..events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
+from ..observability.event_hub import EventFilter, EventHub
+from ..observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from ..plugins import PluginHost, PluginSessionLease
 from ..ports import (
     ApprovalPolicy,
@@ -33,9 +33,9 @@ from ..ports import (
     ToolExecutionGate,
 )
 from ..run_handle import RunHandle
-from ..session_transitions import find_unresolved_tool_calls
-from ._observation import _SessionEvents, _message_payload, _turn_id
-from ._persistence import _SessionWriter, _call_session_store
+from ..storage.transitions import find_unresolved_tool_calls
+from ..observability._session_events import _SessionEvents, _message_payload, _turn_id
+from ..storage._writer import _SessionWriter, _call_session_store
 from .compaction_orchestration import _SessionCompactor
 from .control import _QueuedSessionRun, _SessionControl
 from .loop import Agent, _AgentWiring

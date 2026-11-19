@@ -15,6 +15,8 @@
 
 ## 当前进度
 
+- 第一批功能归组后，从 `storage/memory.py` 和 `storage/jsonl.py` 阅读存储，从 `context/strategies.py` 和 `context/compaction.py` 阅读上下文，从 `observability/` 阅读事件、遥测与用量。现有测试覆盖新实现，原具体模块路径已移除。
+
 - 阶段 1、2、3 已完成：最小循环、DeepSeek/Kimi/GLM Chat Completions、TiMi Codex/GPT/Grok Responses、共享 SSE framing、强类型 YAML/dotenv 组装和顺序工具调用已经形成可运行纵向切片。
 - 阶段 4 已完成内存与 JSONL `SessionStore`、乐观并发、跨 run/进程恢复、逐消息提交、event/run/turn/provenance、schema v6、durable event log、replay、持久化 fork、compaction event、provider-owned state，以及 steer/follow-up 的 enqueue/claim/deliver/cancel 恢复语义。多进程文件锁和数据库事务留给后续存储 Provider。
 - 阶段 5 已完成 `ContextPlan`、异步 `ContextStrategy`、可替换 token 估算、完整 turn 分组、预算投影、手动 durable compaction，以及 run 前和工具续轮前的 token threshold 自动触发。
@@ -118,9 +120,9 @@ runtime event
 建议按以下顺序阅读：
 
 1. `ports.py::EventSink`：确认它是 observer，而不是 interceptor。
-2. `events.py::IsolatedEventSink`：观察故障如何变成无敏感文本的 bounded diagnostics。
-3. `events.py::redact_event`：确认复制、事件字段策略与嵌套 secret key 规则。
-4. `events.py::BufferedEventSink`：理解有界队列、顺序 worker、drop 和 close 语义。
+2. `observability/events.py::IsolatedEventSink`：观察故障如何变成无敏感文本的 bounded diagnostics。
+3. `observability/events.py::redact_event`：确认复制、事件字段策略与嵌套 secret key 规则。
+4. `observability/events.py::BufferedEventSink`：理解有界队列、顺序 worker、drop 和 close 语义。
 5. `runtime/loop.py`、`runtime/session.py` 和 `plugins.py` 的构造入口：确认三个消费方建立同一隔离边界。
 6. `tests/test_events.py`：用成功、原始失败、脱敏、下游错误和关闭路径核对契约。
 

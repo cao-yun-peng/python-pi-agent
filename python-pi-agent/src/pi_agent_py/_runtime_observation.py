@@ -8,11 +8,11 @@ from contextvars import ContextVar
 from dataclasses import replace
 
 from .domain import AgentEvent, JSONValue
-from .event_hub import EventHub
-from .events import CallbackEventSink, EventSinkFailure, ensure_isolated_event_sink
+from .observability.event_hub import EventHub
+from .observability.events import CallbackEventSink, EventSinkFailure, ensure_isolated_event_sink
 from .ports import EventSink, TelemetrySink
-from .telemetry import _project
-from .usage import PricingTable, UsageLedger, UsageSummary
+from .observability.telemetry import _project
+from .observability.usage import PricingTable, UsageLedger, UsageSummary
 
 
 class _RuntimeObservation:
