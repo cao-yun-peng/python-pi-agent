@@ -30,6 +30,7 @@ from .contracts import (
     McpEndpoint,
     McpProtocolError,
     McpResultError,
+    McpRequestNotStartedError,
     McpServerSettings,
     McpToolDescriptor,
     McpTransportError,
@@ -267,6 +268,13 @@ class McpTool:
         except asyncio.CancelledError:
             emit("mcp_request_cancelled", "cancelled")
             raise
+        except McpRequestNotStartedError as error:
+            emit("mcp_request_failed", "error", error)
+            return ToolOutput(
+                "MCP request was not sent because its connection or queue is unavailable.",
+                {"mcp": self._metadata(outcome="not_started"), "result": None},
+                True,
+            )
         except (
             McpConnectionError,
             McpProtocolError,

@@ -187,3 +187,7 @@ PluginAPI.event_sink 只读借用 Host 的隔离观察端口，插件不拥有�
 McpTool 始终声明 external、要求审批且不可安全重试/重放。稳定摘要本地名映射回绑定原名，一项调用只提交一次；输出先校验原值和已解析数据预算，再经过 B5 变换进入 Store。结构化封装保留 schema 摘要、协议版本与 null presence；未知结果使用固定错误，取消交给 Session 恢复。连接与请求 capability 事件经隔离观察入口发出，OTel 显式配对，不含参数、输出、地址或凭据。
 
 `testing.FakeMcpConnector/FakeMcpEndpoint` 验证发现至模型续轮、回滚与并发取消隔离，无 SDK/网络。SDK owner、stdio/HTTP、分页、有限队列、wire 预算、凭据解析及 YAML/facade 接线尚未实现；当前解析后预算不能替代原始读取限制。见 [ADR 0036](adr/0036-mcp-fake-tool-slice.md)。
+
+## MCP SDK owner 与 stdio（阶段 2）
+
+OwnedMcpEndpoint 在同一 owner 任务持有 SDK 上下文，以有界队列和请求子任务处理取消；build/run/close 可以来自不同任务。SdkMcpConnector 延迟加载固定 SDK 2.3.0，协商 modern/legacy；Session.send_request 单次提交工具操作，完整分页后固定快照。拒绝发生于发送前时结果为 not_started；协议/目录失效要求重建。stdio 精确 argv、显式 env、丢弃 stderr，owner Context 内的 SDK 日志过滤器在关闭时撤销。默认 cleanup grace 调整为 10 秒，owner 清理为 8 秒；实际 Windows 进程树退出有显式本地集成证据。HTTP 与 wire 预算仍待阶段 3，见 [ADR 0037](adr/0037-mcp-sdk-owner-and-stdio.md)。

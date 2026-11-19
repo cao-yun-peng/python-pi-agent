@@ -139,3 +139,5 @@
 MCP 方案阶段 0 已完成，随 `feat: add generic tool adapter seams` 提交，见 [ADR 0035](adr/0035-generic-tool-adapter-seams.md)、[第 35 章](../tutorials/35-generic-tool-adapter-seams.md)和[示例 36](../examples/36_generic_tool_seams.py)。SchemaValidator、插件观察入口、工具 run/turn 与超时 unknown 语义已贯通。
 
 阶段 1 的 FakeMcpConnector、SDK 无关契约、McpTool 与事务插件初始化已完成，随 `feat: add offline MCP tool adapter slice` 提交，见 [ADR 0036](adr/0036-mcp-fake-tool-slice.md)、[第 36 章](../tutorials/36-mcp-fake-tools.md)和[示例 37](../examples/37_mcp_fake_tools.py)。权限、投影、回滚、取消恢复和 durable 续轮均可离线复现；下一阶段为 SDK owner 与真实 stdio，不提前开放 YAML/自动发现。
+
+阶段 2 的 SDK owner、stdio、完整分页和本地 fixture 已完成，随 `feat: add owned MCP SDK stdio connections` 提交；见 [ADR 0037](adr/0037-mcp-sdk-owner-and-stdio.md)、教程 37、示例 38。两种协议、取消/断连、跨任务关闭及 Windows 进程树有离线证据；下一项为 Streamable HTTP、显式凭据与 wire 预算。

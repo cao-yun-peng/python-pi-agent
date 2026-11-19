@@ -169,3 +169,7 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## MCP 阶段 1：Fake 端到端切片
 
 阅读[第 36 章](../tutorials/36-mcp-fake-tools.md)，运行示例 37。沿目录发现 → allowlist/校验 → 审批/Gate → 一次原名调用 → 结果投影/B5 → durable 续轮追踪；分别移除三个授权条件，验证零调用。用错误输出、零期限和 Event 取消证明 unknown、不重发与恢复；解释为什么 Fake Lock 无法证明真实 SDK owner 的任务与子进程生命周期。参考 ADR 0036。
+
+## MCP 阶段 2：SDK owner 与 stdio
+
+阅读[第 37 章](../tutorials/37-mcp-sdk-transports.md)，运行示例 38，再显式开启本地集成。用不同任务执行 build/run/close，解释同任务 SDK enter/exit、有界排队与取消隔离；同时区分 Python Task 完成与实际父/子进程退出。

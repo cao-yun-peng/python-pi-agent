@@ -31,6 +31,10 @@ class McpResultError(AgentError):
     """A submitted request returned an unusable result."""
 
 
+class McpRequestNotStartedError(McpTransportError):
+    """A closed/broken/full owner rejected a request before submitting it."""
+
+
 def _json(value: object, *, max_bytes: int, max_depth: int = 32) -> str:
     """Validate a parsed finite JSON tree before encoding it (not a wire cap)."""
 
@@ -166,7 +170,7 @@ class McpServerSettings:
     limits: McpLimits = field(default_factory=McpLimits)
     connection_timeout_seconds: float = 10
     call_timeout_seconds: float = 30
-    cleanup_grace_seconds: float = 5
+    cleanup_grace_seconds: float = 10
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "allow_tools", tuple(self.allow_tools))

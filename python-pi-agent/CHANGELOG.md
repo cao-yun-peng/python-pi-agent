@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP 阶段 2：可选 [mcp] 固定 SDK 2.3.0；新增独立连接 owner、有界队列、完整分页和真实 stdio。未发送失败区分 not_started；SDK 日志按 owner Context 隔离。cleanup grace 默认由 5 调整为 10 秒，为 SDK 的关闭/强杀/回收留出空间；owner 默认清理 8 秒。真实子进程集成需显式启用，见 ADR 0037。
+
 - MCP 阶段 1：新增 SDK 无关契约、显式连接策略、mcp_plugin、McpTool 和 FakeMcpConnector/FakeMcpEndpoint。打通发现、前置校验、审批/Gate、单次远端调用、输出校验/预算、B5 变换、durable 续轮与离线恢复；覆盖事务回滚、超时/取消及 MCP OTel span。定义模块入口已可使用；SDK/stdio/HTTP、凭据解析与 YAML/稳定 facade 接线留待后续阶段，详见 ADR 0036。
 
 - MCP 阶段 0：新增 SchemaValidator、SubsetSchemaValidator、JsonSchemaValidator 与 Builder.with_schema_validator；默认校验行为兼容，完整 Draft 2020-12 通过 [jsonschema] 可选安装，引用仅限内部/应用登记资源。PluginAPI.event_sink 只读借用隔离观察通道，ToolExecutionContext 增加可选 run_id/turn_id。工具超时文本现在明确结果可能未知、不要自动重试；取消语义不变。
