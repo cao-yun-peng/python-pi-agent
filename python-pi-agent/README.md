@@ -52,6 +52,8 @@ GitHub Actions 在 Linux 和 Windows 上用 Python 3.11、3.12、3.13 安装包�
 
 `RuntimeSession.submit()` 和 `follow_up()` 返回可订阅、可定向取消的 `RunHandle`；`session.usage` 汇总本 Runtime 中该 Session 的用量。参见[观测示例](examples/30_run_observation.py)和[教程](tutorials/29-run-observation.md)。OpenTelemetry 适配器可通过 `pip install ".[otel]"` 安装。
 
+按角色或租户选择 Session 组件时，注册 `SessionSpecResolver` 并向 `open_session(..., request=SessionOpenRequest(...))` 传递选择信息。组件规格包含工具、Provider、prompt 和观察 metadata，运行入口及事件可通过[双角色示例](examples/31_session_spec.py)和[第 30 章](tutorials/30-session-spec.md)学习。
+
 ## 快速开始
 
 在仓库根目录执行。首次使用可以先安装为 editable package：

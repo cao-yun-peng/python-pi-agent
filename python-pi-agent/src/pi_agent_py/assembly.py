@@ -11,6 +11,7 @@ from typing import TypeVar, cast
 
 from ._runtime_observation import _RuntimeObservation
 from .app_runtime import AgentRuntime, SessionPoolPolicy
+from .components import AgentComponents
 from .configuration import (
     DockerBashSettings,
     LoadedAppConfig,
@@ -37,6 +38,7 @@ from .ports import (
     ModelProvider,
     NextTurnHook,
     SessionStore,
+    SessionSpecResolver,
     TelemetrySink,
     Tool,
     ToolExecutionGate,
@@ -171,6 +173,10 @@ class AgentRuntimeBuilder:
         self._provider_state_owners: frozenset[str] = frozenset()
         self._resilience = ProviderResilienceSettings()
         self._session_store: ManagedResource[SessionStore] | None = None
+        self._session_spec_resolver: ManagedResource[SessionSpecResolver] | None = None
+        self._session_spec_resolver_factory: (
+            Callable[[AgentComponents], SessionSpecResolver] | None
+        ) = None
         self._event_sink: ManagedResource[EventSink] | None = None
         self._telemetry_sink: ManagedResource[TelemetrySink] | None = None
         self._pricing: PricingTable | None = None
@@ -249,6 +255,27 @@ class AgentRuntimeBuilder:
             ownership=ownership,
             cleanup=cleanup,
         )
+        return self
+
+    def with_session_spec_resolver(
+        self,
+        resolver: SessionSpecResolver,
+        *,
+        ownership: ResourceOwnership = "borrowed",
+        cleanup: Cleanup | None = None,
+    ) -> AgentRuntimeBuilder:
+        self._session_spec_resolver = ManagedResource(
+            "session-spec-resolver", resolver, ownership, cleanup
+        )
+        self._session_spec_resolver_factory = None
+        return self
+
+    def with_session_spec_resolver_factory(
+        self, factory: Callable[[AgentComponents], SessionSpecResolver]
+    ) -> AgentRuntimeBuilder:
+        """Build an owned resolver from the fully assembled default components."""
+        self._session_spec_resolver_factory = factory
+        self._session_spec_resolver = None
         return self
 
     def with_event_sink(
@@ -433,12 +460,28 @@ class AgentRuntimeBuilder:
                 if capabilities.session_plugin_names:
                     session_plugin_host = plugin_host
 
+            resolver_resource = self._session_spec_resolver
+            if self._session_spec_resolver_factory is not None:
+                resolver_resource = ManagedResource(
+                    "session-spec-resolver",
+                    self._session_spec_resolver_factory(components),
+                    "owned",
+                )
+            resolver = (
+                lifecycle.manage(resolver_resource)
+                if resolver_resource is not None
+                else None
+            )
+            if resolver is not None and not callable(getattr(resolver, "resolve", None)):
+                raise TypeError("session resolver must implement resolve")
+
             return AgentRuntime(
                 components,
                 store,
                 _observation=observation,
                 plugin_host=session_plugin_host,
                 session_pool_policy=self._session_pool_policy,
+                session_spec_resolver=resolver,
                 graceful_shutdown_seconds=self._graceful_shutdown_seconds,
                 lifecycle=lifecycle,
                 observer_lifecycle=observer_lifecycle,

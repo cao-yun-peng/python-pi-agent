@@ -50,6 +50,7 @@ from .domain import (
     SessionEventContext,
     SessionEventKind,
     SessionSnapshot,
+    SessionOpenRequest,
     SessionState,
     TelemetryEvent,
     TextDelta,
@@ -120,6 +121,7 @@ from .ports import (
     NextTurnHook,
     ProviderRequestHook,
     SessionStore,
+    SessionSpecResolver,
     TelemetrySink,
     TokenEstimator,
     Tool,
@@ -131,6 +133,7 @@ from .runtime.loop import Agent
 from .runtime.session import AgentSession
 from .session import InMemorySessionStore
 from .session_jsonl import JsonlSessionStore
+from .session_spec import SessionSpec, StaticSessionSpecResolver
 from .telemetry import LoggingTelemetrySink
 from .tools import (
     DeclaredSideEffectGate,
@@ -239,6 +242,10 @@ __all__ = [
     "RuntimeStateError",
     "serialize_agent_event",
     "SessionCompaction",
+    "SessionOpenRequest",
+    "SessionSpec",
+    "SessionSpecResolver",
+    "StaticSessionSpecResolver",
     "SessionConflictError",
     "SessionControlError",
     "SessionEventContext",

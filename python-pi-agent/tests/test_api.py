@@ -64,6 +64,7 @@ _STABLE_EXPORTS = frozenset(
     ToolExecutionGateError ToolOutput ToolSideEffects ToolValidationError
     EventFilter EventHub EventSubscription LoggingTelemetrySink ModelPrice
     OverflowPolicy PricingTable RunHandle TelemetryEvent TelemetrySink UsageLedger UsageSummary
+    SessionOpenRequest SessionSpec SessionSpecResolver StaticSessionSpecResolver
     """.split()
 )
 

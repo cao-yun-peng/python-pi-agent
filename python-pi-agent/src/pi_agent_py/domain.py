@@ -9,6 +9,8 @@ from time import time
 from typing import Literal, Mapping, TypeAlias
 from uuid import uuid4
 
+from ._metadata import _freeze_metadata
+
 JSONPrimitive: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 JSONObject: TypeAlias = dict[str, JSONValue]
@@ -864,6 +866,23 @@ ModelStreamEvent: TypeAlias = (
 
 
 @dataclass(frozen=True, slots=True)
+class SessionOpenRequest:
+    """Untrusted, non-secret caller hints for a SessionSpecResolver."""
+
+    user_id: str | None = None
+    tenant_id: str | None = None
+    profile: str | None = None
+    metadata: Mapping[str, JSONValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("user_id", "tenant_id", "profile"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string")
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+
+
+@dataclass(frozen=True, slots=True)
 class AgentEventEnvelope:
     """Stable metadata shared by every best-effort observer event."""
 
@@ -880,8 +899,10 @@ class AgentEventEnvelope:
     parent_span_id: str | None = None
     duration_ms: float | None = None
     durable_event_id: str | None = None
+    metadata: Mapping[str, JSONValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
         if self.schema_version <= 0:
             raise ValueError("event schema_version must be greater than zero")
         if not self.event_id.strip():

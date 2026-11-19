@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Mapping
 
 from .domain import AgentEvent, AgentEventEnvelope, EventChannel, EventKind
@@ -318,6 +318,7 @@ def agent_event_record(event: AgentEvent) -> dict[str, object]:
         "parent_span_id": envelope.parent_span_id,
         "duration_ms": envelope.duration_ms,
         "durable_event_id": envelope.durable_event_id,
+        "metadata": dict(envelope.metadata),
         "payload": dict(event.payload),
     }
 
@@ -370,7 +371,14 @@ def redact_event(
         kind=event.kind,
         channel=event.channel,
         payload=payload,
-        envelope=event.envelope,
+        envelope=(
+            replace(
+                event.envelope,
+                metadata=_redact_sensitive_values(event.envelope.metadata, selected),
+            )
+            if event.envelope.metadata
+            else event.envelope
+        ),
     )
 
 

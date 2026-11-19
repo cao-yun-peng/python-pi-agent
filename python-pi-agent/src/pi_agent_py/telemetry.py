@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from .domain import AgentEvent, TelemetryEvent
 from .usage import _reported_usage
@@ -50,7 +50,7 @@ def _project(event: AgentEvent) -> TelemetryEvent:
     return TelemetryEvent(
         kind,
         event.channel,
-        event.envelope,
+        replace(event.envelope, metadata={}) if event.envelope.metadata else event.envelope,
         outcome=outcome if isinstance(outcome, str) and outcome in _OUTCOMES else None,
         provider_name=provider,
         tool_name=tool,
@@ -68,7 +68,9 @@ class LoggingTelemetrySink:
 
     def on_event(self, event: TelemetryEvent) -> None:
         if self._logger.isEnabledFor(logging.INFO):
-            self._logger.info(event.kind, extra={"pi_agent": asdict(event)})
+            record = asdict(event)
+            record["envelope"].pop("metadata")
+            self._logger.info(event.kind, extra={"pi_agent": record})
 
     async def aclose(self) -> None:
         """The application owns its logger and handlers."""

@@ -5,15 +5,24 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 from warnings import warn
 
 from ._runtime_observation import _RuntimeObservation
 from .components import AgentComponents, _resolve_components
-from .domain import AgentResult, EventKind, SessionSnapshot, SessionState
+from .domain import (
+    AgentResult,
+    EventKind,
+    JSONValue,
+    SessionOpenRequest,
+    SessionSnapshot,
+    SessionState,
+)
 from .errors import (
+    AgentError,
+    ConfigurationError,
     RuntimeCapacityError,
     RuntimeCloseError,
     RuntimeStateError,
@@ -31,6 +40,7 @@ from .ports import (
     ModelProvider,
     NextTurnHook,
     SessionStore,
+    SessionSpecResolver,
     TelemetrySink,
     Tool,
     ToolExecutionGate,
@@ -38,6 +48,7 @@ from .ports import (
 from .runtime._persistence import _call_session_store
 from .runtime.session import AgentSession
 from .run_handle import RunHandle
+from .session_spec import SessionSpec, StaticSessionSpecResolver
 from .usage import PricingTable, UsageLedger, UsageSummary
 
 RuntimeState = Literal["running", "closing", "closed"]
@@ -68,6 +79,7 @@ class SessionPoolPolicy:
 class _SessionEntry:
     session_id: str
     session: AgentSession
+    spec: SessionSpec
     ready: asyncio.Task[None]
     leases: int
     last_used_at: float
@@ -85,6 +97,11 @@ class RuntimeSession:
     @property
     def session_id(self) -> str:
         return self._entry.session_id
+
+    @property
+    def metadata(self) -> Mapping[str, JSONValue]:
+        self._ensure_open()
+        return self._entry.spec.metadata
 
     @property
     def state(self) -> SessionState:
@@ -108,22 +125,25 @@ class RuntimeSession:
     async def submit(self, prompt: str, *, max_buffer: int = 256) -> RunHandle:
         """Queue a run and subscribe before the dispatcher can start it."""
         self._ensure_usable()
-        return await self._entry.session._submit_handle(
-            prompt, self._runtime.event_hub, follow_up=False, max_buffer=max_buffer
-        )
+        with self._runtime._observation.session_scope(self.metadata):
+            return await self._entry.session._submit_handle(
+                prompt, self._runtime.event_hub, follow_up=False, max_buffer=max_buffer
+            )
 
     async def follow_up(self, prompt: str, *, max_buffer: int = 256) -> RunHandle:
         """Durably enqueue a follow-up and return its run handle."""
         self._ensure_usable()
-        return await self._entry.session._submit_handle(
-            prompt, self._runtime.event_hub, follow_up=True, max_buffer=max_buffer
-        )
+        with self._runtime._observation.session_scope(self.metadata):
+            return await self._entry.session._submit_handle(
+                prompt, self._runtime.event_hub, follow_up=True, max_buffer=max_buffer
+            )
 
     async def follow_up_id(self, prompt: str) -> str:
         """Deprecated ID-only entry point; use (await follow_up(prompt)).run_id."""
         self._ensure_usable()
         warn("use (await follow_up(prompt)).run_id", DeprecationWarning, stacklevel=2)
-        return await self._entry.session.follow_up(prompt)
+        with self._runtime._observation.session_scope(self.metadata):
+            return await self._entry.session.follow_up(prompt)
 
     @property
     def usage(self) -> UsageSummary:
@@ -132,11 +152,13 @@ class RuntimeSession:
 
     async def steer(self, prompt: str) -> None:
         self._ensure_usable()
-        await self._entry.session.steer(prompt)
+        with self._runtime._observation.session_scope(self.metadata):
+            await self._entry.session.steer(prompt)
 
     async def abort(self, *, clear_queue: bool = True) -> None:
         self._ensure_open()
-        await self._entry.session.abort(clear_queue=clear_queue)
+        with self._runtime._observation.session_scope(self.metadata):
+            await self._entry.session.abort(clear_queue=clear_queue)
 
     async def wait_until_idle(self) -> None:
         self._ensure_open()
@@ -144,9 +166,10 @@ class RuntimeSession:
 
     async def compact(self, *, keep_recent_turns: int = 1) -> SessionSnapshot:
         self._ensure_usable()
-        return await self._entry.session.compact(
-            keep_recent_turns=keep_recent_turns
-        )
+        with self._runtime._observation.session_scope(self.metadata):
+            return await self._entry.session.compact(
+                keep_recent_turns=keep_recent_turns
+            )
 
     async def snapshot(self) -> SessionSnapshot:
         self._ensure_open()
@@ -200,6 +223,7 @@ class AgentRuntime:
         plugin_host: PluginHost | None = None,
         next_turn_hook: NextTurnHook | None = None,
         session_pool_policy: SessionPoolPolicy | None = None,
+        session_spec_resolver: SessionSpecResolver | None = None,
         graceful_shutdown_seconds: float = 5.0,
         lifecycle: LifecycleScope | None = None,
         observer_lifecycle: LifecycleScope | None = None,
@@ -231,6 +255,11 @@ class AgentRuntime:
             max_model_requests=max_model_requests,
         )
         self._session_store = session_store
+        self._session_spec_resolver = (
+            session_spec_resolver
+            if session_spec_resolver is not None
+            else StaticSessionSpecResolver(self._components)
+        )
         self._observation = _observation or _RuntimeObservation(
             event_sink, telemetry_sink, pricing, usage_model
         )
@@ -244,6 +273,7 @@ class AgentRuntime:
         )
         self._clock = clock
         self._sessions: dict[str, _SessionEntry] = {}
+        self._resolutions: set[asyncio.Task[SessionSpec]] = set()
         self._state: RuntimeState = "running"
         self._lock = asyncio.Lock()
         self._close_lock = asyncio.Lock()
@@ -269,15 +299,35 @@ class AgentRuntime:
     def usage_ledger(self) -> UsageLedger:
         return self._observation.ledger
 
-    async def open_session(self, session_id: str) -> RuntimeSession:
+    async def open_session(
+        self, session_id: str, *, request: SessionOpenRequest | None = None
+    ) -> RuntimeSession:
         """Acquire one reusable session controller behind a releasable lease."""
         if not session_id.strip():
             raise ValueError("session_id must not be empty")
+        self._ensure_running()
+        selected_request = request if request is not None else SessionOpenRequest()
+        if not isinstance(selected_request, SessionOpenRequest):
+            raise TypeError("request must be a SessionOpenRequest")
+        resolution = asyncio.create_task(
+            self._resolve_session_spec(session_id, selected_request),
+            name=f"session-spec:{session_id}",
+        )
+        self._resolutions.add(resolution)
+        try:
+            spec = await resolution
+        finally:
+            self._resolutions.discard(resolution)
 
         evicted: list[_SessionEntry] = []
         async with self._lock:
             self._ensure_running()
             now = self._clock()
+            current = self._sessions.get(session_id)
+            if current is not None and not current.spec._matches(spec):
+                raise RuntimeStateError(
+                    "session is already open with a different specification"
+                )
             evicted.extend(self._remove_expired_locked(now))
             entry = self._sessions.get(session_id)
             if entry is None:
@@ -289,11 +339,14 @@ class AgentRuntime:
                         )
                     self._sessions.pop(candidate.session_id)
                     evicted.append(candidate)
-                session = self._new_session(session_id)
+                session = self._new_session(session_id, spec)
+                with self._observation.session_scope(spec.metadata):
+                    ready = asyncio.create_task(session.restore())
                 entry = _SessionEntry(
                     session_id=session_id,
                     session=session,
-                    ready=asyncio.create_task(session.restore()),
+                    spec=spec,
+                    ready=ready,
                     leases=0,
                     last_used_at=now,
                 )
@@ -326,15 +379,31 @@ class AgentRuntime:
             else:
                 runtime_stopped = True
         if should_emit:
-            self._emit("runtime_session_opened", session_id=session_id)
+            with self._observation.session_scope(entry.spec.metadata):
+                self._emit("runtime_session_opened", session_id=session_id)
         if runtime_stopped:
             await self._release_session(entry)
             raise RuntimeStateError("agent runtime closed while opening a session")
         return RuntimeSession(self, entry)
 
-    async def run(self, session_id: str, prompt: str) -> AgentResult:
+    async def _resolve_session_spec(
+        self, session_id: str, request: SessionOpenRequest
+    ) -> SessionSpec:
+        try:
+            spec = await self._session_spec_resolver.resolve(session_id, request)
+        except AgentError:
+            raise
+        except Exception as error:
+            raise ConfigurationError("session specification resolution failed") from error
+        if not isinstance(spec, SessionSpec):
+            raise ConfigurationError("session resolver must return SessionSpec")
+        return spec
+
+    async def run(
+        self, session_id: str, prompt: str, *, request: SessionOpenRequest | None = None
+    ) -> AgentResult:
         """Convenience API for one awaited run with an automatically released lease."""
-        async with await self.open_session(session_id) as session:
+        async with await self.open_session(session_id, request=request) as session:
             return await session.run(prompt)
 
     async def snapshot(self, session_id: str) -> SessionSnapshot:
@@ -351,6 +420,11 @@ class AgentRuntime:
                 return
             self._state = "closing"
             self._emit("runtime_closing")
+            resolutions = tuple(self._resolutions)
+            for resolution in resolutions:
+                resolution.cancel()
+            if resolutions:
+                await asyncio.gather(*resolutions, return_exceptions=True)
             async with self._lock:
                 entries = tuple(self._sessions.values())
                 self._sessions.clear()
@@ -369,7 +443,7 @@ class AgentRuntime:
 
             for entry in entries:
                 try:
-                    await entry.session.close()
+                    await self._close_entry(entry)
                 except BaseException as error:
                     failures.append(error)
 
@@ -405,12 +479,15 @@ class AgentRuntime:
             entry.leases -= 1
             entry.last_used_at = self._clock()
 
-    def _new_session(self, session_id: str) -> AgentSession:
+    def _new_session(self, session_id: str, spec: SessionSpec) -> AgentSession:
         return AgentSession._for_runtime(
             session_id,
             self._session_store,
-            self._components,
-            event_sink=self._event_sink,
+            spec.components,
+            event_sink=self._observation.session_sink(
+                spec.metadata,
+                use_default_pricing=spec.components.provider is self._components.provider,
+            ),
             plugin_host=self._plugin_host,
         )
 
@@ -439,8 +516,13 @@ class AgentRuntime:
         return min(candidates, key=lambda item: item.last_used_at, default=None)
 
     async def _close_evicted(self, entry: _SessionEntry) -> None:
-        await entry.session.close()
-        self._emit("runtime_session_evicted", session_id=entry.session_id)
+        await self._close_entry(entry)
+        with self._observation.session_scope(entry.spec.metadata):
+            self._emit("runtime_session_evicted", session_id=entry.session_id)
+
+    async def _close_entry(self, entry: _SessionEntry) -> None:
+        with self._observation.session_scope(entry.spec.metadata):
+            await entry.session.close()
 
     async def _discard_failed_session(self, entry: _SessionEntry) -> None:
         should_close = False
@@ -450,7 +532,7 @@ class AgentRuntime:
                 should_close = True
         if should_close:
             try:
-                await entry.session.close()
+                await self._close_entry(entry)
             except BaseException:
                 pass
 

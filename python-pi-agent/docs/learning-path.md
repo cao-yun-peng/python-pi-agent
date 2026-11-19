@@ -29,6 +29,7 @@
 - 基座阶段 1 的组装链路已接入 `AgentComponents`。用 [Profile 与统一生命周期](../tutorials/25-application-runtime-assembly.md#3-builder-与-profile-的区别) 跟踪组件如何从 factory 解析到 Agent 实际消费，并比较常驻 Runtime 和独立 Agent 的入口。
 - 下游应用从 `pi_agent_py.api` 导入组装与扩展契约。阅读 [稳定入口回归](../tests/test_api.py)，练习只通过公开导入接入自定义 Provider 和工具插件。
 - Runtime 拆分后，从 `runtime/control.py` 追踪一个排队 run，进入 `runtime/session.py` 恢复历史和装配，再到 `runtime/loop.py` 运行模型和工具。对照 [Session 控制测试](../tests/test_session_control.py) 观察取消和队列恢复。
+- 基座阶段 3 B2 已完成。阅读[第 30 章](../tutorials/30-session-spec.md)，从 SessionOpenRequest 追踪 resolver、池内规格比较和 metadata envelope，再运行双角色示例验证工具选择、冲突拒绝和观察范围。
 
 ## 已完成学习节点：工具续轮前的 `NextTurnHook`
 

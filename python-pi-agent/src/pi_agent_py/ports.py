@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Sequence
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from .session_spec import SessionSpec
     from .model_runtime import (
         AttemptFailure,
         ProviderCandidate,
@@ -32,6 +33,7 @@ from .domain import (
     SessionEventContext,
     SessionEventKind,
     SessionSnapshot,
+    SessionOpenRequest,
     SessionCompaction,
     TelemetryEvent,
     ToolCall as ToolCall,
@@ -39,6 +41,14 @@ from .domain import (
     ToolExecutionContext,
     ToolOutput,
 )
+
+
+class SessionSpecResolver(Protocol):
+    """Resolve and authorize a complete Session selection before pool admission."""
+
+    async def resolve(self, session_id: str, request: SessionOpenRequest) -> SessionSpec:
+        """Return stable capability identities while the controller is alive."""
+        ...
 
 
 class ModelProvider(Protocol):

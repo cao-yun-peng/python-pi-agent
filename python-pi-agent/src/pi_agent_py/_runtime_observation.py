@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 
-from .domain import AgentEvent
+from .domain import AgentEvent, JSONValue
 from .event_hub import EventHub
 from .events import CallbackEventSink, EventSinkFailure, ensure_isolated_event_sink
 from .ports import EventSink, TelemetrySink
@@ -21,6 +24,9 @@ class _RuntimeObservation:
         model: str | None,
     ) -> None:
         self.hub = EventHub()
+        self._metadata: ContextVar[Mapping[str, JSONValue]] = ContextVar(
+            "session_observation_metadata", default={}
+        )
         self.ledger = UsageLedger(pricing, default_model=model)
         self._accounting = ensure_isolated_event_sink(self.ledger)
         self.sink = ensure_isolated_event_sink(self)
@@ -43,7 +49,32 @@ class _RuntimeObservation:
             + telemetry
         )
 
+    @contextmanager
+    def session_scope(self, metadata: Mapping[str, JSONValue]) -> Iterator[None]:
+        """Carry controller metadata into its dispatcher and plugin child tasks."""
+        token = self._metadata.set(metadata)
+        try:
+            yield
+        finally:
+            self._metadata.reset(token)
+
+    def session_sink(
+        self, metadata: Mapping[str, JSONValue], *, use_default_pricing: bool
+    ) -> EventSink:
+        """Bind direct controller events, including a handle aborted by another task."""
+
+        def emit(event: AgentEvent) -> None:
+            if event.kind == "model_usage" and not use_default_pricing:
+                event = replace(event, payload={**event.payload, "model": None})
+            with self.session_scope(metadata):
+                self.sink.emit(event)
+
+        return CallbackEventSink(emit)
+
     def emit(self, event: AgentEvent) -> None:
+        metadata = self._metadata.get()
+        if event.envelope.session_id is not None and metadata:
+            event = replace(event, envelope=replace(event.envelope, metadata=metadata))
         self._accounting.emit(event)
         if event.kind == "run_completed":
             envelope = event.envelope
