@@ -6,6 +6,7 @@ import asyncio
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     DeclaredSideEffectGate,
     FakeProvider,
     Finish,
@@ -66,7 +67,7 @@ async def main() -> None:
         allowed_side_effects=("none", "write"),
         allowed_tools=("save_note",),
     )
-    agent = Agent(
+    components = AgentComponents(
         provider,
         tools=(FunctionTool(definition, save_note),),
         approval_policy=StaticApprovalPolicy(
@@ -74,8 +75,8 @@ async def main() -> None:
             reason="The example pre-authorizes this one tool.",
         ),
         execution_gate=execution_gate,
-        session_id="security-demo",
     )
+    agent = Agent(components, session_id="security-demo")
 
     result = await agent.run("Save a learning note.")
     print(result.message.content)

@@ -89,13 +89,15 @@ executor = SandboxedBashExecutor(
 )
 bash = BashTool(executor, requires_approval=True)
 agent = Agent(
-    provider,
-    tools=(bash,),
-    approval_policy=my_policy,
-    execution_gate=DeclaredSideEffectGate(
-        allowed_side_effects=("none", "write"),
-        allowed_tools=("bash",),
-    ),
+    AgentComponents(
+        provider,
+        tools=(bash,),
+        approval_policy=my_policy,
+        execution_gate=DeclaredSideEffectGate(
+            allowed_side_effects=("none", "write"),
+            allowed_tools=("bash",),
+        ),
+    )
 )
 ```
 

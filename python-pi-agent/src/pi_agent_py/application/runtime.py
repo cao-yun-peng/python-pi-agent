@@ -5,13 +5,12 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal
-from warnings import warn
 
 from ._observation import _RuntimeObservation
-from ..runtime.components import AgentComponents, _resolve_components
+from ..runtime.components import AgentComponents
 from ..domain import (
     AgentResult,
     EventKind,
@@ -32,18 +31,10 @@ from ..observability.events import EventSinkFailure, make_agent_event
 from .lifecycle import LifecycleScope
 from ..plugins import PluginHost
 from ..ports import (
-    ApprovalPolicy,
-    CompactionPolicy,
-    CompactionStrategy,
-    ContextStrategy,
     EventSink,
-    ModelProvider,
-    NextTurnHook,
     SessionStore,
     SessionSpecResolver,
     TelemetrySink,
-    Tool,
-    ToolExecutionGate,
 )
 from ..storage._writer import _call_session_store
 from ..runtime.session import AgentSession
@@ -138,13 +129,6 @@ class RuntimeSession:
                 prompt, self._runtime.event_hub, follow_up=True, max_buffer=max_buffer
             )
 
-    async def follow_up_id(self, prompt: str) -> str:
-        """Deprecated ID-only entry point; use (await follow_up(prompt)).run_id."""
-        self._ensure_usable()
-        warn("use (await follow_up(prompt)).run_id", DeprecationWarning, stacklevel=2)
-        with self._runtime._observation.session_scope(self.metadata):
-            return await self._entry.session.follow_up(prompt)
-
     @property
     def usage(self) -> UsageSummary:
         self._ensure_open()
@@ -204,24 +188,14 @@ class AgentRuntime:
 
     def __init__(
         self,
-        provider: AgentComponents | ModelProvider | None = None,
-        session_store: SessionStore | None = None,
+        components: AgentComponents,
+        session_store: SessionStore,
         *,
-        components: AgentComponents | None = None,
         event_sink: EventSink | None = None,
         telemetry_sink: TelemetrySink | None = None,
         pricing: PricingTable | None = None,
         usage_model: str | None = None,
-        tools: Sequence[Tool] | None = None,
-        approval_policy: ApprovalPolicy | None = None,
-        execution_gate: ToolExecutionGate | None = None,
-        compaction_policy: CompactionPolicy | None = None,
-        compaction_strategy: CompactionStrategy | None = None,
-        context_strategy: ContextStrategy | None = None,
-        system_prompt: str | None = None,
-        max_model_requests: int | None = None,
         plugin_host: PluginHost | None = None,
-        next_turn_hook: NextTurnHook | None = None,
         session_pool_policy: SessionPoolPolicy | None = None,
         session_spec_resolver: SessionSpecResolver | None = None,
         graceful_shutdown_seconds: float = 5.0,
@@ -230,6 +204,8 @@ class AgentRuntime:
         clock: Clock = time.monotonic,
         _observation: _RuntimeObservation | None = None,
     ) -> None:
+        if not isinstance(components, AgentComponents):
+            raise TypeError("AgentRuntime requires AgentComponents")
         if (
             not isinstance(graceful_shutdown_seconds, (int, float))
             or isinstance(graceful_shutdown_seconds, bool)
@@ -241,19 +217,7 @@ class AgentRuntime:
             )
         if session_store is None:
             raise TypeError("session_store is required")
-        self._components = _resolve_components(
-            provider,
-            components,
-            tools=tools,
-            approval_policy=approval_policy,
-            execution_gate=execution_gate,
-            context_strategy=context_strategy,
-            compaction_policy=compaction_policy,
-            compaction_strategy=compaction_strategy,
-            next_turn_hook=next_turn_hook,
-            system_prompt=system_prompt,
-            max_model_requests=max_model_requests,
-        )
+        self._components = components
         self._session_store = session_store
         self._session_spec_resolver = (
             session_spec_resolver

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     BashTool,
     DeclaredSideEffectGate,
     DockerProcessSandbox,
@@ -74,7 +75,7 @@ async def main() -> None:
             [TextDelta("The Docker-backed Bash command settled."), Finish()],
         ]
     )
-    agent = Agent(
+    components = AgentComponents(
         provider,
         tools=(bash,),
         approval_policy=StaticApprovalPolicy(
@@ -86,6 +87,7 @@ async def main() -> None:
             allowed_tools=("bash",),
         ),
     )
+    agent = Agent(components)
 
     result = await agent.run("Create the Docker-backed Bash demo file.")
     for message in result.messages:

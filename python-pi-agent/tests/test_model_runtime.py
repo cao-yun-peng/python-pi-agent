@@ -4,6 +4,7 @@ import asyncio
 import unittest
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     AttemptFailure,
     CapabilityRoutePolicy,
@@ -318,7 +319,7 @@ class ResilientModelRuntimeTests(unittest.IsolatedAsyncioTestCase):
             sleep=clock.sleep,
             clock=clock.clock,
         )
-        agent = Agent(runtime, event_sink=events)
+        agent = Agent(AgentComponents(runtime), event_sink=events)
 
         result = await agent.run("hello")
 

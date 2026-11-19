@@ -2,7 +2,7 @@
 
 > 状态：已接受（Accepted）
 > 关联：[路线图](../roadmap.md) B1、B2、B7；ADR 0016、0019、0024
-> 已实现：统一组件组装与兼容层，以及阶段 3 B2 的按 Session 规格解析和观察 metadata。
+> 已实现：统一组件组装，以及阶段 3 B2 的按 Session 规格解析和观察 metadata。旧构造参数与兼容层已在 0.9.0 前移除，见第 5 节。
 
 ## 背景
 
@@ -51,7 +51,7 @@ class AgentComponents:
 
 - 公开构造：`Agent(components, *, event_sink=None, session_id=None, initial_messages=())`；
 - `message_committer`、`steering_committer`、`steering_receiver`、`provider_request_hook` 移入私有的 `_AgentWiring`，仅由 `AgentSession` 通过模块内构造路径传入；
-- 旧关键字参数保留一个 minor 版本，发出 `DeprecationWarning` 后移除。
+- 旧关键字参数的处理见第 5 节。
 
 ### 3. 按 Session 解析组件：`SessionSpec` 与 `SessionSpecResolver`
 
@@ -80,6 +80,21 @@ class SessionSpecResolver(Protocol):
 - envelope metadata 是观察 JSON record 的可选上下文。日志脱敏覆盖其敏感键，遥测投影清空这些自由字段。Provider 请求与 durable history 的输入由正式模型接口提供。
 - 当 resolver 替换默认 Provider 时，用量账本继续统计 token，成本标记为缺价。默认模型的价格仅适用于沿用默认 Provider 的组件。
 
+### 5. 移除兼容层（修订）
+
+最初决定保留一个 minor 版本的 `DeprecationWarning` 兼容层。实现后改为在发布 0.9.0 之前直接移除：
+
+- 兼容层只存在于 0.8.0 之后、尚未发布的提交中，没有已发布版本的下游依赖它；
+- 兼容层要求 `Agent`、`AgentSession`、`AgentRuntime` 同时接受 Provider 与 `AgentComponents` 两种首参，并逐一拒绝混用，这一分支本身就是 B1 要消除的多处透传；
+- 发布前移除可以让 0.9.0 的公开签名一次定型，避免下游在同一个版本里迁移两次。
+
+移除后：
+
+- `Agent(components, *, event_sink=None, initial_messages=(), session_id=None)`、`AgentSession(session_id, store, components, *, ...)`、`AgentRuntime(components, store, *, ...)` 的首个组件参数必须是 `AgentComponents`，否则抛 `TypeError`；
+- `Agent` 不再接受内部接线关键字；`AgentSession` 通过私有 `Agent._for_session()` 注入 `_AgentWiring`；
+- 公开 `Agent` 仍拒绝同时提供 `initial_messages` 与 `components.system_prompt`，避免 prompt 被静默丢弃。Session 恢复路径已先把 system prompt 写入 durable log，因此在私有构造中清除它；
+- `RuntimeSession.follow_up_id()` 一并移除，使用 `(await session.follow_up(prompt)).run_id`。
+
 ## 备选方案
 
 1. **保持关键字参数，靠测试覆盖遗漏**：拒绝。问题在结构上，测试只能事后发现漏传。
@@ -93,7 +108,7 @@ class SessionSpecResolver(Protocol):
 - 新增端口的修改面从五个文件降到“定义 + 消费处”；
 - 多租户/多角色应用可以在不修改核心的情况下按 Session 选择工具与 prompt；
 - `Agent` 公开签名变小，`AgentSession` 内部接线可以自由演进；
-- 需要一个版本的兼容层与迁移说明，现有示例与教程中的构造代码需要更新；
+- 0.9.0 是破坏性版本：旧构造调用直接失败，迁移方式记录在 CHANGELOG，仓内测试、示例与教程已同步改为 `AgentComponents`；
 - `SessionSpec` 不 durable：重启后由 resolver 重新解析，resolver 必须对同一输入给出确定结果，否则恢复后的行为可能变化——这一约束需要在教程中明确。
 
 ## 验证方式
@@ -101,7 +116,7 @@ class SessionSpecResolver(Protocol):
 - 组件不变量测试：重名工具、非法上限在构造 `AgentComponents` 时失败，缺少摘要 strategy 在构造 `CompactionComponents` 时失败；
 - 透传完整性测试：对每个 `AgentComponents` 字段，使用可观察的假实现，从 `AgentRuntimeBuilder` 一路断言到 `Agent` 实际调用（参数化覆盖全部字段，新增字段未覆盖则测试失败）；
 - `SessionSpecResolver` 测试：两个 Session 使用不同工具集互不可见；同 ID 不同 spec 重复打开被拒绝；metadata 不出现在 Provider 请求与 durable log 中；
-- 兼容性测试：旧关键字参数路径产生 `DeprecationWarning` 且行为不变；
+- 构造契约测试：非 `AgentComponents` 首参抛 `TypeError`；公开 `Agent` 同时收到 `initial_messages` 与 system prompt 时抛 `ValueError`；
 - 既有离线测试全部通过。
 
 ## 验证证据

@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
     FakeProvider,
     Finish,
@@ -36,7 +37,7 @@ async def main() -> None:
         session = AgentSession(
             "teaching-session",
             reopened_store,
-            FakeProvider([[TextDelta("recovered"), Finish()]]),
+            AgentComponents(FakeProvider([[TextDelta("recovered"), Finish()]])),
         )
         await session.wait_until_idle()
 

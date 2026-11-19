@@ -32,11 +32,11 @@ from .context.strategies import (
     TokenBudgetContextStrategy,
     group_context_messages,
 )
+from .application.capabilities.bash import DockerBashSettings
 from .application.configuration import (
     AppConfigSpec,
     CredentialDiagnostic,
     DeepSeekSettings,
-    DockerBashSettings,
     GLMSettings,
     KimiSettings,
     LoadedAppConfig,

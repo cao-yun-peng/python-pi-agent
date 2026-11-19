@@ -93,11 +93,11 @@
 
 ### 阶段 1：收敛组装面（B1、B7、B8）
 
-- B1/B7 已接入组件组装与 Session 私有接线（`b95622e`）。旧构造保留弃用兼容。
+- B1/B7 已接入组件组装与 Session 私有接线（`b95622e`）。旧构造参数、接线关键字与 `follow_up_id()` 已在发布前移除（ADR 0028 第 5 节），仓内测试、示例和教程同步迁移。
 - B8 的稳定导出已完成（`444c7fe`）。`pi_agent_py.api.__all__` 有契约测试，下游应用用例通过稳定入口完成 Provider、插件、Session 和事件组装。
 - B8 的 Runtime 拆分已完成（`853e7ab`）。`runtime/` 按 loop、Session、控制和压缩编排划分，兼容导入经回归和 wheel 安装验证。
 - 交付：ADR 0028 定稿；`AgentComponents`；拆分 `runtime.py`；`pi_agent_py.api`。
-- 验收：新增一个演示端口只需修改 `AgentComponents` 定义与消费处；既有 238 个测试与全部示例不改语义通过；旧构造参数保留一个版本的兼容层。
+- 验收：新增一个演示端口只需修改 `AgentComponents` 定义与消费处；既有测试与全部离线示例在迁移到 `AgentComponents` 后语义不变地通过。原计划的一版兼容层改为发布前移除，理由见 ADR 0028 第 5 节。
 
 ### 阶段 2：观测消费面（C1、C2、C3）
 
@@ -109,7 +109,7 @@
 
 - B2 已实现按 Session 解析完整组件与观察 metadata，包含规格冲突拒绝、并发与取消、资源生命周期。见[教程](../tutorials/30-session-spec.md)和[示例](../examples/31_session_spec.py)。
 - B3 已实现 ProviderRegistration.parse_settings，内置和外部 Provider 统一通过 Catalog 解析 YAML。见 [ADR 0030](adr/0030-register-provider-settings-parsers.md)、[教程](../tutorials/31-registered-provider-settings.md)和[示例](../examples/32_registered_provider.py)。
-- B4 已实现 capabilities 配置、类型化 Settings 和 Catalog，通过 PluginHost 注册工具、Hook 和 Session 插件，覆盖取消与回滚。见 [ADR 0031](adr/0031-configured-capability-registration.md)、[教程](../tutorials/32-configured-capabilities.md)和[示例](../examples/33_configured_capability.py)。
+- B4 已实现 capabilities 配置、类型化 Settings 和 Catalog，通过 PluginHost 注册工具、Hook 和 Session 插件，覆盖取消与回滚。Bash 的 Settings 与校验已迁入其 capability 模块，顶层 `bash` 配置已移除。见 [ADR 0031](adr/0031-configured-capability-registration.md)、[教程](../tutorials/32-configured-capabilities.md)和[示例](../examples/33_configured_capability.py)。
 - B5、B6 继续按独立能力推进。
 - 交付：`SessionSpecResolver`；可注册 Provider/capability 配置；middleware 链 ADR 与实现；`@tool` 装饰器。
 - 验收：在 `examples/` 外的独立测试包中新增一个 Provider 与一个配置驱动工具，不修改 `src/pi_agent_py` 任何文件。

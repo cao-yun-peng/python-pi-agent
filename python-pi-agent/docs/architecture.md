@@ -46,11 +46,11 @@ domain.py <- ports.py <- runtime/ <- application/ <- apps
 - `application/profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 只提供默认拒绝审批与 bash-only Gate，不创建 Docker。
 - `AgentProfile.build_components(provider)` 解析出冻结的默认 `AgentComponents`。Builder 应用显式覆盖，并组合 Provider、部署配置和插件能力。SessionSpecResolver 选择组件后交给 Session 与 Agent 消费。Store、EventSink、PluginHost 及资源所有权由应用组装层独立管理。
 - `runtime/session_spec.py` 定义冻结的 SessionSpec 和默认静态 resolver，`domain.SessionOpenRequest` 表达调用方 hints。Runtime 每次打开均在池锁外调用 resolver，再在锁内比较已有规格。能力实例、prompt、上限和 metadata 固定至 controller 实际退出池。Builder 支持显式 resolver 或从完整默认组件创建的 owned factory。
-- `CompactionComponents` 始终携带摘要策略，可选自动触发策略。Session 通过模块内接线连接 durable 提交、steer 和 per-session Provider Hook。新构造入口接收组件对象，原有构造参数通过带弃用警告的适配层保留一个 minor 版本。
+- `CompactionComponents` 始终携带摘要策略，可选自动触发策略。Session 通过模块内接线连接 durable 提交、steer 和 per-session Provider Hook。`Agent`、`AgentSession`、`AgentRuntime` 只接收 `AgentComponents`，旧的分散构造参数与接线关键字已移除（ADR 0028 第 5 节）；公开 `Agent` 拒绝同时提供 `initial_messages` 与 system prompt。
 - `application/lifecycle.py` 明确区分 owned/borrowed 资源，在关闭或构造回滚时逆序尝试全部 cleanup。
 - `application/builder.py` 使用显式 Catalog 和单次 Builder 把配置、Profile、Provider、Store、Plugin 与 observer 事务化组装成 Runtime。
 - `application/provider_catalog.py` 把每个 Provider 的纯 Settings parser、构造工厂和路由能力放在不可变 ProviderRegistration 中。配置层按名称调用注册解析器，把原始 YAML 转为开放的 ProviderSettings/ProviderRuntimeConfig 协议值，Builder 再创建活的 Provider。默认四家的解析也使用此接缝，稳定 API 直接引用 Catalog 的定义模块。
-- `application/capability_catalog.py` 定义配置驱动能力的 Settings、parser 和 factory。YAML capabilities 按名称解析为 ConfiguredCapability，Builder 按顺序通过 PluginHost.load 初始化，再从 snapshot 组装工具、Hook 和 Session 插件。资源归入既有 cleanup/rollback 管线，`application/capabilities/bash.py` 提供 Bash 的内置注册，顶层 bash 由兼容配置接口归一化。
+- `application/capability_catalog.py` 定义配置驱动能力的 Settings、parser 和 factory。YAML capabilities 按名称解析为 ConfiguredCapability，Builder 按顺序通过 PluginHost.load 初始化，再从 snapshot 组装工具、Hook 和 Session 插件。资源归入既有 cleanup/rollback 管线，`application/capabilities/bash.py` 拥有 Bash 的 `DockerBashSettings`、parser、字段校验和内置注册，通用配置模块不识别 Bash 字段；配置根出现顶层 `bash` 键（包括 `null`）即报错。
 - `context/strategies.py` 提供全历史与 token budget 两种 `ContextStrategy`、字符估算器及完整 turn 分组逻辑。
 - `context/compaction.py` 提供 token threshold policy、选择可安全替换的完整旧 turn，并通过可替换模型 Provider 生成摘要。
 - `storage/transitions.py` 集中实现 replay、append 与 fork 的校验和事件生成，不执行 I/O 或修改调用者状态。
@@ -98,7 +98,7 @@ runtime 只通过 `ToolExecutionGate.execute()` 调度工具，不再直接调�
 
 Shell 语义与进程隔离是两个 capability。`BashTool` 消费 `ShellExecutor`，调用方先把可选 request 解析成默认值和上限完整的 spec，Executor 才能执行。正式 `SandboxedBashExecutor` 把模型工作目录作为 workspace 相对 POSIX 路径解析，拒绝绝对路径、`..` 和 Windows 反斜杠，再固定生成 `("/bin/bash", "-lc", command)`；`ProcessSandbox` 本身只接收精确 argv，不再偷偷决定 Shell。兼容期 `SandboxedShellTool` 仍直接消费该端口，并显式生成 `/bin/sh -lc`。`DockerProcessSandbox` 把规范化 workspace 作为唯一宿主挂载，容器根只读、默认网络关闭、不向容器转发未显式声明的宿主环境变量，并施加 capability、CPU、内存、进程数、tmpfs 和每流输出捕获限制。stdout/stderr 超限时分别保留有界尾部并报告截断，不因日志量改变命令控制流。Docker 或镜像不可用时 fail closed，不回退到宿主 Shell；timeout/取消由 Provider 强制删除容器并终止客户端。当前只支持 `read-only` 与 `workspace-write`，不把 `danger-full-access` 伪装成沙箱模式。
 
-应用配置与产品策略不合并。可选 `agent.yaml::bash` 使用 `DockerBashSettings` 声明 workspace、镜像、超时、输出预算和网络；相对 workspace 以配置文件目录为基准。`AgentRuntimeBuilder.from_loaded_config()` 在构建事务中创建 Sandbox/Executor/Tool，缺省配置不注册 Bash。`coding_profile()` 只让名为 `bash` 的 read/write/external 声明进入 Gate，并继续使用默认拒绝审批；网络开启时工具声明 `external`，不能伪装为普通文件写入。
+应用配置与产品策略不合并。可选 `agent.yaml::capabilities.bash` 使用 `DockerBashSettings` 声明 workspace、镜像、超时、输出预算和网络；相对 workspace 以配置文件目录为基准。`AgentRuntimeBuilder.from_loaded_config()` 在构建事务中创建 Sandbox/Executor/Tool，缺省配置不注册 Bash。`coding_profile()` 只让名为 `bash` 的 read/write/external 声明进入 Gate，并继续使用默认拒绝审批；网络开启时工具声明 `external`，不能伪装为普通文件写入。
 
 逐消息提交允许取消或进程退出发生在一个工具批次中间。`AgentSession` 每次继续运行或手动压缩前都会校验工具调用/结果序列：若会话尾部存在未决调用，就为每个缺失结果追加一个 `is_error=True` 的恢复 tool message，明确记录“外部副作用结果未知，不得自动重试”，然后才允许追加新的用户消息。已经完成的 tool result 不会重复生成。若未决调用之后已经存在其他 user/assistant 消息，append-only 日志无法在原位置安全修补，session 会以 `SessionValidationError` 拒绝继续，而不是把错误结果追加到错误位置。恢复消息本身是普通 `message_committed` durable fact，因此内存、JSONL、fork 和 replay 使用同一语义；`tool_call_recovered` capability event 提供恢复证据。
 

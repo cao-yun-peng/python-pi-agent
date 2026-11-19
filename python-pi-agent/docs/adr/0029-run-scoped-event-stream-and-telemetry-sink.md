@@ -31,7 +31,7 @@ await handle.abort()
 ```
 
 - `RuntimeSession.run(prompt)` 保留；等待 `run()` 的任务被取消时仍会取消相应 run。等待 `handle.result()` 的任务被取消时不会取消 run；
-- `RuntimeSession.follow_up()` 保存 durable control 后返回 `RunHandle`；ID 通过 `handle.run_id` 取得。过渡期提供 `follow_up_id()`，底层 `AgentSession.follow_up()` 保持原签名；
+- `RuntimeSession.follow_up()` 保存 durable control 后返回 `RunHandle`；ID 通过 `handle.run_id` 取得，底层 `AgentSession.follow_up()` 保持返回 run ID。过渡方法 `follow_up_id()` 已在发布前随 ADR 0028 第 5 节的兼容层一并移除；
 - 订阅在 run 入队**之前**建立，`run_started` 在开始分派时发送，涵盖 Session 准备和首次自动压缩。分派前被取消的 run 直接发送取消和 settled 终态；
 - 句柄持有一个有界、仅消费一次的流，默认缓存 256 条，丢弃新事件并额外保留 `run_settled`。重连使用 durable log（`read_events`）恢复已提交事实，已消费或丢弃的 live 事件不重放。
 
@@ -69,7 +69,7 @@ class TelemetrySink(Protocol):
 - Web/SSE 参考应用可以直接 `async for event in handle.events()`，不再依赖全局 sink；
 - 慢订阅者只会丢弃自己的事件，不影响 loop、持久化或其他订阅者；
 - 运维侧可以从 OTel 看到 run → turn → model/tool 时间线和指标，而 prompt 与工具参数不会进入遥测；
-- `RuntimeSession.follow_up()` 返回类型变化已记录在 CHANGELOG，过渡期提供 ID-only 方法；
+- `RuntimeSession.follow_up()` 返回类型变化与 `follow_up_id()` 的移除已记录在 CHANGELOG；
 - `EventHub` 增加一个后台无关的纯内存组件，Runtime 关闭顺序需要在 `runtime_closed` 之后、observer 关闭之前关闭订阅。
 
 ## 验证方式

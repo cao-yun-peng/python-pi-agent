@@ -10,7 +10,7 @@
 
 `handle.events()` 每次返回同一个迭代器。尚未读取的事件可以在结束后排空，已消费或丢弃的事件不能重放。默认缓存 256 条，满时丢弃新事件，并额外保留一个 `run_settled` 位置。只需某一类事件时，可以从 `runtime.event_hub.subscribe(EventFilter(...))` 创建独立订阅，按 session/run/kind/channel 过滤，并选择 `drop_oldest`、`drop_newest` 或 `close`。通用订阅由调用方或 Runtime 关闭。丢弃数可从各订阅的 `dropped_count` 读取。断线恢复使用 `SessionStore.read_events()` 找回已提交事实。
 
-应用侧 `RuntimeSession.follow_up()` 仍先保存 durable control，再返回句柄；原来直接使用返回 ID 的调用改成 `(await session.follow_up(prompt)).run_id`，或在过渡期改用 `await session.follow_up_id(prompt)`。底层 `AgentSession.follow_up()` 仍返回 ID。
+应用侧 `RuntimeSession.follow_up()` 仍先保存 durable control，再返回句柄；原来直接使用返回 ID 的调用改成 `(await session.follow_up(prompt)).run_id`。底层 `AgentSession.follow_up()` 仍返回 ID。
 
 ## 从事件投影出遥测
 

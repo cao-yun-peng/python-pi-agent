@@ -48,6 +48,7 @@ from pi_agent_py import (
     ProviderTimeoutError,
     coding_profile,
 )
+from pi_agent_py.api import ConfiguredCapability
 from pi_agent_py.plugins import PluginAPI
 from pi_agent_py.providers import DeepSeekConfig
 
@@ -248,9 +249,14 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 spec=AppConfigSpec(
                     provider=DeepSeekSettings(),
                     config_path=root / "agent.yaml",
-                    bash=DockerBashSettings(
-                        workspace_root=root / "missing",
-                        image="local/pi-agent:test",
+                    capabilities=(
+                        ConfiguredCapability(
+                            "bash",
+                            DockerBashSettings(
+                                workspace_root=root / "missing",
+                                image="local/pi-agent:test",
+                            ),
+                        ),
                     ),
                 ),
                 provider_config=DeepSeekConfig(api_key="test-secret"),
@@ -293,11 +299,16 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 spec=AppConfigSpec(
                     provider=DeepSeekSettings(),
                     config_path=workspace / "agent.yaml",
-                    bash=DockerBashSettings(
-                        workspace_root=workspace,
-                        image="local/pi-agent:test",
-                        docker_executable="missing-pi-agent-docker-test",
-                        network_enabled=True,
+                    capabilities=(
+                        ConfiguredCapability(
+                            "bash",
+                            DockerBashSettings(
+                                workspace_root=workspace,
+                                image="local/pi-agent:test",
+                                docker_executable="missing-pi-agent-docker-test",
+                                network_enabled=True,
+                            ),
+                        ),
                     ),
                 ),
                 provider_config=DeepSeekConfig(api_key="test-secret"),

@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from sqlite3 import OperationalError
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
     FakeProvider,
     Finish,
@@ -45,7 +46,9 @@ async def main() -> None:
     store = FailingOnceStore()
     provider = FakeProvider([[TextDelta("answer"), Finish()]])
     events = InMemoryEventSink()
-    async with AgentSession("demo", store, provider, event_sink=events) as session:
+    async with AgentSession(
+        "demo", store, AgentComponents(provider), event_sink=events
+    ) as session:
         try:
             await session.run("first question")
         except SessionStorageError as error:

@@ -21,7 +21,6 @@ import yaml
 if TYPE_CHECKING:
     from .provider_catalog import ProviderCatalog
 
-from ..domain import WorkspaceAccessMode
 from .capability_catalog import (
     CapabilityCatalog,
     CapabilityConfigContext,
@@ -94,7 +93,7 @@ _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DOTENV_ASSIGNMENT = re.compile(
     r"^\s*(?:export\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$"
 )
-_ROOT_KEYS = {"version", "provider", "resilience", "bash", "capabilities"}
+_ROOT_KEYS = {"version", "provider", "resilience", "capabilities"}
 _RESILIENCE_KEYS = {
     "enabled",
     "max_attempts_per_provider",
@@ -102,17 +101,6 @@ _RESILIENCE_KEYS = {
     "max_elapsed_seconds",
     "base_delay_seconds",
     "max_delay_seconds",
-}
-_BASH_KEYS = {
-    "provider",
-    "workspace_root",
-    "image",
-    "docker_executable",
-    "mode",
-    "default_timeout_seconds",
-    "max_timeout_seconds",
-    "max_output_bytes",
-    "network_enabled",
 }
 _COMMON_PROVIDER_KEYS = {
     "name",
@@ -321,76 +309,12 @@ class ProviderResilienceSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class DockerBashSettings:
-    """Trusted, non-secret Docker settings for the Bash capability."""
-
-    workspace_root: Path
-    image: str
-    docker_executable: str = "docker"
-    mode: WorkspaceAccessMode = "workspace-write"
-    default_timeout_seconds: float = 120.0
-    max_timeout_seconds: float = 600.0
-    max_output_bytes: int = 1_000_000
-    network_enabled: bool = False
-    provider: Literal["docker"] = field(default="docker", init=False)
-    name: Literal["bash"] = field(default="bash", init=False)
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self.workspace_root, Path)
-            or not self.workspace_root.is_absolute()
-        ):
-            raise ConfigurationError("bash.workspace_root must be an absolute path")
-        for name, value in (
-            ("image", self.image),
-            ("docker_executable", self.docker_executable),
-        ):
-            if not isinstance(value, str) or not value.strip() or "\x00" in value:
-                raise ConfigurationError(
-                    f"bash.{name} must be a non-empty string without NUL"
-                )
-        if self.mode not in ("read-only", "workspace-write"):
-            raise ConfigurationError(
-                "bash.mode must be 'read-only' or 'workspace-write'"
-            )
-        for name, value in (
-            ("default_timeout_seconds", self.default_timeout_seconds),
-            ("max_timeout_seconds", self.max_timeout_seconds),
-        ):
-            if (
-                not isinstance(value, (int, float))
-                or isinstance(value, bool)
-                or not math.isfinite(value)
-                or value <= 0
-            ):
-                raise ConfigurationError(
-                    f"bash.{name} must be a positive finite number"
-                )
-        if self.default_timeout_seconds > self.max_timeout_seconds:
-            raise ConfigurationError(
-                "bash.default_timeout_seconds must not exceed "
-                "max_timeout_seconds"
-            )
-        if (
-            not isinstance(self.max_output_bytes, int)
-            or isinstance(self.max_output_bytes, bool)
-            or self.max_output_bytes <= 0
-        ):
-            raise ConfigurationError(
-                "bash.max_output_bytes must be a positive integer"
-            )
-        if type(self.network_enabled) is not bool:
-            raise ConfigurationError("bash.network_enabled must be a boolean")
-
-
-@dataclass(frozen=True, slots=True)
 class AppConfigSpec:
     """Validated, non-secret configuration parsed from one YAML file."""
 
     provider: ProviderSettings
     config_path: Path
     resilience: ProviderResilienceSettings = ProviderResilienceSettings()
-    bash: DockerBashSettings | None = None
     version: Literal[1] = 1
     capabilities: tuple[ConfiguredCapability, ...] = ()
 
@@ -401,20 +325,12 @@ class AppConfigSpec:
                 "capabilities must contain ConfiguredCapability values"
             )
         names = [item.name for item in capabilities]
-        if self.bash is not None:
-            names.append("bash")
         if len(set(names)) != len(names):
             raise ConfigurationError(
-                "capabilities must have unique names, including legacy bash"
+                "capabilities must have unique names"
             )
         object.__setattr__(self, "capabilities", capabilities)
 
-    @property
-    def configured_capabilities(self) -> tuple[ConfiguredCapability, ...]:
-        """Include the legacy Bash selection in the common assembly sequence."""
-        if self.bash is None:
-            return self.capabilities
-        return (ConfiguredCapability("bash", self.bash), *self.capabilities)
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,6 +374,10 @@ def parse_app_config(
     """Parse and validate one explicit YAML configuration path."""
     path = Path(config_path).resolve()
     root = _load_yaml_mapping(path)
+    if "bash" in root:
+        raise ConfigurationError(
+            "top-level bash is no longer supported; use capabilities.bash"
+        )
     _reject_unknown_keys(root, _ROOT_KEYS, context="configuration root")
 
     version = root.get("version")
@@ -477,22 +397,10 @@ def parse_app_config(
     capabilities = _parse_capabilities(
         root.get("capabilities"), selected_capabilities, context
     )
-    bash = None
-    legacy_bash = root.get("bash")
-    if legacy_bash is not None:
-        if not isinstance(legacy_bash, dict):
-            raise ConfigurationError("configuration bash must be a mapping")
-        raw_bash = _capability_mapping(legacy_bash)
-        parsed_bash = selected_capabilities.parse_settings("bash", raw_bash, context)
-        if not isinstance(parsed_bash.settings, DockerBashSettings):
-            raise ConfigurationError("legacy bash requires DockerBashSettings")
-        bash = parsed_bash.settings
-
     return AppConfigSpec(
         provider=provider,
         config_path=path,
         resilience=resilience,
-        bash=bash,
         capabilities=capabilities,
     )
 
@@ -543,6 +451,8 @@ def load_app_config(
 
 def format_config_diagnostics(config: LoadedAppConfig) -> str:
     """Render user-facing configuration diagnostics without exposing secrets."""
+    from .capabilities.bash import DockerBashSettings
+
     credential = config.credential
     if credential.source == "explicit":
         source = "explicit override"
@@ -550,7 +460,7 @@ def format_config_diagnostics(config: LoadedAppConfig) -> str:
         source = "process environment"
     else:
         source = f"dotenv {credential.source_path}"
-    configured = config.spec.configured_capabilities
+    configured = config.spec.capabilities
     bash = next(
         (
             item.settings
@@ -825,58 +735,6 @@ def _parse_capabilities(
     )
 
 
-def _parse_bash(
-    value: object,
-    *,
-    config_path: Path,
-) -> DockerBashSettings | None:
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise ConfigurationError("configuration bash must be a mapping")
-    _reject_unknown_keys(value, _BASH_KEYS, context="Bash")
-    if value.get("provider") != "docker":
-        raise ConfigurationError("bash.provider must be 'docker'")
-
-    workspace_value = _bash_string(value, "workspace_root", ".")
-    try:
-        workspace = Path(workspace_value)
-        if not workspace.is_absolute():
-            workspace = config_path.parent / workspace
-        workspace = workspace.resolve()
-    except (OSError, ValueError) as error:
-        raise ConfigurationError(
-            "bash.workspace_root could not be resolved"
-        ) from error
-
-    return DockerBashSettings(
-        workspace_root=workspace,
-        image=_bash_required_string(value, "image"),
-        docker_executable=_bash_string(
-            value,
-            "docker_executable",
-            "docker",
-        ),
-        mode=_bash_mode(value),
-        default_timeout_seconds=_bash_positive_number(
-            value,
-            "default_timeout_seconds",
-            120.0,
-        ),
-        max_timeout_seconds=_bash_positive_number(
-            value,
-            "max_timeout_seconds",
-            600.0,
-        ),
-        max_output_bytes=_bash_positive_int(
-            value,
-            "max_output_bytes",
-            1_000_000,
-        ),
-        network_enabled=_bash_boolean(value, "network_enabled", False),
-    )
-
-
 def _resolve_api_key(
     variable: str,
     *,
@@ -1066,75 +924,6 @@ def _required_string(values: Mapping[object, object], key: str) -> str:
     if key not in values:
         raise ConfigurationError(f"provider.{key} is required")
     return _string(values, key, "")
-
-
-def _bash_string(
-    values: Mapping[object, object],
-    key: str,
-    default: str,
-) -> str:
-    value = values.get(key, default)
-    if not isinstance(value, str) or not value.strip() or "\x00" in value:
-        raise ConfigurationError(
-            f"bash.{key} must be a non-empty string without NUL"
-        )
-    return value
-
-
-def _bash_required_string(
-    values: Mapping[object, object],
-    key: str,
-) -> str:
-    if key not in values:
-        raise ConfigurationError(f"bash.{key} is required")
-    return _bash_string(values, key, "")
-
-
-def _bash_mode(values: Mapping[object, object]) -> WorkspaceAccessMode:
-    value = values.get("mode", "workspace-write")
-    if value not in ("read-only", "workspace-write"):
-        raise ConfigurationError(
-            "bash.mode must be 'read-only' or 'workspace-write'"
-        )
-    return cast(WorkspaceAccessMode, value)
-
-
-def _bash_positive_number(
-    values: Mapping[object, object],
-    key: str,
-    default: float,
-) -> float:
-    value = values.get(key, default)
-    if (
-        not isinstance(value, (int, float))
-        or isinstance(value, bool)
-        or not math.isfinite(value)
-        or value <= 0
-    ):
-        raise ConfigurationError(f"bash.{key} must be a positive finite number")
-    return float(value)
-
-
-def _bash_positive_int(
-    values: Mapping[object, object],
-    key: str,
-    default: int,
-) -> int:
-    value = values.get(key, default)
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise ConfigurationError(f"bash.{key} must be a positive integer")
-    return value
-
-
-def _bash_boolean(
-    values: Mapping[object, object],
-    key: str,
-    default: bool,
-) -> bool:
-    value = values.get(key, default)
-    if type(value) is not bool:
-        raise ConfigurationError(f"bash.{key} must be a boolean")
-    return value
 
 
 def _optional_string(values: Mapping[object, object], key: str) -> str | None:

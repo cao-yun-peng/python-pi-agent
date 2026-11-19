@@ -4,7 +4,14 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from pi_agent_py import AgentSession, FakeProvider, Finish, JsonlSessionStore, TextDelta
+from pi_agent_py import (
+    AgentComponents,
+    AgentSession,
+    FakeProvider,
+    Finish,
+    JsonlSessionStore,
+    TextDelta,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,14 +35,14 @@ async def main() -> None:
         session = AgentSession(
             "jsonl-demo",
             store,
-            FakeProvider([[TextDelta("我记住了。"), Finish()]]),
+            AgentComponents(FakeProvider([[TextDelta("我记住了。"), Finish()]])),
         )
         await session.run("项目代号是松鼠。")
         print(f"seeded session in {args.path}")
         return
 
     provider = FakeProvider([[TextDelta("项目代号是松鼠。"), Finish()]])
-    session = AgentSession("jsonl-demo", store, provider)
+    session = AgentSession("jsonl-demo", store, AgentComponents(provider))
     result = await session.run("项目代号是什么？")
 
     print(result.message.content)

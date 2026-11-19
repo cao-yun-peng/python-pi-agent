@@ -5,6 +5,7 @@ import unittest
 from dataclasses import replace
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     BashTool,
     DeclaredSideEffectGate,
@@ -210,12 +211,14 @@ class BashToolTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         agent = Agent(
-            provider,
-            tools=(bash,),
-            approval_policy=StaticApprovalPolicy(True),
-            execution_gate=DeclaredSideEffectGate(
-                allowed_side_effects=("none", "write"),
-                allowed_tools=("bash",),
+            AgentComponents(
+                provider,
+                tools=(bash,),
+                approval_policy=StaticApprovalPolicy(True),
+                execution_gate=DeclaredSideEffectGate(
+                    allowed_side_effects=("none", "write"),
+                    allowed_tools=("bash",),
+                ),
             ),
         )
 

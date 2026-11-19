@@ -7,6 +7,7 @@ from collections.abc import Awaitable
 from pathlib import Path
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     DeclaredSideEffectGate,
     DockerProcessSandbox,
@@ -322,12 +323,14 @@ class SandboxedShellToolTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         agent = Agent(
-            provider,
-            tools=(shell,),
-            approval_policy=StaticApprovalPolicy(True),
-            execution_gate=DeclaredSideEffectGate(
-                allowed_side_effects=("none", "write"),
-                allowed_tools=("shell",),
+            AgentComponents(
+                provider,
+                tools=(shell,),
+                approval_policy=StaticApprovalPolicy(True),
+                execution_gate=DeclaredSideEffectGate(
+                    allowed_side_effects=("none", "write"),
+                    allowed_tools=("shell",),
+                ),
             ),
         )
 

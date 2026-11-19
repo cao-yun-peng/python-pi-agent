@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
     ContextPlan,
     FakeProvider,
@@ -63,7 +64,7 @@ async def main() -> None:
     async with AgentSession(
         "teaching-session",
         store,
-        provider,
+        AgentComponents(provider),
         plugin_host=host,
     ) as session:
         await session.run("hello")

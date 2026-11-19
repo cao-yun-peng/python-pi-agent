@@ -5,6 +5,7 @@ import unittest
 from collections.abc import Sequence
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     AgentSession,
     ContextPlan,
@@ -75,9 +76,8 @@ class ContextStrategyTests(unittest.IsolatedAsyncioTestCase):
             Message(role="assistant", content="old answer"),
         )
         agent = Agent(
-            provider,
+            AgentComponents(provider, context_strategy=_LatestMessageStrategy()),
             initial_messages=old_messages,
-            context_strategy=_LatestMessageStrategy(),
             event_sink=events,
         )
 
@@ -117,8 +117,7 @@ class ContextStrategyTests(unittest.IsolatedAsyncioTestCase):
         provider = FakeProvider([[Finish()]])
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
-            context_strategy=_FailingStrategy(),
+            AgentComponents(provider, context_strategy=_FailingStrategy()),
             event_sink=events,
         )
 
@@ -139,11 +138,7 @@ class ContextStrategyTests(unittest.IsolatedAsyncioTestCase):
         strategy = _BlockingStrategy()
         provider = FakeProvider([[Finish()]])
         events = InMemoryEventSink()
-        agent = Agent(
-            provider,
-            context_strategy=strategy,
-            event_sink=events,
-        )
+        agent = Agent(AgentComponents(provider, context_strategy=strategy), event_sink=events)
 
         task = asyncio.create_task(agent.run("cancel context"))
         await strategy.started.wait()
@@ -160,7 +155,7 @@ class ContextStrategyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejects_context_plan_with_incorrect_source_count(self) -> None:
         provider = FakeProvider([[Finish()]])
-        agent = Agent(provider, context_strategy=_IncorrectCountStrategy())
+        agent = Agent(AgentComponents(provider, context_strategy=_IncorrectCountStrategy()))
 
         with self.assertRaisesRegex(ContextPreparationError, "does not match"):
             await agent.run("one source message")
@@ -181,8 +176,7 @@ class ContextStrategyTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            context_strategy=_LatestMessageStrategy(),
+            AgentComponents(provider, context_strategy=_LatestMessageStrategy()),
         )
 
         result = await session.run("new question")

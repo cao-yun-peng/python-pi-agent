@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     FakeProvider,
     Finish,
     FunctionTool,
@@ -85,9 +86,11 @@ async def main() -> None:
         ]
     )
     agent = Agent(
-        provider,
-        tools=capabilities.tools,
-        next_turn_hook=capabilities.next_turn_hook,
+        AgentComponents(
+            provider,
+            tools=capabilities.tools,
+            next_turn_hook=capabilities.next_turn_hook,
+        )
     )
 
     try:

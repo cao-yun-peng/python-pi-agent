@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **破坏性变更：移除旧构造参数和兼容接口。** 理由见 ADR 0028 第 5 节与 ADR 0031。
+
+  | 旧写法 | 新写法 |
+  |---|---|
+  | `Agent(provider, tools=..., system_prompt=..., ...)` | `Agent(AgentComponents(provider, tools=..., system_prompt=..., ...))` |
+  | `AgentSession(id, store, provider, tools=..., ...)` | `AgentSession(id, store, AgentComponents(provider, tools=..., ...))` |
+  | `AgentRuntime(provider, store, tools=..., ...)` | `AgentRuntime(AgentComponents(provider, tools=..., ...), store)` |
+  | `compaction_strategy=s, compaction_policy=p` | `compaction=CompactionComponents(strategy=s, policy=p)` |
+  | `Agent(..., message_committer=...)` 等接线关键字 | 已移除，仅供 `AgentSession` 内部使用 |
+  | `await runtime_session.follow_up_id(prompt)` | `(await runtime_session.follow_up(prompt)).run_id` |
+  | 配置根 `bash:` | `capabilities:` 下的 `bash:` |
+  | `AppConfigSpec.bash`、`AppConfigSpec.configured_capabilities` | `AppConfigSpec.capabilities` |
+  | `from pi_agent_py.application.configuration import DockerBashSettings` | `from pi_agent_py.application.capabilities.bash import DockerBashSettings`（根包导出不变） |
+
+  - 首个组件参数不是 `AgentComponents` 时抛 `TypeError`，旧关键字不再接受。
+  - 配置根出现 `bash` 键即抛 `ConfigurationError`，包括 `bash: null` 和空值，不会被当作“未配置”静默忽略。
+  - 公开 `Agent` 同时收到 `initial_messages` 与 `components.system_prompt` 时抛 `ValueError`，与旧版行为一致，避免 system prompt 被静默丢弃。
+
 - 存储、上下文、可观测性和工具执行按功能归组，原具体模块已删除。稳定入口 `pi_agent_py.api` 和根包导出引用新定义，具体模块导入按下表迁移。
 
   | 原模块 | 新模块 |
@@ -45,13 +63,13 @@
 
   教程、示例和下游示范包的具体路径在后续任务调整。
 
-  应用层迁移只调整目录、定义引用和导入；旧构造参数、内部接线参数、follow_up_id 与顶层 bash 配置的移除由后续变更处理。
+  应用层迁移只调整目录、定义引用和导入；旧构造参数、内部接线参数、follow_up_id 与顶层 bash 配置已在后续变更中移除，见本节第一条。
 
-- 新增 CapabilityCatalog、类型化 Settings 和 capabilities YAML 节，通过既有 PluginHost 事务注册工具、Hook、Session 插件及资源 cleanup。Bash 迁入内置注册，顶层 bash 配置继续作为兼容入口，和 capabilities.bash 重复配置时拒绝。
+- 新增 CapabilityCatalog、类型化 Settings 和 capabilities YAML 节，通过既有 PluginHost 事务注册工具、Hook、Session 插件及资源 cleanup。Bash 迁入内置注册；顶层 bash 配置已移除，见本节第一条。
 
 - ProviderRegistration 新增 parse_settings，配置加载支持显式 provider_catalog，Settings 和运行配置改用开放 Protocol。Catalog 提供返回新实例的 with_registration，内置四家与外部 Provider 通过统一入口解析，原有 assembly 导入保持对象身份。
 
 - 新增 SessionOpenRequest、SessionSpec 和 SessionSpecResolver，支持每次打开时解析完整组件和观察 metadata。Builder 支持实例注册与基于默认组件的 resolver factory，同 ID 的冲突规格会被拒绝。metadata 作为 envelope 的 JSON 字段序列化并参与日志脱敏。
 
-- `RuntimeSession.submit()` 和 `RuntimeSession.follow_up()` 返回 `RunHandle`，提供 run 事件流、独立结果等待和定向取消。原先使用 `follow_up()` 返回字符串的调用改用句柄的 `run_id`；过渡期可使用 `follow_up_id()`。底层 `AgentSession.follow_up()` 的签名不变。
+- `RuntimeSession.submit()` 和 `RuntimeSession.follow_up()` 返回 `RunHandle`，提供 run 事件流、独立结果等待和定向取消。原先使用 `follow_up()` 返回字符串的调用改用句柄的 `run_id`。底层 `AgentSession.follow_up()` 的签名不变。
 - 新增 Runtime 事件订阅、结构化日志及可选 OpenTelemetry 遥测适配器，以及 run/Session 用量汇总和可注入的估算价格表。

@@ -26,7 +26,7 @@ async def main() -> None:
         "--config",
         type=Path,
         required=True,
-        help="Explicit agent.yaml containing a bash section.",
+        help="Explicit agent.yaml containing a capabilities.bash section.",
     )
     args = parser.parse_args()
 
@@ -34,8 +34,10 @@ async def main() -> None:
         args.config,
         api_key_override="example-key-not-used-by-fake-provider",
     )
-    if loaded.spec.bash is None:
-        parser.error("the selected configuration does not define a bash section")
+    if all(item.name != "bash" for item in loaded.spec.capabilities):
+        parser.error(
+            "the selected configuration does not define capabilities.bash"
+        )
 
     provider = FakeProvider(
         [

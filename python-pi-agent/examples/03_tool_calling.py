@@ -4,6 +4,7 @@ import asyncio
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     AgentEvent,
     CallbackEventSink,
     FakeProvider,
@@ -62,15 +63,15 @@ async def main() -> None:
             [TextDelta("2 + 3 = 5"), Finish()],
         ]
     )
-    agent = Agent(
+    components = AgentComponents(
         provider,
-        tools=[FunctionTool(definition, add)],
+        tools=(FunctionTool(definition, add),),
         approval_policy=StaticApprovalPolicy(
             True,
             reason="This deterministic example pre-authorizes the add tool.",
         ),
-        event_sink=CallbackEventSink(observe),
     )
+    agent = Agent(components, event_sink=CallbackEventSink(observe))
 
     await agent.run("计算 2 + 3")
     print()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-from pi_agent_py import Agent, AgentEvent, CallbackEventSink
+from pi_agent_py import Agent, AgentComponents, AgentEvent, CallbackEventSink
 from pi_agent_py.providers import DeepSeekConfig, DeepSeekProvider, ThinkingMode
 
 
@@ -34,9 +34,11 @@ async def main() -> None:
 
     async with DeepSeekProvider(config) as provider:
         agent = Agent(
-            provider,
+            AgentComponents(
+                provider,
+                system_prompt="你是一个简洁、可靠的中文助手。",
+            ),
             event_sink=CallbackEventSink(observe),
-            system_prompt="你是一个简洁、可靠的中文助手。",
         )
         print("DeepSeek Agent 已启动，输入 /exit 退出。")
         while True:

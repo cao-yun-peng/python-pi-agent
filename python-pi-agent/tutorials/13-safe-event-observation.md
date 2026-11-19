@@ -88,7 +88,7 @@ sink = RedactingEventSink(buffered, policy=policy)
 ```python
 buffered = BufferedEventSink(CallbackEventSink(write_json_log))
 logging_sink = RedactingEventSink(buffered)
-agent = Agent(provider, event_sink=logging_sink)
+agent = Agent(AgentComponents(provider), event_sink=logging_sink)
 
 try:
     result = await agent.run("question")

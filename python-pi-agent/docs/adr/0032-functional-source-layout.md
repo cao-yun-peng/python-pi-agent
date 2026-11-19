@@ -68,3 +68,12 @@
 通过语法树对比确认全部 17 个受影响源码模块的执行逻辑不变；验证新定义与公开导出的对象身份、旧模块移除，以及配置驱动能力、SessionSpec、资源关闭和构造回滚等离线行为，并从干净源构建 wheel 验证模块打包。
 
 现有 CI 范围的 Ruff 和 mypy 检查通过。额外对整个 application 和两个 runtime 规格模块运行 strict 检查时有 11 项错误；在同一环境对迁移前 HEAD 的独立源码副本检查，也得到相同的 11 项错误，涉及动态 cleanup 类型、配置局部变量和泛型推断，以及缺少 PyYAML 类型桩。本批不扩大为类型标注修正任务。
+
+## 后续：移除兼容接口
+
+上文第四批留下的兼容接口已在后续独立变更中移除，不属于本 ADR 的目录调整：
+
+- 旧构造参数、`_resolve_components`、`Agent` 公开接线参数和 `RuntimeSession.follow_up_id()`，见 ADR 0028 第 5 节；
+- 顶层 `bash` 配置，以及从通用配置模块迁入 `application/capabilities/bash.py` 的 Bash Settings、parser 和校验函数，见 ADR 0031。
+
+仓内测试、示例与教程同步改为 `AgentComponents` 和 `capabilities.bash`。

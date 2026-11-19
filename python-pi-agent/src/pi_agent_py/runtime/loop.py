@@ -8,9 +8,8 @@ from copy import deepcopy
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass
 from uuid import uuid4
-from warnings import warn
 
-from .components import AgentComponents, _resolve_components
+from .components import AgentComponents
 from ..domain import (
     AgentResult,
     ApprovalDecision,
@@ -48,14 +47,10 @@ from ..errors import (
 )
 from ..observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from ..ports import (
-    ApprovalPolicy,
-    ContextStrategy,
     EventSink,
-    ModelProvider,
     NextTurnHook,
     ProviderRequestHook,
     Tool,
-    ToolExecutionGate,
 )
 from ..tools.validation import validate_tool_arguments
 from ..observability._session_events import _duration_ms, _message_payload, _run_error_fields, _turn_id
@@ -96,58 +91,29 @@ class Agent:
 
     def __init__(
         self,
-        provider: AgentComponents | ModelProvider | None = None,
+        components: AgentComponents,
         *,
-        components: AgentComponents | None = None,
-        tools: Sequence[Tool] | None = None,
-        approval_policy: ApprovalPolicy | None = None,
-        execution_gate: ToolExecutionGate | None = None,
-        context_strategy: ContextStrategy | None = None,
         event_sink: EventSink | None = None,
         initial_messages: Sequence[Message] = (),
-        message_committer: _MessageCommitter | None = None,
-        steering_committer: _SteeringCommitter | None = None,
-        next_turn_hook: NextTurnHook | None = None,
-        provider_request_hook: ProviderRequestHook | None = None,
-        steering_receiver: _SteeringReceiver | None = None,
         session_id: str | None = None,
-        system_prompt: str | None = None,
-        max_model_requests: int | None = None,
     ) -> None:
-        if initial_messages and system_prompt is not None:
+        if not isinstance(components, AgentComponents):
+            raise TypeError("Agent requires AgentComponents")
+        if session_id is not None and not session_id.strip():
+            raise ValueError("session_id must not be empty")
+        if initial_messages and components.system_prompt is not None:
             raise ValueError(
                 "initial_messages and system_prompt cannot be supplied together"
             )
-        if session_id is not None and not session_id.strip():
-            raise ValueError("session_id must not be empty")
 
-        self._components = _resolve_components(
-            provider,
-            components,
-            tools=tools,
-            approval_policy=approval_policy,
-            execution_gate=execution_gate,
-            context_strategy=context_strategy,
-            next_turn_hook=next_turn_hook,
-            system_prompt=system_prompt,
-            max_model_requests=max_model_requests,
-        )
+        self._components = components
         tool_entries = tuple(
             (tool.definition, tool) for tool in self._components.tools
         )
         self._tools = {definition.name: tool for definition, tool in tool_entries}
         self._tool_definitions = tuple(definition for definition, _ in tool_entries)
         self._event_sink = ensure_isolated_event_sink(event_sink)
-        if any(
-            callback is not None
-            for callback in (
-                message_committer, steering_committer, provider_request_hook, steering_receiver
-            )
-        ):
-            warn("Agent wiring keywords are deprecated", DeprecationWarning, stacklevel=2)
-        self._wiring = _AgentWiring(
-            message_committer, steering_committer, provider_request_hook, steering_receiver
-        )
+        self._wiring = _AgentWiring()
         self._next_turn_hook = self._components.next_turn_hook
         self._session_id = session_id
         self._active_run_id: str | None = None
@@ -169,8 +135,9 @@ class Agent:
         session_id: str,
         next_turn_hook: NextTurnHook | None,
     ) -> Agent:
+        # The session commits the system prompt durably before restoring history.
         agent = cls(
-            components,
+            components.replace(system_prompt=None) if initial_messages else components,
             event_sink=event_sink,
             initial_messages=initial_messages,
             session_id=session_id,

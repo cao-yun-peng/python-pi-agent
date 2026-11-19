@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from uuid import uuid4
 
-from .components import AgentComponents, _resolve_components
+from .components import AgentComponents
 from ..domain import (
     AgentResult,
     EventProvenance,
@@ -21,16 +21,8 @@ from ..observability.event_hub import EventFilter, EventHub
 from ..observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
 from ..plugins import PluginHost, PluginSessionLease
 from ..ports import (
-    ApprovalPolicy,
-    CompactionPolicy,
-    CompactionStrategy,
-    ContextStrategy,
     EventSink,
-    ModelProvider,
-    NextTurnHook,
     SessionStore,
-    Tool,
-    ToolExecutionGate,
 )
 from .run_handle import RunHandle
 from ..storage.transitions import find_unresolved_tool_calls
@@ -55,40 +47,20 @@ class AgentSession:
         self,
         session_id: str,
         session_store: SessionStore,
-        provider: AgentComponents | ModelProvider | None = None,
+        components: AgentComponents,
         *,
-        components: AgentComponents | None = None,
-        tools: Sequence[Tool] | None = None,
-        approval_policy: ApprovalPolicy | None = None,
-        execution_gate: ToolExecutionGate | None = None,
-        compaction_policy: CompactionPolicy | None = None,
-        compaction_strategy: CompactionStrategy | None = None,
-        context_strategy: ContextStrategy | None = None,
         event_sink: EventSink | None = None,
-        system_prompt: str | None = None,
-        max_model_requests: int | None = None,
         plugin_host: PluginHost | None = None,
-        next_turn_hook: NextTurnHook | None = None,
         control_claim_lease_seconds: float = 30.0,
         clock: Callable[[], float] = time.time,
     ) -> None:
+        if not isinstance(components, AgentComponents):
+            raise TypeError("AgentSession requires AgentComponents")
         if control_claim_lease_seconds <= 0:
             raise ValueError("control_claim_lease_seconds must be greater than zero")
         self._session_id = session_id
         self._session_store = session_store
-        self._components = _resolve_components(
-            provider,
-            components,
-            tools=tools,
-            approval_policy=approval_policy,
-            execution_gate=execution_gate,
-            context_strategy=context_strategy,
-            compaction_policy=compaction_policy,
-            compaction_strategy=compaction_strategy,
-            next_turn_hook=next_turn_hook,
-            system_prompt=system_prompt,
-            max_model_requests=max_model_requests,
-        )
+        self._components = components
         self._event_sink = ensure_isolated_event_sink(event_sink)
         self._plugin_host = plugin_host
         self._plugin_lease: PluginSessionLease | None = None

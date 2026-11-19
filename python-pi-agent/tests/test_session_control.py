@@ -6,6 +6,8 @@ from collections.abc import AsyncIterator, Sequence
 from sqlite3 import OperationalError
 
 from pi_agent_py import (
+    AgentComponents,
+    CompactionComponents,
     AgentSession,
     FakeCompactionStrategy,
     FakeProvider,
@@ -89,7 +91,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         store = InMemorySessionStore()
-        session = AgentSession("demo", store, provider)
+        session = AgentSession("demo", store, AgentComponents(provider))
 
         task = asyncio.create_task(session.run("long request"))
         await provider.blocked.wait()
@@ -115,7 +117,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
     async def test_follow_up_runs_fifo_after_active_run_settles(self) -> None:
         provider = GatedProvider()
         store = InMemorySessionStore()
-        session = AgentSession("demo", store, provider)
+        session = AgentSession("demo", store, AgentComponents(provider))
 
         first = asyncio.create_task(session.run("first"))
         await provider.started.wait()
@@ -149,7 +151,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
         store = FailingControlStore("control_claimed")
         provider = FakeProvider([[TextDelta("continued"), Finish()]])
         sink = InMemoryEventSink()
-        session = AgentSession("demo", store, provider, event_sink=sink)
+        session = AgentSession("demo", store, AgentComponents(provider), event_sink=sink)
         run_id = await session.follow_up("resume after reopening")
 
         async with asyncio.timeout(2):
@@ -173,7 +175,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
         store = FailingControlStore("control_claimed", "control_cancelled")
         provider = GatedProvider()
         sink = InMemoryEventSink()
-        session = AgentSession("demo", store, provider, event_sink=sink)
+        session = AgentSession("demo", store, AgentComponents(provider), event_sink=sink)
         first = asyncio.create_task(session.run("first request"))
         await provider.started.wait()
         await session.steer("steer this run")
@@ -224,21 +226,23 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            tools=[
-                FunctionTool(
-                    ToolDefinition(
-                        name="pause",
-                        description="Pause until the test releases the tool.",
-                        input_schema={
-                            "type": "object",
-                            "properties": {},
-                            "additionalProperties": False,
-                        },
-                    ),
-                    pause,
-                )
-            ],
+            AgentComponents(
+                provider,
+                tools=[
+                    FunctionTool(
+                        ToolDefinition(
+                            name="pause",
+                            description="Pause until the test releases the tool.",
+                            input_schema={
+                                "type": "object",
+                                "properties": {},
+                                "additionalProperties": False,
+                            },
+                        ),
+                        pause,
+                    )
+                ],
+            ),
         )
 
         task = asyncio.create_task(session.run("start"))
@@ -267,11 +271,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((steered.turn_id or "").endswith(":turn:2"))
 
     async def test_steer_rejects_an_idle_session(self) -> None:
-        session = AgentSession(
-            "demo",
-            InMemorySessionStore(),
-            FakeProvider([]),
-        )
+        session = AgentSession("demo", InMemorySessionStore(), AgentComponents(FakeProvider([])))
 
         with self.assertRaisesRegex(SessionControlError, "active run"):
             await session.steer("too late")
@@ -279,7 +279,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
     async def test_abort_drops_queued_follow_ups_by_default(self) -> None:
         provider = FakeProvider([[WaitUntilCancelled()]])
         store = InMemorySessionStore()
-        session = AgentSession("demo", store, provider)
+        session = AgentSession("demo", store, AgentComponents(provider))
         task = asyncio.create_task(session.run("active"))
         await provider.blocked.wait()
         await session.follow_up("queued")
@@ -309,7 +309,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         provider = FakeProvider([[TextDelta("done"), Finish()]])
-        session = AgentSession("demo", store, provider)
+        session = AgentSession("demo", store, AgentComponents(provider))
 
         await session.wait_until_idle()
 
@@ -334,7 +334,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
                 cause_run_id="run-old",
             ),
         )
-        session = AgentSession("demo", store, FakeProvider([]))
+        session = AgentSession("demo", store, AgentComponents(FakeProvider([])))
 
         await session.restore()
 
@@ -360,8 +360,7 @@ class AgentSessionControlTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            FakeProvider([]),
-            compaction_strategy=strategy,
+            AgentComponents(FakeProvider([]), compaction=CompactionComponents(strategy)),
         )
         task = asyncio.create_task(session.compact())
         await strategy.blocked.wait()

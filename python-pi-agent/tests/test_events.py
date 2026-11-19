@@ -4,6 +4,7 @@ import json
 import unittest
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     AgentEvent,
     AgentEventEnvelope,
@@ -33,7 +34,7 @@ class _ExplodingEventSink:
 class EventIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def test_sink_failure_does_not_change_a_successful_agent_result(self) -> None:
         agent = Agent(
-            FakeProvider([[TextDelta("answer"), Finish()]]),
+            AgentComponents(FakeProvider([[TextDelta("answer"), Finish()]])),
             event_sink=_ExplodingEventSink(),
         )
 
@@ -56,7 +57,7 @@ class EventIsolationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_settled_sink_failure_does_not_mask_provider_error(self) -> None:
         agent = Agent(
-            FakeProvider([[ProviderError("provider is unavailable")]]),
+            AgentComponents(FakeProvider([[ProviderError("provider is unavailable")]])),
             event_sink=_ExplodingEventSink(),
         )
 
@@ -73,7 +74,7 @@ class EventIsolationTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "session-1",
             InMemorySessionStore(),
-            FakeProvider([[TextDelta("answer"), Finish()]]),
+            AgentComponents(FakeProvider([[TextDelta("answer"), Finish()]])),
             event_sink=sink,
         )
         host = PluginHost(event_sink=sink)

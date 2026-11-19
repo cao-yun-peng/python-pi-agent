@@ -26,21 +26,22 @@ provider:
   name: deepseek
   api_key_env: DEEPSEEK_API_KEY
 
-bash:
-  provider: docker
-  workspace_root: .
-  image: local/pi-agent-python:locked
-  docker_executable: docker
-  mode: workspace-write
-  default_timeout_seconds: 120
-  max_timeout_seconds: 600
-  max_output_bytes: 1000000
-  network_enabled: false
+capabilities:
+  bash:
+    provider: docker
+    workspace_root: .
+    image: local/pi-agent-python:locked
+    docker_executable: docker
+    mode: workspace-write
+    default_timeout_seconds: 120
+    max_timeout_seconds: 600
+    max_output_bytes: 1000000
+    network_enabled: false
 ```
 
-`bash` 整节可省略；省略后 Builder 不注册该工具。相对 `workspace_root` 按配置文件目录解析，而不是按当前工作目录解析，因此从不同目录启动应用不会悄悄改变挂载范围。
+`capabilities.bash` 整节可省略；省略后 Builder 不注册该工具。相对 `workspace_root` 按配置文件目录解析，而不是按当前工作目录解析，因此从不同目录启动应用不会悄悄改变挂载范围。
 
-第 32 章将这一路径接入通用 CapabilityCatalog。新项目也可把同一组字段放在 capabilities.bash 下，Builder 通过 PluginHost 加载内置 Bash 注册。顶层 bash 保留为兼容入口，两种形式的对照见[配置驱动能力教程](32-configured-capabilities.md)。
+Bash 通过第 32 章的通用 CapabilityCatalog 加载：`application/capabilities/bash.py` 拥有 `DockerBashSettings`、字段校验和内置注册，Builder 通过 PluginHost 初始化它。早期版本支持的顶层 `bash:` 已移除；配置根出现 `bash` 键（包括 `bash: null`）会直接报错并提示改用 `capabilities.bash`，避免旧配置被静默忽略。
 
 镜像必须预先存在并包含 `/bin/bash`。运行时仍使用 `--pull never`，不会在一次 Agent run 中隐式下载镜像。
 

@@ -6,6 +6,7 @@ import asyncio
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     FakeProvider,
     Finish,
     FullJitterBackoff,
@@ -40,7 +41,7 @@ async def main() -> None:
             max_delay_seconds=0,
         ),
     )
-    agent = Agent(model_runtime, event_sink=events)
+    agent = Agent(AgentComponents(model_runtime), event_sink=events)
 
     result = await agent.run("演示 Provider resilience")
     print(result.message.content)

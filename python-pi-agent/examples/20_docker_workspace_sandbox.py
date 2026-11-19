@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     DeclaredSideEffectGate,
     DockerProcessSandbox,
     FakeProvider,
@@ -62,7 +63,7 @@ async def main() -> None:
             [TextDelta("The sandbox created sandbox-demo.txt."), Finish()],
         ]
     )
-    agent = Agent(
+    components = AgentComponents(
         provider,
         tools=(shell,),
         approval_policy=StaticApprovalPolicy(
@@ -74,6 +75,7 @@ async def main() -> None:
             allowed_tools=("shell",),
         ),
     )
+    agent = Agent(components)
 
     result = await agent.run("Create the sandbox demonstration file.")
     print(result.message.content)

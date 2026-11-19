@@ -7,6 +7,7 @@ import unittest
 import httpx
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     ConfigurationError,
     Finish,
@@ -47,7 +48,7 @@ class KimiProviderTests(unittest.IsolatedAsyncioTestCase):
         provider = KimiProvider(KimiConfig(api_key="test-key"), client=client)
         events = InMemoryEventSink()
 
-        result = await Agent(provider, event_sink=events).run("打个招呼")
+        result = await Agent(AgentComponents(provider), event_sink=events).run("打个招呼")
 
         self.assertEqual(
             result.message,

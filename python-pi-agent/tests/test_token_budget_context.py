@@ -4,6 +4,7 @@ import unittest
 from collections.abc import Sequence
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     CharacterTokenEstimator,
     ContextBudgetExceededError,
@@ -118,14 +119,16 @@ class TokenBudgetContextTests(unittest.IsolatedAsyncioTestCase):
         provider = FakeProvider([[TextDelta("answer"), Finish()]])
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
+            AgentComponents(
+                provider,
+                context_strategy=TokenBudgetContextStrategy(
+                    1,
+                    estimator=_MessageCountEstimator(),
+                ),
+            ),
             initial_messages=(
                 Message(role="user", content="old question"),
                 Message(role="assistant", content="old answer"),
-            ),
-            context_strategy=TokenBudgetContextStrategy(
-                1,
-                estimator=_MessageCountEstimator(),
             ),
             event_sink=events,
         )

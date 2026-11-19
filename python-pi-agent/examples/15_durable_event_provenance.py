@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
     FakeProvider,
     Finish,
@@ -17,11 +18,13 @@ async def main() -> None:
     session = AgentSession(
         "metadata-demo",
         store,
-        FakeProvider(
-            [
-                [ToolCall("call-1", "missing", {}), Finish("tool_calls")],
-                [TextDelta("I recovered from the unavailable tool."), Finish()],
-            ]
+        AgentComponents(
+            FakeProvider(
+                [
+                    [ToolCall("call-1", "missing", {}), Finish("tool_calls")],
+                    [TextDelta("I recovered from the unavailable tool."), Finish()],
+                ]
+            )
         ),
     )
 

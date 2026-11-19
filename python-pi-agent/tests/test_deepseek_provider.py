@@ -7,6 +7,7 @@ import unittest
 import httpx
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     DeclaredSideEffectGate,
     ConfigurationError,
@@ -70,7 +71,7 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
             client=client,
         )
         events = InMemoryEventSink()
-        agent = Agent(provider, event_sink=events)
+        agent = Agent(AgentComponents(provider), event_sink=events)
 
         result = await agent.run("打个招呼")
 
@@ -236,10 +237,12 @@ class DeepSeekProviderTests(unittest.IsolatedAsyncioTestCase):
             client=client,
         )
         agent = Agent(
-            provider,
-            tools=[FunctionTool(definition, weather)],
-            execution_gate=DeclaredSideEffectGate(
-                allowed_side_effects=("none", "read")
+            AgentComponents(
+                provider,
+                tools=[FunctionTool(definition, weather)],
+                execution_gate=DeclaredSideEffectGate(
+                    allowed_side_effects=("none", "read")
+                ),
             ),
         )
 

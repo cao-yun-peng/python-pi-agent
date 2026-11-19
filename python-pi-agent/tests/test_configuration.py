@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 
 from pi_agent_py import ConfigurationError
+from pi_agent_py.application.capabilities.bash import DockerBashSettings
 from pi_agent_py.application.configuration import (
     DeepSeekSettings,
-    DockerBashSettings,
     GLMSettings,
     KimiSettings,
     ProviderResilienceSettings,
@@ -38,16 +38,17 @@ class ConfigurationTests(unittest.TestCase):
                 version: 1
                 provider:
                   name: deepseek
-                bash:
-                  provider: docker
-                  workspace_root: workspace
-                  image: local/pi-agent:test
-                  docker_executable: docker-test
-                  mode: read-only
-                  default_timeout_seconds: 30
-                  max_timeout_seconds: 90
-                  max_output_bytes: 4096
-                  network_enabled: false
+                capabilities:
+                  bash:
+                    provider: docker
+                    workspace_root: workspace
+                    image: local/pi-agent:test
+                    docker_executable: docker-test
+                    mode: read-only
+                    default_timeout_seconds: 30
+                    max_timeout_seconds: 90
+                    max_output_bytes: 4096
+                    network_enabled: false
                 """,
             )
 
@@ -58,7 +59,11 @@ class ConfigurationTests(unittest.TestCase):
             )
 
             self.assertEqual(
-                spec.bash,
+                [item.name for item in spec.capabilities],
+                ["bash"],
+            )
+            self.assertEqual(
+                spec.capabilities[0].settings,
                 DockerBashSettings(
                     workspace_root=workspace.resolve(),
                     image="local/pi-agent:test",
@@ -79,10 +84,10 @@ class ConfigurationTests(unittest.TestCase):
     def test_bash_defaults_disabled_and_invalid_settings_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertIsNone(parse_app_config(_kimi_yaml(root)).bash)
+            self.assertEqual(parse_app_config(_kimi_yaml(root)).capabilities, ())
 
             invalid_cases = (
-                ("[]", "bash must be a mapping"),
+                ("[]", "capability settings must be a mapping"),
                 ("provider: host\nimage: local/test", "must be 'docker'"),
                 ("provider: docker", "bash.image is required"),
                 (
@@ -114,10 +119,32 @@ class ConfigurationTests(unittest.TestCase):
                         "version: 1\n"
                         "provider:\n"
                         "  name: deepseek\n"
-                        "bash:\n"
-                        + textwrap.indent(body, "  "),
+                        "capabilities:\n"
+                        "  bash:\n"
+                        + textwrap.indent(body, "    "),
                     )
                     with self.assertRaisesRegex(ConfigurationError, message):
+                        parse_app_config(path)
+
+    def test_top_level_bash_is_rejected_even_when_null(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bodies = (
+                "bash:\n  provider: docker\n  image: local/test\n",
+                "bash: null\n",
+                "bash:\n",
+            )
+            for index, body in enumerate(bodies):
+                with self.subTest(body=body):
+                    path = _write(
+                        root / f"legacy-bash-{index}.yaml",
+                        "version: 1\nprovider:\n  name: deepseek\n" + body,
+                    )
+                    with self.assertRaisesRegex(
+                        ConfigurationError,
+                        "top-level bash is no longer supported; "
+                        "use capabilities.bash",
+                    ):
                         parse_app_config(path)
 
     def test_yaml_defaults_match_direct_provider_config_defaults(self) -> None:

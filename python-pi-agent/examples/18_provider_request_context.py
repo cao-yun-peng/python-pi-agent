@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
+    CompactionComponents,
     FakeCompactionStrategy,
     FakeProvider,
     Finish,
@@ -32,8 +34,10 @@ async def main() -> None:
     session = AgentSession(
         "teaching-session",
         store,
-        provider,
-        compaction_strategy=compactor,
+        AgentComponents(
+            provider,
+            compaction=CompactionComponents(strategy=compactor),
+        ),
     )
 
     await session.compact(keep_recent_turns=1)

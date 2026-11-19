@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from pi_agent_py.runtime.loop import _AgentWiring
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     DurableEventIdentity,
     FakeProvider,
@@ -26,7 +28,7 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             [[TextDelta("你"), TextDelta("好"), Finish(reason="stop")]]
         )
         events = InMemoryEventSink()
-        agent = Agent(provider, event_sink=events, system_prompt="回答要简洁。")
+        agent = Agent(AgentComponents(provider, system_prompt="回答要简洁。"), event_sink=events)
 
         result = await agent.run("打个招呼")
 
@@ -72,12 +74,21 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("run_id", started.payload)
         self.assertNotIn("request_id", started.payload)
 
+    def test_rejects_system_prompt_with_initial_messages(self) -> None:
+        components = AgentComponents(FakeProvider([]), system_prompt="be brief")
+
+        with self.assertRaisesRegex(ValueError, "cannot be supplied together"):
+            Agent(
+                components,
+                initial_messages=(Message(role="user", content="earlier"),),
+            )
+
     async def test_provider_failure_does_not_commit_partial_assistant_message(self) -> None:
         provider = FakeProvider(
             [[TextDelta("未完成"), ProviderError("simulated outage")]]
         )
         events = InMemoryEventSink()
-        agent = Agent(provider, event_sink=events)
+        agent = Agent(AgentComponents(provider), event_sink=events)
 
         with self.assertRaisesRegex(ProviderError, "simulated outage"):
             await agent.run("会失败吗？")
@@ -98,7 +109,7 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
     async def test_native_stream_error_is_classified_as_provider_failure(self) -> None:
         original = OSError("provider diagnostics")
         events = InMemoryEventSink()
-        agent = Agent(FakeProvider([[original]]), event_sink=events)
+        agent = Agent(AgentComponents(FakeProvider([[original]])), event_sink=events)
 
         with self.assertRaises(ProviderError) as caught:
             await agent.run("question")
@@ -117,11 +128,18 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
         async def fail_commit(
             message: Message,
             context: SessionEventContext,
-        ) -> DurableEventIdentity | None:
+        ) -> DurableEventIdentity:
             raise original
 
         events = InMemoryEventSink()
-        agent = Agent(FakeProvider([]), event_sink=events, message_committer=fail_commit)
+        agent = Agent._for_session(
+            AgentComponents(FakeProvider([])),
+            wiring=_AgentWiring(message_committer=fail_commit),
+            event_sink=events,
+            initial_messages=(),
+            session_id="demo",
+            next_turn_hook=None,
+        )
 
         with self.assertRaises(InternalError) as caught:
             await agent.run("question")
@@ -143,7 +161,10 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         events = InMemoryEventSink()
-        agent = Agent(FakeProvider([[state, TextDelta("完成"), Finish()]]), event_sink=events)
+        agent = Agent(
+            AgentComponents(FakeProvider([[state, TextDelta("完成"), Finish()]])),
+            event_sink=events,
+        )
 
         result = await agent.run("继续")
 
@@ -157,7 +178,7 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_finish_is_a_protocol_error(self) -> None:
         provider = FakeProvider([[TextDelta("没有结束事件")]])
         events = InMemoryEventSink()
-        agent = Agent(provider, event_sink=events)
+        agent = Agent(AgentComponents(provider), event_sink=events)
 
         with self.assertRaisesRegex(ModelProtocolError, "without finish"):
             await agent.run("检查协议")
@@ -171,7 +192,7 @@ class MinimalAgentLoopTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancellation_reaches_provider_and_always_settles(self) -> None:
         provider = FakeProvider([[WaitUntilCancelled()]])
         events = InMemoryEventSink()
-        agent = Agent(provider, event_sink=events)
+        agent = Agent(AgentComponents(provider), event_sink=events)
 
         task = asyncio.create_task(agent.run("等待取消"))
         await provider.blocked.wait()

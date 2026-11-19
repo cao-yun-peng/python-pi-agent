@@ -5,6 +5,7 @@ import unittest
 from collections.abc import Sequence
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     AgentSession,
     ContextPlan,
@@ -111,16 +112,11 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         second_store = InMemorySessionStore()
         first_provider = FakeProvider([[TextDelta("one"), Finish()]])
         second_provider = FakeProvider([[TextDelta("two"), Finish()]])
-        first = AgentSession(
-            "first",
-            first_store,
-            first_provider,
-            plugin_host=host,
-        )
+        first = AgentSession("first", first_store, AgentComponents(first_provider), plugin_host=host)
         second = AgentSession(
             "second",
             second_store,
-            second_provider,
+            AgentComponents(second_provider),
             plugin_host=host,
         )
 
@@ -184,7 +180,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             InMemorySessionStore(),
-            provider,
+            AgentComponents(provider),
             plugin_host=host,
         )
 
@@ -211,7 +207,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             InMemorySessionStore(),
-            provider,
+            AgentComponents(provider),
             plugin_host=host,
         )
         task = asyncio.create_task(session.run("wait"))
@@ -262,9 +258,11 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         agent = Agent(
-            provider,
-            tools=capabilities.tools,
-            next_turn_hook=capabilities.next_turn_hook,
+            AgentComponents(
+                provider,
+                tools=capabilities.tools,
+                next_turn_hook=capabilities.next_turn_hook,
+            ),
             event_sink=events,
         )
 

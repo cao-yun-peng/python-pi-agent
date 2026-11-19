@@ -320,7 +320,7 @@ class AgentRuntimeBuilder:
                 )
                 configured_plugins = [
                     (f"capability:{item.name}", catalog.plugin_for(item))
-                    for item in self._loaded_config.spec.configured_capabilities
+                    for item in self._loaded_config.spec.capabilities
                 ]
             built_provider = await self._build_provider()
             raw_provider = lifecycle.manage(

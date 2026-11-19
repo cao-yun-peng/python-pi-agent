@@ -37,9 +37,11 @@ await host.load("my-plugin", my_plugin)
 capabilities = host.snapshot()
 
 agent = Agent(
-    provider,
-    tools=capabilities.tools,
-    next_turn_hook=capabilities.next_turn_hook,
+    AgentComponents(
+        provider,
+        tools=capabilities.tools,
+        next_turn_hook=capabilities.next_turn_hook,
+    )
 )
 ```
 

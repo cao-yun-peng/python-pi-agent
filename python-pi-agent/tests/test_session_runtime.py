@@ -6,9 +6,10 @@ from collections.abc import Sequence
 from sqlite3 import OperationalError
 
 from pi_agent_py import (
+    AgentComponents,
+    CompactionComponents,
     AgentSession,
     CompactionError,
-    ConfigurationError,
     FakeCompactionStrategy,
     FakeProvider,
     Finish,
@@ -68,7 +69,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         store = FailingAppendStore()
         sink = InMemoryEventSink()
         provider = FakeProvider([])
-        session = AgentSession("demo", store, provider, event_sink=sink)
+        session = AgentSession("demo", store, AgentComponents(provider), event_sink=sink)
 
         with self.assertRaises(SessionStorageError) as caught:
             await session.run("question")
@@ -100,7 +101,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         store = FailingLoadStore()
         sink = InMemoryEventSink()
         provider = FakeProvider([[TextDelta("recovered"), Finish()]])
-        session = AgentSession("demo", store, provider, event_sink=sink)
+        session = AgentSession("demo", store, AgentComponents(provider), event_sink=sink)
         await session.restore()
         store.fail_next_load = True
 
@@ -132,7 +133,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         store = BlockingLoadStore()
         provider = FakeProvider([])
         sink = InMemoryEventSink()
-        session = AgentSession("demo", store, provider, event_sink=sink)
+        session = AgentSession("demo", store, AgentComponents(provider), event_sink=sink)
         await session.restore()
         store.block = True
         task = asyncio.create_task(session.run("question"))
@@ -149,12 +150,12 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             ["run_cancelled", "run_settled"],
         )
 
-    def test_auto_policy_requires_a_compaction_strategy(self) -> None:
-        with self.assertRaisesRegex(ConfigurationError, "requires"):
+    def test_auto_policy_cannot_be_passed_as_a_legacy_constructor_option(self) -> None:
+        with self.assertRaisesRegex(TypeError, "compaction_policy"):
             AgentSession(
                 "demo",
                 InMemorySessionStore(),
-                FakeProvider([]),
+                AgentComponents(FakeProvider([])),
                 compaction_policy=TokenThresholdCompactionPolicy(10),
             )
 
@@ -169,8 +170,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            system_prompt="You are helpful.",
+            AgentComponents(provider, system_prompt="You are helpful."),
         )
 
         first = await session.run("first question")
@@ -199,7 +199,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            FakeProvider([[TextDelta("answer"), Finish()]]),
+            AgentComponents(FakeProvider([[TextDelta("answer"), Finish()]])),
             event_sink=events,
         )
 
@@ -224,7 +224,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            FakeProvider([[ProviderError("provider failed")]]),
+            AgentComponents(FakeProvider([[ProviderError("provider failed")]])),
         )
 
         with self.assertRaises(ProviderError):
@@ -239,7 +239,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancellation_keeps_committed_user_message(self) -> None:
         provider = FakeProvider([[WaitUntilCancelled()]])
         store = InMemorySessionStore()
-        session = AgentSession("demo", store, provider)
+        session = AgentSession("demo", store, AgentComponents(provider))
 
         task = asyncio.create_task(session.run("remember this"))
         await provider.blocked.wait()
@@ -299,9 +299,11 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            tools=[FunctionTool(definition, sometimes_blocks)],
-            execution_gate=TrustedToolExecutionGate(),
+            AgentComponents(
+                provider,
+                tools=[FunctionTool(definition, sometimes_blocks)],
+                execution_gate=TrustedToolExecutionGate(),
+            ),
             event_sink=events,
         )
 
@@ -358,7 +360,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         provider = FakeProvider([])
-        session = AgentSession("corrupt", store, provider)
+        session = AgentSession("corrupt", store, AgentComponents(provider))
 
         with self.assertRaisesRegex(
             SessionValidationError,
@@ -387,8 +389,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            compaction_strategy=strategy,
+            AgentComponents(provider, compaction=CompactionComponents(strategy)),
             event_sink=events,
         )
 
@@ -443,12 +444,16 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            compaction_policy=TokenThresholdCompactionPolicy(
-                5,
-                estimator=MessageCountEstimator(),
+            AgentComponents(
+                provider,
+                compaction=CompactionComponents(
+                    strategy,
+                    policy=TokenThresholdCompactionPolicy(
+                        5,
+                        estimator=MessageCountEstimator(),
+                    ),
+                ),
             ),
-            compaction_strategy=strategy,
             event_sink=events,
         )
 
@@ -523,13 +528,17 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            tools=[FunctionTool(_large_result_definition(), large_result)],
-            compaction_policy=TokenThresholdCompactionPolicy(
-                7,
-                estimator=MessageCountEstimator(),
+            AgentComponents(
+                provider,
+                tools=[FunctionTool(_large_result_definition(), large_result)],
+                compaction=CompactionComponents(
+                    strategy,
+                    policy=TokenThresholdCompactionPolicy(
+                        7,
+                        estimator=MessageCountEstimator(),
+                    ),
+                ),
             ),
-            compaction_strategy=strategy,
             event_sink=events,
         )
 
@@ -602,14 +611,18 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            tools=[FunctionTool(_large_result_definition(), large_result)],
-            compaction_policy=TokenThresholdCompactionPolicy(
-                7,
-                estimator=MessageCountEstimator(),
-            ),
-            compaction_strategy=FakeCompactionStrategy(
-                [CompactionError("summary failed")]
+            AgentComponents(
+                provider,
+                tools=[FunctionTool(_large_result_definition(), large_result)],
+                compaction=CompactionComponents(
+                    FakeCompactionStrategy(
+                        [CompactionError("summary failed")]
+                    ),
+                    policy=TokenThresholdCompactionPolicy(
+                        7,
+                        estimator=MessageCountEstimator(),
+                    ),
+                ),
             ),
             event_sink=events,
         )
@@ -666,13 +679,17 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            tools=[FunctionTool(_large_result_definition(), large_result)],
-            compaction_policy=TokenThresholdCompactionPolicy(
-                7,
-                estimator=MessageCountEstimator(),
+            AgentComponents(
+                provider,
+                tools=[FunctionTool(_large_result_definition(), large_result)],
+                compaction=CompactionComponents(
+                    strategy,
+                    policy=TokenThresholdCompactionPolicy(
+                        7,
+                        estimator=MessageCountEstimator(),
+                    ),
+                ),
             ),
-            compaction_strategy=strategy,
             event_sink=events,
         )
 
@@ -703,12 +720,16 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             InMemorySessionStore(),
-            provider,
-            compaction_policy=TokenThresholdCompactionPolicy(
-                10,
-                estimator=MessageCountEstimator(),
+            AgentComponents(
+                provider,
+                compaction=CompactionComponents(
+                    strategy,
+                    policy=TokenThresholdCompactionPolicy(
+                        10,
+                        estimator=MessageCountEstimator(),
+                    ),
+                ),
             ),
-            compaction_strategy=strategy,
             event_sink=events,
         )
 
@@ -737,13 +758,17 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            provider,
-            compaction_policy=TokenThresholdCompactionPolicy(
-                4,
-                estimator=MessageCountEstimator(),
-            ),
-            compaction_strategy=FakeCompactionStrategy(
-                [CompactionError("summary failed")]
+            AgentComponents(
+                provider,
+                compaction=CompactionComponents(
+                    FakeCompactionStrategy(
+                        [CompactionError("summary failed")]
+                    ),
+                    policy=TokenThresholdCompactionPolicy(
+                        4,
+                        estimator=MessageCountEstimator(),
+                    ),
+                ),
             ),
             event_sink=events,
         )
@@ -776,12 +801,16 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            FakeProvider([[TextDelta("answer"), Finish()]]),
-            compaction_policy=TokenThresholdCompactionPolicy(
-                2,
-                estimator=MessageCountEstimator(),
+            AgentComponents(
+                FakeProvider([[TextDelta("answer"), Finish()]]),
+                compaction=CompactionComponents(
+                    strategy,
+                    policy=TokenThresholdCompactionPolicy(
+                        2,
+                        estimator=MessageCountEstimator(),
+                    ),
+                ),
             ),
-            compaction_strategy=strategy,
             event_sink=events,
         )
 
@@ -808,9 +837,13 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            FakeProvider([]),
-            compaction_strategy=FakeCompactionStrategy(
-                [CompactionError("cannot summarize")]
+            AgentComponents(
+                FakeProvider([]),
+                compaction=CompactionComponents(
+                    FakeCompactionStrategy(
+                        [CompactionError("cannot summarize")]
+                    ),
+                ),
             ),
             event_sink=events,
         )
@@ -840,8 +873,7 @@ class AgentSessionTests(unittest.IsolatedAsyncioTestCase):
         session = AgentSession(
             "demo",
             store,
-            FakeProvider([]),
-            compaction_strategy=strategy,
+            AgentComponents(FakeProvider([]), compaction=CompactionComponents(strategy)),
             event_sink=events,
         )
 

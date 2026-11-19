@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
     FakeProvider,
     Finish,
@@ -38,11 +39,9 @@ async def main() -> None:
         ]
     )
     store = InMemorySessionStore()
-    session = AgentSession(
-        "control-demo",
-        store,
+    components = AgentComponents(
         provider,
-        tools=[
+        tools=(
             FunctionTool(
                 ToolDefinition(
                     name="pause",
@@ -54,9 +53,10 @@ async def main() -> None:
                     },
                 ),
                 pause,
-            )
-        ],
+            ),
+        ),
     )
+    session = AgentSession("control-demo", store, components)
 
     active = asyncio.create_task(session.run("Start the work."))
     await tool_started.wait()

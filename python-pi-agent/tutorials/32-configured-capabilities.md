@@ -35,9 +35,9 @@ Builder 先检查配置中的能力是否在目录里，然后创建 Provider �
 
 ## Bash 如何迁移
 
-内置 Bash 通过同一目录提供 Settings parser 与初始化函数。新配置可以写在 `capabilities.bash`，原顶层 `bash:` 仍是兼容入口。两种形式解析出的 configured_capabilities 相同，同时出现会被拒绝。
+内置 Bash 和下游能力走同一个目录：`application/capabilities/bash.py` 同时拥有 `DockerBashSettings`、全部字段校验、parser 与初始化函数，通用配置模块不再识别任何 Bash 字段。配置只能写在 `capabilities.bash`。早期的顶层 `bash:` 已移除，配置根出现该键即报错，包括 `bash: null`。这里按键判断而不是按值判断：如果把 `null` 当作“未配置”，旧配置会解析成功却没有 Bash，问题要到运行时才暴露。
 
-Docker workspace 仍以配置文件目录为基准。BashTool 保持 requires_approval，网络开启时声明 external，执行继续使用 SandboxedBashExecutor 和 DockerProcessSandbox。Builder 只消费统一的配置序列，Bash 构造位于 configured_bash.py。配置诊断通过 configured_capabilities 列出启用的能力，旧式 bash 字段保留原有输入用途。
+Docker workspace 仍以配置文件目录为基准。BashTool 保持 requires_approval，网络开启时声明 external，执行继续使用 SandboxedBashExecutor 和 DockerProcessSandbox。Builder 只消费 `AppConfigSpec.capabilities` 这一条配置序列，配置诊断也从它列出启用的能力。
 
 ## 验证与练习
 

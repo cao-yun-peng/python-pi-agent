@@ -5,6 +5,7 @@ import unittest
 from collections.abc import Sequence
 
 from pi_agent_py import (
+    AgentComponents,
     Agent,
     AgentLoopLimitError,
     ApprovalDecision,
@@ -82,9 +83,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
-            tools=[tool],
-            approval_policy=policy,
+            AgentComponents(provider, tools=[tool], approval_policy=policy),
             event_sink=events,
             session_id="session-1",
         )
@@ -149,9 +148,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         hook = RecordingNextTurnHook()
         agent = Agent(
-            provider,
-            tools=[FunctionTool(_add_definition(), add)],
-            next_turn_hook=hook,
+            AgentComponents(provider, tools=[FunctionTool(_add_definition(), add)], next_turn_hook=hook),
         )
 
         await agent.run("use a tool")
@@ -186,8 +183,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
-            tools=[FunctionTool(_add_definition(), must_not_run)],
+            AgentComponents(provider, tools=[FunctionTool(_add_definition(), must_not_run)]),
             event_sink=events,
         )
 
@@ -222,8 +218,10 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         agent = Agent(
-            provider,
-            tools=[FunctionTool(_add_definition(requires_approval=True), must_not_run)],
+            AgentComponents(
+                provider,
+                tools=[FunctionTool(_add_definition(requires_approval=True), must_not_run)],
+            ),
         )
 
         result = await agent.run("需要审批")
@@ -259,8 +257,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
-            tools=[FunctionTool(definition, never_finishes)],
+            AgentComponents(provider, tools=[FunctionTool(definition, never_finishes)]),
             event_sink=events,
         )
 
@@ -302,8 +299,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
-            tools=[FunctionTool(definition, blocking_tool)],
+            AgentComponents(provider, tools=[FunctionTool(definition, blocking_tool)]),
             event_sink=events,
         )
 
@@ -328,7 +324,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 [TextDelta("该工具不可用。"), Finish()],
             ]
         )
-        agent = Agent(provider)
+        agent = Agent(AgentComponents(provider))
 
         result = await agent.run("调用不存在的工具")
 
@@ -348,10 +344,8 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
-            tools=[FunctionTool(_add_definition(), add)],
+            AgentComponents(provider, tools=[FunctionTool(_add_definition(), add)], max_model_requests=1),
             event_sink=events,
-            max_model_requests=1,
         )
 
         with self.assertRaisesRegex(AgentLoopLimitError, "exceeded 1"):
@@ -388,8 +382,7 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
-            tools=[FunctionTool(definition, read_data)],
+            AgentComponents(provider, tools=[FunctionTool(definition, read_data)]),
             event_sink=events,
         )
 
@@ -438,9 +431,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             allowed_tools=("read_data",),
         )
         agent = Agent(
-            provider,
-            tools=[FunctionTool(definition, read_data)],
-            execution_gate=execution_gate,
+            AgentComponents(
+                provider,
+                tools=[FunctionTool(definition, read_data)],
+                execution_gate=execution_gate,
+            ),
         )
 
         result = await agent.run("read data")
@@ -479,9 +474,11 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         agent = Agent(
-            provider,
-            tools=[FunctionTool(_add_definition(requires_approval=True), add)],
-            approval_policy=MutatingApprovalPolicy(),
+            AgentComponents(
+                provider,
+                tools=[FunctionTool(_add_definition(requires_approval=True), add)],
+                approval_policy=MutatingApprovalPolicy(),
+            ),
         )
 
         result = await agent.run("add")
@@ -520,14 +517,16 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         events = InMemoryEventSink()
         agent = Agent(
-            provider,
-            tools=[
-                FunctionTool(
-                    _add_definition(requires_approval=True),
-                    must_not_run,
-                )
-            ],
-            approval_policy=ExplodingApprovalPolicy(),
+            AgentComponents(
+                provider,
+                tools=[
+                    FunctionTool(
+                        _add_definition(requires_approval=True),
+                        must_not_run,
+                    )
+                ],
+                approval_policy=ExplodingApprovalPolicy(),
+            ),
             event_sink=events,
         )
 

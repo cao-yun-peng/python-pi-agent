@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from pi_agent_py import (
+    AgentComponents,
     AgentSession,
     EventProvenance,
     FakeProvider,
@@ -48,7 +49,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             session = AgentSession(
                 "demo",
                 reopened,
-                FakeProvider([[TextDelta("resumed"), Finish()]]),
+                AgentComponents(FakeProvider([[TextDelta("resumed"), Finish()]])),
             )
             await session.wait_until_idle()
 
@@ -281,7 +282,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             first = AgentSession(
                 "learning",
                 JsonlSessionStore(path),
-                FakeProvider([[TextDelta("我记住了。"), Finish()]]),
+                AgentComponents(FakeProvider([[TextDelta("我记住了。"), Finish()]])),
             )
             await first.run("项目代号是松鼠。")
 
@@ -291,7 +292,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             resumed = AgentSession(
                 "learning",
                 JsonlSessionStore(path),
-                resumed_provider,
+                AgentComponents(resumed_provider),
             )
             result = await resumed.run("项目代号是什么？")
 
@@ -400,11 +401,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.jsonl"
             provider = FakeProvider([[WaitUntilCancelled()]])
-            session = AgentSession(
-                "cancelled",
-                JsonlSessionStore(path),
-                provider,
-            )
+            session = AgentSession("cancelled", JsonlSessionStore(path), AgentComponents(provider))
 
             task = asyncio.create_task(session.run("请保存这句话"))
             await provider.blocked.wait()
@@ -439,11 +436,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             )
 
             provider = FakeProvider([[TextDelta("Recovery observed."), Finish()]])
-            session = AgentSession(
-                "interrupted",
-                JsonlSessionStore(path),
-                provider,
-            )
+            session = AgentSession("interrupted", JsonlSessionStore(path), AgentComponents(provider))
             result = await session.run("continue after restart")
 
             recovered = result.messages[2]

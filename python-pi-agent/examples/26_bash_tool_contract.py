@@ -6,6 +6,7 @@ import asyncio
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     BashTool,
     DeclaredSideEffectGate,
     FakeProvider,
@@ -65,7 +66,7 @@ async def main() -> None:
             [TextDelta("The deterministic test command passed."), Finish()],
         ]
     )
-    agent = Agent(
+    components = AgentComponents(
         provider,
         tools=(bash,),
         approval_policy=StaticApprovalPolicy(
@@ -77,6 +78,7 @@ async def main() -> None:
             allowed_tools=("bash",),
         ),
     )
+    agent = Agent(components)
 
     result = await agent.run("Run the deterministic tests.")
     print(f"assistant: {result.message.content}")

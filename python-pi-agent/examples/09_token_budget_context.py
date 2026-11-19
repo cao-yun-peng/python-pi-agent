@@ -4,6 +4,7 @@ import asyncio
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     CharacterTokenEstimator,
     FakeProvider,
     Finish,
@@ -25,7 +26,7 @@ async def main() -> None:
         ),
     )
     agent = Agent(
-        provider,
+        AgentComponents(provider, context_strategy=strategy),
         initial_messages=(
             Message(role="system", content="回答简洁"),
             Message(role="user", content="旧问题"),
@@ -33,7 +34,6 @@ async def main() -> None:
             Message(role="user", content="较新的问题"),
             Message(role="assistant", content="较新的回答"),
         ),
-        context_strategy=strategy,
         event_sink=events,
     )
 

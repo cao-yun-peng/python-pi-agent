@@ -1118,9 +1118,11 @@ config = DeepSeekConfig(
 
 async with DeepSeekProvider(config) as provider:
     agent = Agent(
-        provider,
+        AgentComponents(
+            provider,
+            system_prompt="你是一个简洁、可靠的中文助手。",
+        ),
         event_sink=CallbackEventSink(observe),
-        system_prompt="你是一个简洁、可靠的中文助手。",
     )
     result = await agent.run(prompt)
 ```

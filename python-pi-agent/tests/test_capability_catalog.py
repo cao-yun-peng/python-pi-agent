@@ -35,6 +35,7 @@ from pi_agent_py.api import (
     load_app_config,
     parse_app_config,
 )
+from pi_agent_py.application.capabilities.bash import DockerBashSettings
 from pi_agent_py.testing import FakeProvider
 
 
@@ -58,7 +59,7 @@ class CapabilityConfigTests(unittest.TestCase):
             root = Path(directory)
             path = write_config(root, "capabilities:\n  echo:\n    prefix: 'custom '\n")
             spec = parse_app_config(path, capability_catalog=catalog)
-            (configured,) = spec.configured_capabilities
+            (configured,) = spec.capabilities
             self.assertIsInstance(configured.settings, EchoSettings)
             self.assertEqual(configured.name, "echo")
             self.assertEqual(configured.settings.location, root / "resource")
@@ -90,25 +91,20 @@ class CapabilityConfigTests(unittest.TestCase):
                     )
         self.assertEqual(trace, [])
 
-    def test_bash_new_and_legacy_forms_share_settings_and_reject_duplicate_selection(
-        self,
-    ) -> None:
+    def test_bash_is_selected_only_through_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            legacy = parse_app_config(
-                write_config(root, "bash:\n  provider: docker\n  image: local/test\n")
-            )
-            canonical = parse_app_config(
+            spec = parse_app_config(
                 write_config(
                     root,
                     "capabilities:\n  bash:\n    provider: docker\n    image: local/test\n",
                 )
             )
-            self.assertEqual(
-                legacy.configured_capabilities, canonical.configured_capabilities
-            )
-            self.assertEqual(legacy.bash.workspace_root, root)
-            with self.assertRaises(ConfigurationError):
+            (configured,) = spec.capabilities
+            self.assertEqual(configured.name, "bash")
+            self.assertIsInstance(configured.settings, DockerBashSettings)
+            self.assertEqual(configured.settings.workspace_root, root.resolve())
+            with self.assertRaisesRegex(ConfigurationError, "capabilities.bash"):
                 parse_app_config(
                     write_config(
                         root,

@@ -4,6 +4,7 @@ import asyncio
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     FakeProvider,
     Finish,
     InMemoryEventSink,
@@ -16,7 +17,7 @@ async def main() -> None:
     provider = FakeProvider([[TextDelta("这是第三条回答。"), Finish()]])
     events = InMemoryEventSink()
     agent = Agent(
-        provider,
+        AgentComponents(provider),
         initial_messages=(
             Message(role="user", content="第一条问题"),
             Message(role="assistant", content="第一条回答"),

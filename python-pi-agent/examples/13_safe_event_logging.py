@@ -6,6 +6,7 @@ import asyncio
 
 from pi_agent_py import (
     Agent,
+    AgentComponents,
     AgentEvent,
     BufferedEventSink,
     CallbackEventSink,
@@ -29,7 +30,7 @@ async def main() -> None:
     )
     logging_sink = RedactingEventSink(buffered)
     agent = Agent(
-        FakeProvider([[TextDelta("private answer"), Finish()]]),
+        AgentComponents(FakeProvider([[TextDelta("private answer"), Finish()]])),
         event_sink=logging_sink,
     )
 

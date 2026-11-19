@@ -83,7 +83,7 @@ AgentSession.close()
 async with AgentSession(
     "demo",
     store,
-    provider,
+    AgentComponents(provider),
     plugin_host=host,
 ) as session:
     await session.run("hello")
