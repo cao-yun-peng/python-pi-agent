@@ -42,6 +42,6 @@ metadata 包含 path、offset、returned_lines、total_lines、total_bytes、ver
 
 默认命令：`python -m unittest discover -s tests -p test_workspace_read.py -v`。内存/脚本化沙箱测试跨平台离线；POSIX 的真实 helper 测试在 Windows 明确跳过。设置 PI_AGENT_DOCKER_IMAGE 为本地 Python 镜像后，同一测试文件会额外验证真实只读挂载、symlink、FIFO、目录与分页，无网络或真实模型。
 
-read_only_profile 仅放行注册的 read；coding_profile 放行显式注册的 bash/read，仍不自动创建工具或读取配置。下一阶段通过 WorkspaceFiles 的明确写入契约扩展 write/edit，再接 YAML capability；当前没有写入、二进制/图片读取、宿主直接文件后端或自动热重载。
+read_only_profile 放行注册的 read/ls/find/grep；coding_profile 放行显式注册的 Bash 与六个文件工具，仍不自动创建工具或读取配置。write/edit 与有界查询已通过可选 WorkspaceMutations/WorkspaceQueries 契约扩展，见第 40 章；原 WorkspaceFiles 只读接口不变。YAML 文件能力配置、二进制/图片读取、宿主直接文件后端与自动热重载留待后续。
 
 Pi 固定 commit 与 ReadOperations/createReadToolDefinition/truncateHead 映射见 upstream-mapping。本实现选择严格 workspace 边界、双预算和明确续页，主动省略 Pi 的绝对路径、图片缩放、平台文件名模糊修复及 TUI renderer。

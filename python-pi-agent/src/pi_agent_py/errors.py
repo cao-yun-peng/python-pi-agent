@@ -115,10 +115,11 @@ class WorkspaceFileError(AgentError):
             "not_found", "not_file", "symlink_denied", "permission_denied",
             "too_large", "not_utf8", "line_too_long", "invalid_offset",
             "changed", "unavailable", "protocol_error",
+            "conflict", "no_match", "ambiguous_match", "outcome_unknown", "scan_limit",
         }:
             raise ValueError("unknown workspace file error code")
         self.code = code
-        super().__init__(f"Workspace read failed ({code}).")
+        super().__init__(f"Workspace operation failed ({code}).")
 
 
 class ToolValidationError(AgentError):

@@ -7,7 +7,7 @@ import os
 import re
 from collections.abc import Awaitable, Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypedDict
 from uuid import uuid4
 
 from ..domain import SandboxProcessRequest, SandboxProcessResult
@@ -21,7 +21,14 @@ class _AsyncReader(Protocol):
     async def read(self, count: int = -1, /) -> bytes: ...
 
 
+class _InputOption(TypedDict, total=False):
+    stdin: int
+
+
 class _RunningProcess(Protocol):
+    @property
+    def stdin(self) -> asyncio.StreamWriter | None: ...
+
     @property
     def returncode(self) -> int | None: ...
 
@@ -41,7 +48,10 @@ class _RunningProcess(Protocol):
 class _ProcessLauncher(Protocol):
     def __call__(
         self,
+        program: str,
+        /,
         *args: str,
+        stdin: int | None = None,
         stdout: int | None = None,
         stderr: int | None = None,
         env: Mapping[str, str] | None = None,
@@ -115,14 +125,16 @@ class DockerProcessSandbox:
         self._process_limit = process_limit
         self._tmpfs_size = tmpfs_size
         self._max_output_bytes = max_output_bytes
-        self._launcher = launcher or asyncio.create_subprocess_exec
+        self._launcher: _ProcessLauncher = launcher or asyncio.create_subprocess_exec
 
     async def run(self, request: SandboxProcessRequest) -> SandboxProcessResult:
         container_name = f"pi-agent-{uuid4().hex}"
         arguments = self.build_command(request, container_name=container_name)
+        input_option: _InputOption = {"stdin": asyncio.subprocess.PIPE} if request.stdin is not None else {}
         try:
             process = await self._launcher(
                 *arguments,
+                **input_option,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={**os.environ, **self._environment},
@@ -138,6 +150,7 @@ class DockerProcessSandbox:
                     await _capture_output(
                         process,
                         self._max_output_bytes,
+                        request.stdin,
                     )
                 )
             else:
@@ -146,6 +159,7 @@ class DockerProcessSandbox:
                         await _capture_output(
                             process,
                             self._max_output_bytes,
+                            request.stdin,
                         )
                     )
         except TimeoutError as error:
@@ -156,6 +170,9 @@ class DockerProcessSandbox:
         except asyncio.CancelledError:
             await self._stop_container(container_name, process)
             raise
+        except Exception as error:
+            await self._stop_container(container_name, process)
+            raise SandboxUnavailableError("sandbox I/O failed") from error
 
         returncode = process.returncode
         if returncode is None:
@@ -219,6 +236,8 @@ class DockerProcessSandbox:
         ]
         for name in sorted(self._environment):
             arguments.extend(("--env", name))
+        if request.stdin is not None:
+            arguments.append("--interactive")
         arguments.append(self._image)
         arguments.extend(request.argv)
         return tuple(arguments)
@@ -250,6 +269,7 @@ class DockerProcessSandbox:
 async def _capture_output(
     process: _RunningProcess,
     limit: int,
+    stdin_data: bytes | None = None,
 ) -> tuple[bytes, bytes, bool, bool]:
     if process.stdout is None or process.stderr is None:
         raise SandboxUnavailableError("sandbox process pipes are unavailable")
@@ -267,6 +287,20 @@ async def _capture_output(
         asyncio.create_task(pump("stdout", process.stdout)),
         asyncio.create_task(pump("stderr", process.stderr)),
     )
+    async def feed() -> None:
+        if process.stdin is None:
+            raise SandboxUnavailableError("sandbox input pipe is unavailable")
+        try:
+            assert stdin_data is not None
+            for offset in range(0, len(stdin_data), 65_536):
+                process.stdin.write(stdin_data[offset:offset + 65_536])
+                await process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            # Early helper rejection is represented by its collected response.
+            pass
+        finally:
+            process.stdin.close()
+    feeder = asyncio.create_task(feed()) if stdin_data is not None else None
     outputs = {"stdout": bytearray(), "stderr": bytearray()}
     truncated = {"stdout": False, "stderr": False}
     completed = 0
@@ -281,11 +315,14 @@ async def _capture_output(
             if len(output) > limit:
                 del output[: len(output) - limit]
                 truncated[label] = True
+        if feeder is not None:
+            await feeder
     finally:
-        for task in pumps:
+        tasks = (*pumps, feeder) if feeder is not None else pumps
+        for task in tasks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*pumps, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
     return (
         bytes(outputs["stdout"]),
         bytes(outputs["stderr"]),

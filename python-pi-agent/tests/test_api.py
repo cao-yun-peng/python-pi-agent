@@ -41,6 +41,9 @@ _STABLE_EXPORTS = frozenset(
     DecoratedTool ToolError tool
     WorkspaceReadLimits WorkspaceReadRequest WorkspaceReadResult WorkspaceFiles
     WorkspaceFileError ReadTool SandboxedWorkspaceFiles read_only_profile
+    WorkspaceWriteRequest WorkspaceEditRequest WorkspaceMutationResult WorkspaceMutations
+    WorkspaceQueryRequest WorkspaceQueryLimits WorkspaceQueryResult WorkspaceQueries
+    WorkspaceEntry WorkspaceMatch WriteTool EditTool LsTool FindTool GrepTool
     Agent agent_event_record AGENT_EVENT_SCHEMA_VERSION AgentComponents AgentError
     AgentEvent AgentEventEnvelope AgentLoopLimitError AgentProfile AgentResult
     AgentRuntime AgentRuntimeBuilder AgentRuntimeError AgentSession ApprovalDecision

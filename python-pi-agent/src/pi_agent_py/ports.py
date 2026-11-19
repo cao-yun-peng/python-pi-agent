@@ -44,6 +44,8 @@ from .domain import (
     ToolResultContext,
     WorkspaceReadRequest,
     WorkspaceReadResult,
+    WorkspaceWriteRequest, WorkspaceEditRequest, WorkspaceMutationResult,
+    WorkspaceQueryRequest, WorkspaceQueryResult,
 )
 
 
@@ -301,6 +303,20 @@ class WorkspaceFiles(Protocol):
     async def read_text(self, request: WorkspaceReadRequest) -> WorkspaceReadResult:
         """Read one bounded UTF-8 page, without following symbolic links."""
         ...
+
+
+class WorkspaceMutations(Protocol):
+    """Serialized file mutations; ambiguous side-effect outcomes must not be retried."""
+
+    async def write_text(self, request: WorkspaceWriteRequest) -> WorkspaceMutationResult: ...
+
+    async def edit_text(self, request: WorkspaceEditRequest) -> WorkspaceMutationResult: ...
+
+
+class WorkspaceQueries(Protocol):
+    """Bounded directory, glob-name and literal-text queries without following links."""
+
+    async def query(self, request: WorkspaceQueryRequest) -> WorkspaceQueryResult: ...
 
 
 class ShellExecutor(Protocol):

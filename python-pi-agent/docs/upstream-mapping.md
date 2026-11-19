@@ -88,3 +88,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## WorkspaceFiles/read 映射
 
 对照固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/tools/read.ts::ReadOperations/createReadToolDefinition` 与 `truncate.ts::truncateHead`：借鉴模型工具与底层操作分离、offset/limit、行数与字节双预算及续读提示。本项目在 tools/workspace/ 集中文件能力，通过 WorkspaceFiles 和只读 ProcessSandbox 执行，拒绝绝对路径、全部符号链接及非普通文件；不移植图片缩放、平台文件名模糊匹配或 TUI。DeepSeek Harness 对应 Definition/Provider/Consumer/Lifecycle/Evidence 能力接缝，当前不拆分发布包。见 ADR 0041、示例 42、第 39 章与 test_workspace_read。
+
+
+## Workspace 修改/查询映射
+
+固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb`：`packages/coding-agent/src/core/tools/write.ts::WriteOperations/createWriteToolDefinition`、`edit.ts::EditOperations/createEditToolDefinition` 对应工具与底层操作分离；`file-mutation-queue.ts::withFileMutationQueue` 对应共享修改队列与取消后等待。采用实例锁代替进程全局 Map；增加版本检查、临时原子发布与 unknown/清理语义，edit 首版只做单一精确替换，不移植模型参数兼容 shim 或 fuzzy matching。`ls.ts::createLsToolDefinition`、`find.ts::createFindToolDefinition`、`grep.ts::createGrepToolDefinition` 对应目录、glob 与文本查询；当前用标准库有界实现，不自动下载 fd/rg，不含 regex/.gitignore/TUI。DeepSeek Harness 映射仍为能力五要素，不拆包。证据：ADR 0042、第 40 章、示例 43、test_workspace_tools/test_sandbox。

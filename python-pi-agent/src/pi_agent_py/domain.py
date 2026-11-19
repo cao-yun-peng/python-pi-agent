@@ -203,6 +203,113 @@ class WorkspaceReadResult:
     next_offset: int | None = None
 
 
+def _workspace_version(value: str | None) -> None:
+    if value is not None and (
+        not isinstance(value, str) or not value.startswith("sha256:")
+        or len(value) != 71 or any(c not in "0123456789abcdef" for c in value[7:])
+    ):
+        raise ValueError("expected_version must be a SHA-256 content version")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceWriteRequest:
+    path: str
+    content: str
+    expected_version: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "path", WorkspaceReadRequest(self.path).path)
+        _workspace_version(self.expected_version)
+        if not isinstance(self.content, str) or "\x00" in self.content:
+            raise ValueError("content must be UTF-8 text without NUL")
+        self.content.encode("utf-8")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceEditRequest:
+    path: str
+    old_text: str
+    new_text: str
+    expected_version: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "path", WorkspaceReadRequest(self.path).path)
+        _workspace_version(self.expected_version)
+        for value in (self.old_text, self.new_text):
+            if not isinstance(value, str) or "\x00" in value:
+                raise ValueError("edit text must be UTF-8 without NUL")
+            value.encode("utf-8")
+        if not self.old_text:
+            raise ValueError("old_text must be nonempty")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceMutationResult:
+    path: str
+    version: str
+    bytes_written: int
+    created: bool
+    diff: str
+    diff_truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceQueryRequest:
+    operation: Literal["ls", "find", "grep"]
+    path: str = "."
+    pattern: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.operation not in ("ls", "find", "grep"):
+            raise ValueError("unknown workspace query")
+        if self.path != ".":
+            object.__setattr__(self, "path", WorkspaceReadRequest(self.path).path)
+        if self.operation != "ls" and (
+            not isinstance(self.pattern, str) or not self.pattern
+            or len(self.pattern.encode("utf-8")) > 1024 or "\x00" in self.pattern
+        ):
+            raise ValueError("query pattern must be nonempty bounded UTF-8")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceQueryLimits:
+    max_entries: int = 200
+    max_scan_entries: int = 10_000
+    max_scan_bytes: int = 8_388_608
+    max_output_bytes: int = 51_200
+    max_match_chars: int = 500
+    max_depth: int = 32
+
+    def __post_init__(self) -> None:
+        for value in (self.max_entries, self.max_scan_entries, self.max_scan_bytes,
+                      self.max_output_bytes, self.max_match_chars, self.max_depth):
+            if type(value) is not int or value <= 0:
+                raise ValueError("query budgets must be positive integers")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceEntry:
+    path: str
+    kind: Literal["file", "directory", "symlink"]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceMatch:
+    path: str
+    line: int
+    text: str
+    truncated: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceQueryResult:
+    entries: tuple[WorkspaceEntry, ...] = ()
+    matches: tuple[WorkspaceMatch, ...] = ()
+    truncated: bool = False
+    scanned_entries: int = 0
+    skipped_files: int = 0
+
+
 @dataclass(frozen=True, slots=True)
 class ToolOutput:
     """A finalized tool result with separate model and programmatic content."""
@@ -359,10 +466,13 @@ class SandboxProcessRequest:
     workdir: str = "/workspace"
     mode: WorkspaceAccessMode = "workspace-write"
     timeout_seconds: float | None = None
+    stdin: bytes | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.argv, tuple):
             raise TypeError("sandbox argv must be a tuple")
+        if self.stdin is not None and not isinstance(self.stdin, bytes):
+            raise TypeError("sandbox stdin must be bytes or None")
         if (
             not self.argv
             or not isinstance(self.argv[0], str)

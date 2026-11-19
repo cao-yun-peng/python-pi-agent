@@ -248,8 +248,21 @@ from .errors import WorkspaceFileError
 from .tools.workspace.read import ReadTool
 from .tools.workspace.sandbox_backend import SandboxedWorkspaceFiles
 from .application.profiles import read_only_profile
+from .domain import (
+    WorkspaceWriteRequest, WorkspaceEditRequest, WorkspaceMutationResult,
+    WorkspaceQueryRequest, WorkspaceQueryLimits, WorkspaceQueryResult, WorkspaceEntry, WorkspaceMatch,
+)
+from .ports import WorkspaceMutations, WorkspaceQueries
+from .tools.workspace.write import WriteTool
+from .tools.workspace.edit import EditTool
+from .tools.workspace.ls import LsTool
+from .tools.workspace.find import FindTool
+from .tools.workspace.grep import GrepTool
 
 __all__ = [
+    "WorkspaceWriteRequest", "WorkspaceEditRequest", "WorkspaceMutationResult", "WorkspaceMutations",
+    "WorkspaceQueryRequest", "WorkspaceQueryLimits", "WorkspaceQueryResult", "WorkspaceQueries",
+    "WorkspaceEntry", "WorkspaceMatch", "WriteTool", "EditTool", "LsTool", "FindTool", "GrepTool",
     "WorkspaceReadLimits", "WorkspaceReadRequest", "WorkspaceReadResult", "WorkspaceFiles",
     "WorkspaceFileError", "ReadTool", "SandboxedWorkspaceFiles", "read_only_profile",
     "AllowedMcpConnections",

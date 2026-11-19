@@ -109,23 +109,23 @@ def minimal_profile() -> AgentProfile:
 
 
 def coding_profile() -> AgentProfile:
-    """Return policy defaults for explicitly assembled Bash and workspace read tools."""
+    """Return policy defaults for explicitly assembled coding tools."""
     return AgentProfile(
         name="coding",
         approval_policy_factory=DenyByDefaultApprovalPolicy,
         execution_gate_factory=lambda: DeclaredSideEffectGate(
             allowed_side_effects=("none", "read", "write", "external"),
-            allowed_tools=("bash", "read"),
+            allowed_tools=("bash", "read", "write", "edit", "ls", "find", "grep"),
         ),
     )
 
 
 def read_only_profile() -> AgentProfile:
-    """Allow only the explicitly assembled workspace read tool; no backend is created."""
+    """Allow explicitly assembled read/query tools; no backend is created."""
     return AgentProfile(
         name="read-only",
         approval_policy_factory=DenyByDefaultApprovalPolicy,
         execution_gate_factory=lambda: DeclaredSideEffectGate(
-            allowed_side_effects=("read",), allowed_tools=("read",),
+            allowed_side_effects=("read",), allowed_tools=("read", "ls", "find", "grep"),
         ),
     )

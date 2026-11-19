@@ -23,6 +23,8 @@ Bash 已隔离到 workspace，新增文件工具需要共享路径/权限与预�
 
 稳定 API 增加文件端口、DTO、错误、ReadTool、沙箱适配器和 read_only_profile；Fake 从 testing 导入。没有新增依赖、全局注册、YAML 分支或后台任务。大文件、图片、write/edit、完整版本快照和 spill 后续独立设计。只读挂载不阻止其他进程修改同一 workspace；检测到变化时失败，版本不替代并发控制。
 
+后续状态：ADR 0042 已实现可选修改/查询契约和五个工具，并扩充 profile allowlist；本 ADR 的 read 接口和默认只读 backend 保持兼容。
+
 ## 验证
 
 test_workspace_read 覆盖路径、编码、BOM/CRLF、EOF、行/字节预算、超长行、版本、Gate/审批、缺失文件、raw 响应错误、full enforcement、超时及取消；FakeProvider 证明错误回填与模型续轮。POSIX helper 与显式 Docker 集成验证真实链接/FIFO/目录/只读挂载。示例 42、教程 39 和知识地图跟踪交付。

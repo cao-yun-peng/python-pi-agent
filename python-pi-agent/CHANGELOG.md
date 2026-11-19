@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- 新增 workspace write/edit/ls/find/grep、类型化修改/查询契约及两种 backend；修改默认要求审批与显式 allow_write，新建排他发布、覆盖检查版本、精确编辑保留 BOM/未修改换行，未知结果不重试并清理自有临时文件。查询有界且不跟随链接，grep 首版为字面量、未接入 .gitignore。
+- ProcessSandbox 新增隐藏 repr 的 bytes stdin，Docker 同时发送输入并捕获有界输出，解决大内容的命令行长度/诊断暴露问题。coding/read-only profiles 仅放行显式注册的相应工具，主循环不变。见 ADR 0042、教程 40、示例 43。
+
 - workspace 文件工具归入 tools/workspace/：ReadTool 位于 read.py，SandboxedWorkspaceFiles 与文本投影位于 sandbox_backend.py。稳定 API 导入不变，Shell 与通用进程沙箱保持原路径。
 
 - 新增 WorkspaceFiles、类型化读取 DTO/预算、ReadTool 和 SandboxedWorkspaceFiles；固定 Python helper 在只读 workspace 中拒绝符号链接/非普通文件，限制原始读取并返回有界 UTF-8 页面、版本与续页位置。InMemoryWorkspaceFiles 为离线测试替身；read_only_profile 仅放行 read，coding_profile 扩充为 bash/read。示例 42、教程 39、ADR 0041 与显式 Docker 集成覆盖完整链路。

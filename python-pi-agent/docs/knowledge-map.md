@@ -57,4 +57,12 @@
 
 | 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|
-| WorkspaceFiles 与 read | 路径边界、no-follow、有限读取、UTF-8 完整行分页、版本和借用生命周期 | 领域 DTO + WorkspaceFiles + tools/workspace/ 下的 ReadTool/沙箱后端；内存替身共用投影 | test_workspace_read：字节/行预算、EOF、编码、Gate/审批、取消、POSIX/Docker 集成 | 第 39 章 / 示例 42 / ADR 0041 | 能替换 backend，解释只读挂载与路径检查、页截断与完整文件版本；write/edit 待后续 |
+| WorkspaceFiles 与 read | 路径边界、no-follow、有限读取、UTF-8 完整行分页、版本和借用生命周期 | 领域 DTO + WorkspaceFiles + tools/workspace/ 下的 ReadTool/沙箱后端；内存替身共用投影 | test_workspace_read：字节/行预算、EOF、编码、Gate/审批、取消、POSIX/Docker 集成 | 第 39 章 / 示例 42 / ADR 0041 | 能替换 backend，解释只读挂载与路径检查、页截断与完整文件版本；write/edit 与查询见第 40 章 |
+
+
+## Workspace 修改与查询补充
+
+| 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
+|---|---|---|---|---|---|
+| write/edit | 版本冲突、精确唯一匹配、原子发布与未知结果 | DTO + 可选 WorkspaceMutations + 工具/双 backend；stdin、实例锁、受控临时清理 | test_workspace_tools/test_sandbox，显式 Docker 故障注入 | 第 40 章 / 示例 43 / ADR 0042 | 能区分取消、提交成功但结果丢失、重放与重试；不把实例锁当作跨进程事务 |
+| ls/find/grep | 可替换读取、glob、字面量匹配、有限扫描与结果 | WorkspaceQueries + QueryLimits + 专用工具，共用规则 | 结果/扫描/深度/字节/行长、链接与文件类型 | 第 40 章 / 示例 43 / ADR 0042 | 能解释 incomplete/skipped，不把有限结果当作全量扫描；regex/.gitignore 待后续 |

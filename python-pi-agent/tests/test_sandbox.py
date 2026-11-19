@@ -90,11 +90,12 @@ class QueueLauncher:
     def __call__(
         self,
         *args: str,
+        stdin: int | None = None,
         stdout: int | None = None,
         stderr: int | None = None,
         env: dict[str, str] | None = None,
     ) -> Awaitable[FakeProcess]:
-        del stdout, stderr
+        del stdout, stderr, stdin
         self.calls.append(args)
         self.environments.append(env)
         if not self._processes:
@@ -117,6 +118,56 @@ class RecordingSandbox:
 
 
 class DockerProcessSandboxTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancellation_closes_blocked_stdin_and_stops_process(self) -> None:
+        class Writer:
+            def __init__(self):
+                self.entered = asyncio.Event()
+                self.closed = False
+            def write(self, data):
+                pass
+            async def drain(self):
+                self.entered.set()
+                await asyncio.Event().wait()
+            def close(self):
+                self.closed = True
+        process = FakeProcess(returncode=None, block=True)
+        process.stdin = Writer()
+        launcher = QueueLauncher(process, FakeProcess())
+        sandbox = DockerProcessSandbox(self.workspace, image="local/test", launcher=launcher)
+        task = asyncio.create_task(sandbox.run(SandboxProcessRequest(("reader",), stdin=b"data")))
+        await process.stdin.entered.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(process.stdin.closed)
+        self.assertTrue(process.killed)
+        self.assertIn("rm", launcher.calls[1])
+
+    async def test_stdin_is_streamed_and_never_embedded_in_command_or_repr(self) -> None:
+        class Writer:
+            def __init__(self):
+                self.data = bytearray()
+                self.closed = False
+            def write(self, data):
+                self.data.extend(data)
+            async def drain(self):
+                await asyncio.sleep(0)
+            def close(self):
+                self.closed = True
+        process = FakeProcess(stdout=b"accepted")
+        process.stdin = Writer()
+        launcher = QueueLauncher(process)
+        sandbox = DockerProcessSandbox(self.workspace, image="local/test", launcher=launcher)
+        data = b"private-payload" * 20000
+        request = SandboxProcessRequest(("python3", "-c", "pass"), stdin=data)
+        result = await sandbox.run(request)
+        self.assertEqual(bytes(process.stdin.data), data)
+        self.assertTrue(process.stdin.closed)
+        self.assertEqual(result.stdout, "accepted")
+        self.assertIn("--interactive", launcher.calls[0])
+        self.assertNotIn("private-payload", repr(request))
+        self.assertNotIn("private-payload", " ".join(launcher.calls[0]))
+
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary_directory.cleanup)

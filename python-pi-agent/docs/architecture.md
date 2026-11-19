@@ -44,7 +44,7 @@ domain.py <- ports.py <- runtime/ <- application/ <- apps
 - `runtime/compaction_orchestration.py` 执行手动和自动压缩，通过同一 Session writer 提交摘要。自动压缩接入 run 准备和工具续轮前的 Hook。
 - `pi_agent_py.runtime` 提供 `Agent` 与 `AgentSession` 的兼容导入。run 订阅在入队前绑定，应用层通过 SessionSpec 选择每个 controller 的组件。
 - `application/runtime.py` 提供长生命周期 `AgentRuntime` facade、引用计数 `RuntimeSession` lease，以及有界且可惰性驱逐的 Session controller 池。
-- `application/profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 提供默认拒绝审批与 bash/read allowlist Gate，不创建 Docker 或文件 backend。
+- `application/profiles.py` 保存代码拥有的产品默认值和零参数 factory，不持有密钥、HTTP client 或其他活 I/O；`coding_profile()` 提供默认拒绝审批与显式内置工具 allowlist Gate，不创建 Docker 或文件 backend。
 - `AgentProfile.build_components(provider)` 解析出冻结的默认 `AgentComponents`。Builder 应用显式覆盖，并组合 Provider、部署配置和插件能力。SessionSpecResolver 选择组件后交给 Session 与 Agent 消费。Store、EventSink、PluginHost 及资源所有权由应用组装层独立管理。
 - `runtime/session_spec.py` 定义冻结的 SessionSpec 和默认静态 resolver，`domain.SessionOpenRequest` 表达调用方 hints。Runtime 每次打开均在池锁外调用 resolver，再在锁内比较已有规格。能力实例、prompt、上限和 metadata 固定至 controller 实际退出池。Builder 支持显式 resolver 或从完整默认组件创建的 owned factory。
 - `CompactionComponents` 始终携带摘要策略，可选自动触发策略。Session 通过模块内接线连接 durable 提交、steer 和 per-session Provider Hook。`Agent`、`AgentSession`、`AgentRuntime` 只接收 `AgentComponents`，旧的分散构造参数与接线关键字已移除（ADR 0028 第 5 节）；公开 `Agent` 拒绝同时提供 `initial_messages` 与 system prompt。
@@ -102,7 +102,7 @@ runtime 只通过 `ToolExecutionGate.execute()` 调度工具，不再直接调�
 
 Shell 语义与进程隔离是两个 capability。`BashTool` 消费 `ShellExecutor`，调用方先把可选 request 解析成默认值和上限完整的 spec，Executor 才能执行。正式 `SandboxedBashExecutor` 把模型工作目录作为 workspace 相对 POSIX 路径解析，拒绝绝对路径、`..` 和 Windows 反斜杠，再固定生成 `("/bin/bash", "-lc", command)`；`ProcessSandbox` 本身只接收精确 argv，不再偷偷决定 Shell。兼容期 `SandboxedShellTool` 仍直接消费该端口，并显式生成 `/bin/sh -lc`。`DockerProcessSandbox` 把规范化 workspace 作为唯一宿主挂载，容器根只读、默认网络关闭、不向容器转发未显式声明的宿主环境变量，并施加 capability、CPU、内存、进程数、tmpfs 和每流输出捕获限制。stdout/stderr 超限时分别保留有界尾部并报告截断，不因日志量改变命令控制流。Docker 或镜像不可用时 fail closed，不回退到宿主 Shell；timeout/取消由 Provider 强制删除容器并终止客户端。当前只支持 `read-only` 与 `workspace-write`，不把 `danger-full-access` 伪装成沙箱模式。
 
-应用配置与产品策略不合并。可选 `agent.yaml::capabilities.bash` 使用 `DockerBashSettings` 声明 workspace、镜像、超时、输出预算和网络；相对 workspace 以配置文件目录为基准。`AgentRuntimeBuilder.from_loaded_config()` 在构建事务中创建 Sandbox/Executor/Tool，缺省配置不注册 Bash。`coding_profile()` 允许显式注册的 bash/read 进入 Gate，并继续使用默认拒绝审批；网络开启时工具声明 `external`，不能伪装为普通文件写入。
+应用配置与产品策略不合并。可选 `agent.yaml::capabilities.bash` 使用 `DockerBashSettings` 声明 workspace、镜像、超时、输出预算和网络；相对 workspace 以配置文件目录为基准。`AgentRuntimeBuilder.from_loaded_config()` 在构建事务中创建 Sandbox/Executor/Tool，缺省配置不注册 Bash。`coding_profile()` 允许显式注册的 bash/read/write/edit/ls/find/grep 进入 Gate，并继续使用默认拒绝审批；网络开启时工具声明 `external`，不能伪装为普通文件写入。
 
 逐消息提交允许取消或进程退出发生在一个工具批次中间。`AgentSession` 每次继续运行或手动压缩前都会校验工具调用/结果序列：若会话尾部存在未决调用，就为每个缺失结果追加一个 `is_error=True` 的恢复 tool message，明确记录“外部副作用结果未知，不得自动重试”，然后才允许追加新的用户消息。已经完成的 tool result 不会重复生成。若未决调用之后已经存在其他 user/assistant 消息，append-only 日志无法在原位置安全修补，session 会以 `SessionValidationError` 拒绝继续，而不是把错误结果追加到错误位置。恢复消息本身是普通 `message_committed` durable fact，因此内存、JSONL、fork 和 replay 使用同一语义；`tool_call_recovered` capability event 提供恢复证据。
 
@@ -214,3 +214,8 @@ ToolDefinition.input_schema 保存有限 JSON 的隔离 Mapping，嵌套读取�
 ## WorkspaceFiles 与 read
 
 WorkspaceReadRequest/WorkspaceReadLimits/WorkspaceReadResult 是纯领域契约；ports.WorkspaceFiles 先提供 read_text。ReadTool 只依赖端口，testing.InMemoryWorkspaceFiles 与 tools.workspace.sandbox_backend.SandboxedWorkspaceFiles 复用有界 UTF-8 页投影，后者借用 ProcessSandbox 执行固定 argv、只读 /workspace、逐组件 no-follow 和有限读取。路径/页/文件预算及安全错误在能力边界落实，完整原字节版本和 next_offset 进入 tool result。借用服务无后台资源，插件注册由 Host 释放；无新 loop 分支或 YAML 自动注册。见 ADR 0041、第 39 章与示例 42。
+
+
+## Workspace 修改与查询
+
+WorkspaceFiles 保留 read_text；WorkspaceMutations/WorkspaceQueries 是可选端口，原只读适配器不被强制扩展。WriteTool/EditTool/LsTool/FindTool/GrepTool 与后端集中在 tools/workspace/；内存服务和固定 Linux helper 共用纯匹配/查询规则。修改需 allow_write 和审批，实例锁持有至执行/故障清理结束，同目录临时文件排他发布或原子替换；expected_version 不等于跨进程 CAS。ProcessSandbox 仅增加隐藏 repr 的 bytes stdin，Docker 并发发送与捕获，不改 loop/Store/Provider。查询默认有界 glob/字面量，截断与跳过数量进入 durable result。见 ADR 0042、教程 40、示例 43。

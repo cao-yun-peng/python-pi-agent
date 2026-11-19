@@ -195,4 +195,9 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 
 ## Workspace/read 纵向切片
 
-阅读第 39 章，查看 tools/workspace/ 下的 read.py 与 sandbox_backend.py，运行示例 42：先以内存目录观察分页、版本、缺失文件和模型续轮，再用显式本地 Python Docker 镜像读取真实 workspace。解释路径规范化与 Linux no-follow 打开的职责、原始文件预算与输出页预算的区别，并通过 test_workspace_read 证明 Gate/审批零访问、取消和符号链接/FIFO 拒绝。read_only_profile 仅放行注册的 read；下一阶段从同一文件端口扩展 write 的提交与版本冲突契约。
+阅读第 39 章，查看 tools/workspace/ 下的 read.py 与 sandbox_backend.py，运行示例 42：先以内存目录观察分页、版本、缺失文件和模型续轮，再用显式本地 Python Docker 镜像读取真实 workspace。解释路径规范化与 Linux no-follow 打开的职责、原始文件预算与输出页预算的区别，并通过 test_workspace_read 证明 Gate/审批零访问、取消和符号链接/FIFO 拒绝。read_only_profile 放行注册的只读文件工具；接着学习第 40 章的修改与查询契约。
+
+
+## Workspace 修改/查询练习
+
+运行示例 43，观察 ls/find/grep → 创建 → 精确编辑 → 旧版本拒绝 → 读取。解释 allow_write、审批与 Gate 的独立职责，证明结果未知不会重做写入；用 test_workspace_tools 和 test_sandbox 验证 stdin、版本、取消队列、临时清理及查询预算。下一阶段再考虑 YAML 文件能力配置、regex/.gitignore 与跨实例一致性。

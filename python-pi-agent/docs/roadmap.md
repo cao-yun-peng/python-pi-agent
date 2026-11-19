@@ -149,4 +149,9 @@ MCP 方案阶段 0 已完成，随 `feat: add generic tool adapter seams` 提交
 
 ## Workspace/read 阶段 1 已完成
 
-WorkspaceFiles、请求/预算/结果、ReadTool、内存测试替身和只读 ProcessSandbox Provider 已贯通，含分页/版本、路径/no-follow、原始读取与输出预算、审批/Gate、失败与取消。read_only_profile 只放行显式 read，coding_profile 支持 bash/read；无自动 YAML 注册。真实 Docker 验证使用已存在的本地 Linux Python 镜像。下一阶段实现 write 的类型化提交、版本冲突与取消结果语义，再接 edit；read/search/patch 共用文件边界仍按增量推进。见 ADR 0041、第 39 章、示例 42。
+WorkspaceFiles、请求/预算/结果、ReadTool、内存测试替身和只读 ProcessSandbox Provider 已贯通，含分页/版本、路径/no-follow、原始读取与输出预算、审批/Gate、失败与取消。read_only_profile 只放行显式 read，coding_profile 支持 bash/read；无自动 YAML 注册。真实 Docker 验证使用已存在的本地 Linux Python 镜像。write/edit 与 ls/find/grep 已沿相同边界完成，见 ADR 0042；后续推进 YAML、regex/.gitignore 等独立增强。见 ADR 0041、第 39 章、示例 42。
+
+
+## Workspace 修改与查询已完成
+
+write/edit 的提交、版本冲突、唯一匹配、BOM/未修改换行、实例队列与取消/unknown 清理已贯通；ls/find/grep 具有条数、扫描项/字节/深度和行长预算。ProcessSandbox 增加 stdin，核心循环不改。新工具默认代码显式组装，修改需 allow_write、审批和 Gate；真实 Docker 验证大输入、链接与丢失结果清理。示例 43、教程 40、ADR 0042。下一步不默认引入全量 regex、目录热重载或跨进程事务。
