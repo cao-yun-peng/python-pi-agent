@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import inspect
 import json
+import operator
 import re
 import types
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
+from functools import reduce
 from typing import Annotated, Any, Literal, Union, cast, get_args, get_origin, get_type_hints, overload
 
 from ..domain import JSONObject, JSONValue, ToolDefinition, ToolExecutionContext, ToolOutput, ToolSideEffects
@@ -102,7 +104,7 @@ def tool(
         signature = inspect.signature(function)
         # Keep the recursive JSONObject alias opaque to schema derivation.
         raw_annotations = {
-            key: dict[str, object] if value == JSONObject else value
+            key: _opaque_json_objects(value)
             for key, value in function.__annotations__.items()
         }
         holder = types.SimpleNamespace(__annotations__=raw_annotations)
@@ -153,6 +155,20 @@ def tool(
         )
         return DecoratedTool(function, definition, annotations, context_parameter)
     return decorate if fn is None else decorate(fn)
+
+
+def _opaque_json_objects(annotation: object) -> object:
+    """Normalize aliases before get_type_hints expands their recursive members."""
+    if annotation == JSONObject:
+        return dict[str, object]
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is Annotated:
+        return operator.getitem(Annotated, (_opaque_json_objects(args[0]), *args[1:]))
+    if origin is list and args:
+        return types.GenericAlias(list, (_opaque_json_objects(args[0]),))
+    if origin in (Union, types.UnionType):
+        return reduce(operator.or_, (_opaque_json_objects(arg) for arg in args))
+    return annotation
 
 
 def _schema(annotation: object) -> JSONObject:

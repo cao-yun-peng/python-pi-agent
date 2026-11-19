@@ -20,6 +20,18 @@ def context_for(adapted: DecoratedTool) -> ToolExecutionContext:
 
 
 class DecoratorTests(unittest.IsolatedAsyncioTestCase):
+    def test_nested_jsonobject_alias_without_deferred_annotations(self) -> None:
+        for annotation, expected in (
+            (Optional[JSONObject], {"type": ["object", "null"]}),
+            (list[JSONObject], {"type": "array", "items": {"type": "object"}}),
+            (Annotated[JSONObject, "JSON data"], {"type": "object", "description": "JSON data"}),
+        ):
+            async def example(value):
+                """Accept nested JSON object aliases."""
+            example.__annotations__ = {"value": annotation}
+            with self.subTest(annotation=annotation):
+                self.assertEqual(tool(example).definition.input_schema["properties"]["value"], expected)
+
     def test_schema_mapping_table(self) -> None:
         cases = [
             (str, {"type": "string"}), (int, {"type": "integer"}),

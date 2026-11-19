@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 修正未启用延迟注解时，Optional/list/Annotated 中 JSONObject 的递归别名解析，组合写法与字符串注解具有一致的 schema。
+
 - 新增 Middleware、MiddlewareError、ToolResultContext、ToolResultHook、TruncateToolResults 稳定 API；AgentComponents.middleware 默认空 tuple，支持 Profile、Builder 与插件显式组装。请求链只改投影，结果链在 durable 提交前变换；含超时/取消、失败隔离策略、无正文事件与 OTel span。
 
 - 新增稳定 API `tool`、`DecoratedTool`、`ToolError`，从 async 函数签名生成工具。JSON Schema `type` 列表现在真正校验，并继续检查非空 object/array 的内部值；非法 type 列表明确拒绝。复杂类型与可插拔 SchemaValidator 留待后续。
