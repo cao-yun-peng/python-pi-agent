@@ -201,3 +201,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## Workspace 修改/查询练习
 
 运行示例 43，观察 ls/find/grep → 创建 → 精确编辑 → 旧版本拒绝 → 读取。解释 allow_write、审批与 Gate 的独立职责，证明结果未知不会重做写入；用 test_workspace_tools 和 test_sandbox 验证 stdin、版本、取消队列、临时清理及查询预算。下一阶段再考虑 YAML 文件能力配置、regex/.gitignore 与跨实例一致性。
+
+
+## 契约归属与依赖检查
+
+阅读[第 41 章](../tutorials/41-contract-ownership-and-dependencies.md)与 ADR 0043，先用 ports 的策略输入/输出解释接口所有权，再追踪 SessionSpecResolver 为何属于会话规格层。运行 test_architecture、test_port_contracts、test_model_runtime、test_session_spec 与 test_api；示例 23 和 31 分别观察重试/回退事件和会话能力选择。练习仅在测试字符串中加入 TYPE_CHECKING 反向引用，确认检查能失败；说明安全默认与压缩编排例外为何按消费者精确登记。

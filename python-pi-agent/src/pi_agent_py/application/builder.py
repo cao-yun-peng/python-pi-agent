@@ -10,6 +10,7 @@ from typing import TypeVar, cast
 from ._observation import _RuntimeObservation
 from .runtime import AgentRuntime, SessionPoolPolicy
 from ..runtime.components import AgentComponents
+from ..runtime.session_spec import SessionSpecResolver
 from ..runtime.middleware import Middleware
 from .capability_catalog import CapabilityCatalog, default_capability_catalog
 from .configuration import (
@@ -23,7 +24,6 @@ from ..providers.runtime import (
     DefaultRetryPolicy,
     DirectModelRuntime,
     FullJitterBackoff,
-    ProviderCandidate,
     ResilientModelRuntime,
 )
 from ..plugins import PluginFactory, PluginHost
@@ -34,10 +34,10 @@ from ..ports import (
     ContextStrategy,
     EventSink,
     ModelProvider,
+    ProviderCandidate,
     NextTurnHook,
     SchemaValidator,
     SessionStore,
-    SessionSpecResolver,
     TelemetrySink,
     Tool,
     ToolExecutionGate,

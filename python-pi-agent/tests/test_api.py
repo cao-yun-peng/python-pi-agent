@@ -160,16 +160,14 @@ class PublicApiTests(unittest.TestCase):
 
     def test_provider_runtime_modules_supply_root_exports(self) -> None:
         import pi_agent_py
+        from pi_agent_py.ports import AttemptFailure, ProviderCandidate, RetryDecision
         from pi_agent_py.providers.runtime import (
-            AttemptFailure,
             AttemptSummary,
             CapabilityRoutePolicy,
             DefaultRetryPolicy,
             DirectModelRuntime,
             FullJitterBackoff,
-            ProviderCandidate,
             ResilientModelRuntime,
-            RetryDecision,
         )
 
         for exported in (
@@ -202,13 +200,13 @@ class PublicApiTests(unittest.TestCase):
         )
         from pi_agent_py.application.runtime import AgentRuntime, RuntimeSession, SessionPoolPolicy
         from pi_agent_py.runtime.components import AgentComponents, CompactionComponents
-        from pi_agent_py.runtime.session_spec import SessionSpec, StaticSessionSpecResolver
+        from pi_agent_py.runtime.session_spec import SessionSpec, SessionSpecResolver, StaticSessionSpecResolver
 
         for exported in (
             AgentRuntimeBuilder, CapabilityCatalog, AppConfigSpec, load_app_config,
             AgentProfile, coding_profile, ProviderCatalog, ProviderRegistration,
             default_provider_catalog, AgentRuntime, RuntimeSession, SessionPoolPolicy,
-            AgentComponents, CompactionComponents, SessionSpec, StaticSessionSpecResolver,
+            AgentComponents, CompactionComponents, SessionSpec, SessionSpecResolver, StaticSessionSpecResolver,
         ):
             with self.subTest(exported=exported.__name__):
                 self.assertIs(getattr(api, exported.__name__), exported)

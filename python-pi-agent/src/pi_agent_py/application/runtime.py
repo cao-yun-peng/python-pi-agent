@@ -33,13 +33,12 @@ from ..plugins import PluginHost
 from ..ports import (
     EventSink,
     SessionStore,
-    SessionSpecResolver,
     TelemetrySink,
 )
 from ..storage._writer import _call_session_store
 from ..runtime.session import AgentSession
 from ..runtime.run_handle import RunHandle
-from ..runtime.session_spec import SessionSpec, StaticSessionSpecResolver
+from ..runtime.session_spec import SessionSpec, SessionSpecResolver, StaticSessionSpecResolver
 from ..observability.usage import PricingTable, UsageLedger, UsageSummary
 
 RuntimeState = Literal["running", "closing", "closed"]

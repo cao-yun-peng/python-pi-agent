@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **具体导入破坏性变更：**ProviderCandidate、AttemptFailure、RetryDecision、RetryAction 从 providers.runtime 移至 ports；SessionSpecResolver 从 ports 移至 runtime.session_spec。旧属性移除，不留转导出；根包既有 DTO 导出和 api.SessionSpecResolver 保持同一对象。新增 AST 依赖护栏，扩展四个核心模块的 strict mypy 范围。见 ADR 0043、教程 41。
+
 - 新增 workspace write/edit/ls/find/grep、类型化修改/查询契约及两种 backend；修改默认要求审批与显式 allow_write，新建排他发布、覆盖检查版本、精确编辑保留 BOM/未修改换行，未知结果不重试并清理自有临时文件。查询有界且不跟随链接，grep 首版为字面量、未接入 .gitignore。
 - ProcessSandbox 新增隐藏 repr 的 bytes stdin，Docker 同时发送输入并捕获有界输出，解决大内容的命令行长度/诊断暴露问题。coding/read-only profiles 仅放行显式注册的相应工具，主循环不变。见 ADR 0042、教程 40、示例 43。
 

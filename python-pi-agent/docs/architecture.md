@@ -219,3 +219,12 @@ WorkspaceReadRequest/WorkspaceReadLimits/WorkspaceReadResult 是纯领域契约�
 ## Workspace 修改与查询
 
 WorkspaceFiles 保留 read_text；WorkspaceMutations/WorkspaceQueries 是可选端口，原只读适配器不被强制扩展。WriteTool/EditTool/LsTool/FindTool/GrepTool 与后端集中在 tools/workspace/；内存服务和固定 Linux helper 共用纯匹配/查询规则。修改需 allow_write 和审批，实例锁持有至执行/故障清理结束，同目录临时文件排他发布或原子替换；expected_version 不等于跨进程 CAS。ProcessSandbox 仅增加隐藏 repr 的 bytes stdin，Docker 并发发送与捕获，不改 loop/Store/Provider。查询默认有界 glob/字面量，截断与跳过数量进入 durable result。见 ADR 0042、教程 40、示例 43。
+
+
+## 契约归属与可执行依赖边界（ADR 0043）
+
+基础模型策略契约 ProviderCandidate、AttemptFailure、RetryDecision、RetryAction 与 RetryPolicy/BackoffStrategy/RoutePolicy 同在 ports.py。ProviderCandidate 持有 ModelProvider，因此属于端口契约而非纯领域对象。providers/runtime.py 只消费这些契约并实现请求组合；旧的同名模块属性已移除。SessionSpecResolver 与 SessionSpec、StaticSessionSpecResolver 同属 runtime/session_spec.py，应用组装层直接消费它们，ports 不再类型引用 runtime。
+
+test_architecture.py 解析 domain.py、_metadata.py、ports.py 和 runtime/ 的全部静态导入，包括 TYPE_CHECKING 与函数内导入。domain/_metadata 仅允许领域内部引用；ports 的包内依赖仅允许 domain。runtime 不消费 application、api、根包聚合对象或具体供应商；providers.runtime 作为供应商无关组合层允许被引用。工具/上下文实现的例外精确到消费者和目标模块：components → context.strategies、tools.approval、tools.gates、tools.schema；compaction_orchestration → context.compaction。Store writer、事件辅助与 PluginHost 仍为显式包内协作。规则不追踪动态 importlib 或通用外部依赖的传递图，不声称消除全部循环依赖。
+
+契约迁移不创建资源或改变 owned/borrowed、事件、重试、取消与 durable 语义。mypy 显式覆盖 session_spec、components、middleware、providers.runtime；其余 application/运行模块按后续独立基线扩展。见教程 41、test_port_contracts 与现有模型/会话回归。

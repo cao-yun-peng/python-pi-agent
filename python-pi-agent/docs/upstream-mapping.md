@@ -93,3 +93,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## Workspace 修改/查询映射
 
 固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb`：`packages/coding-agent/src/core/tools/write.ts::WriteOperations/createWriteToolDefinition`、`edit.ts::EditOperations/createEditToolDefinition` 对应工具与底层操作分离；`file-mutation-queue.ts::withFileMutationQueue` 对应共享修改队列与取消后等待。采用实例锁代替进程全局 Map；增加版本检查、临时原子发布与 unknown/清理语义，edit 首版只做单一精确替换，不移植模型参数兼容 shim 或 fuzzy matching。`ls.ts::createLsToolDefinition`、`find.ts::createFindToolDefinition`、`grep.ts::createGrepToolDefinition` 对应目录、glob 与文本查询；当前用标准库有界实现，不自动下载 fd/rg，不含 regex/.gitignore/TUI。DeepSeek Harness 映射仍为能力五要素，不拆包。证据：ADR 0042、第 40 章、示例 43、test_workspace_tools/test_sandbox。
+
+
+## Python 契约归属与依赖检查（ADR 0043）
+
+本次为 Python 自身的模块边界调整，不新增 Pi 行为等价承诺，也不改变上文固定上游 commit 的映射。既有模型组合和会话选择概念保持原语义；借鉴能力 Definition 与 Consumer 分离，把模型策略契约归 ports，会话选择契约归 runtime/session_spec。AST 检查是本项目为教学提供的本地证据，不声称对应某个未核实的上游机制；不引入插件热重载、独立包、动态依赖追踪或新的资源生命周期。证据为教程 41、test_architecture/test_port_contracts 与示例 23/31。

@@ -8,7 +8,6 @@ import random
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import Literal
 from uuid import uuid4
 
 from ..domain import (
@@ -16,7 +15,6 @@ from ..domain import (
     Message,
     ModelStreamEvent,
     ProviderRequestContext,
-    ProviderRequestPurpose,
     ToolDefinition,
 )
 from ..errors import (
@@ -28,62 +26,12 @@ from ..errors import (
     ProviderTransportError,
 )
 from ..observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
+from .. import ports as _ports
 from ..ports import BackoffStrategy, EventSink, ModelProvider, RetryPolicy, RoutePolicy
 
-RetryAction = Literal["retry_same", "try_next", "fail"]
 Sleep = Callable[[float], Awaitable[None]]
 Clock = Callable[[], float]
 RandomUniform = Callable[[float, float], float]
-
-
-@dataclass(frozen=True, slots=True)
-class ProviderCandidate:
-    """One explicitly assembled raw provider plus routing metadata."""
-
-    name: str
-    provider: ModelProvider
-    supports_tools: bool = True
-    purposes: frozenset[ProviderRequestPurpose] = frozenset(
-        {"agent_turn", "compaction"}
-    )
-    state_owners: frozenset[str] = frozenset()
-
-    def __post_init__(self) -> None:
-        if not self.name.strip():
-            raise ValueError("provider candidate name must not be empty")
-        if not self.purposes:
-            raise ValueError("provider candidate purposes must not be empty")
-        if not self.purposes <= {"agent_turn", "compaction"}:
-            raise ValueError("provider candidate contains an unknown purpose")
-        if any(not owner.strip() for owner in self.state_owners):
-            raise ValueError("provider state owner names must not be empty")
-
-
-@dataclass(frozen=True, slots=True)
-class AttemptFailure:
-    """Immutable evidence supplied to retry and backoff policies."""
-
-    provider_name: str
-    error: Exception
-    retryable: bool
-    output_started: bool
-    provider_attempt: int
-    total_attempt: int
-    elapsed_seconds: float
-
-
-@dataclass(frozen=True, slots=True)
-class RetryDecision:
-    """Pure retry-policy result consumed by ResilientModelRuntime."""
-
-    action: RetryAction
-    reason: str
-
-    def __post_init__(self) -> None:
-        if self.action not in {"retry_same", "try_next", "fail"}:
-            raise ValueError("unknown retry action")
-        if not self.reason.strip():
-            raise ValueError("retry decision reason must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,14 +54,14 @@ class DefaultRetryPolicy:
             raise ValueError("max_attempts_per_provider must be a positive integer")
         self._max_attempts_per_provider = max_attempts_per_provider
 
-    def decide(self, failure: AttemptFailure) -> RetryDecision:
+    def decide(self, failure: _ports.AttemptFailure) -> _ports.RetryDecision:
         if failure.output_started:
-            return RetryDecision("fail", "provider output already started")
+            return _ports.RetryDecision("fail", "provider output already started")
         if not failure.retryable:
-            return RetryDecision("fail", "provider failure is not retryable")
+            return _ports.RetryDecision("fail", "provider failure is not retryable")
         if failure.provider_attempt < self._max_attempts_per_provider:
-            return RetryDecision("retry_same", "retryable provider failure")
-        return RetryDecision("try_next", "provider retry budget exhausted")
+            return _ports.RetryDecision("retry_same", "retryable provider failure")
+        return _ports.RetryDecision("try_next", "provider retry budget exhausted")
 
 
 class FullJitterBackoff:
@@ -143,7 +91,7 @@ class FullJitterBackoff:
         self._maximum = float(max_delay_seconds)
         self._random_uniform = random_uniform
 
-    def delay_seconds(self, failure: AttemptFailure) -> float:
+    def delay_seconds(self, failure: _ports.AttemptFailure) -> float:
         retry_after = getattr(failure.error, "retry_after_seconds", None)
         if retry_after is not None:
             return min(self._maximum, max(0.0, float(retry_after)))
@@ -162,12 +110,12 @@ class CapabilityRoutePolicy:
 
     def select(
         self,
-        candidates: Sequence[ProviderCandidate],
+        candidates: Sequence[_ports.ProviderCandidate],
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
         *,
         context: ProviderRequestContext,
-    ) -> Sequence[ProviderCandidate]:
+    ) -> Sequence[_ports.ProviderCandidate]:
         state_owners = _latest_provider_state_owners(messages)
         return tuple(
             candidate
@@ -290,7 +238,7 @@ class ResilientModelRuntime:
 
     def __init__(
         self,
-        candidates: Sequence[ProviderCandidate],
+        candidates: Sequence[_ports.ProviderCandidate],
         *,
         retry_policy: RetryPolicy | None = None,
         backoff: BackoffStrategy | None = None,
@@ -365,7 +313,7 @@ class ResilientModelRuntime:
         total_attempt = 0
         summaries: list[AttemptSummary] = []
         last_error: Exception | None = None
-        previous: ProviderCandidate | None = None
+        previous: _ports.ProviderCandidate | None = None
 
         for candidate in selected:
             if (
@@ -459,7 +407,7 @@ class ResilientModelRuntime:
                         parent_span_id=context.request_id,
                         duration_ms=duration_ms,
                     )
-                    failure = AttemptFailure(
+                    failure = _ports.AttemptFailure(
                         provider_name=candidate.name,
                         error=error,
                         retryable=retryable,
@@ -469,7 +417,7 @@ class ResilientModelRuntime:
                         elapsed_seconds=max(0.0, self._clock() - started_at),
                     )
                     decision = self._retry_policy.decide(failure)
-                    if not isinstance(decision, RetryDecision):
+                    if not isinstance(decision, _ports.RetryDecision):
                         raise TypeError("retry policy must return RetryDecision")
                     if output_started or decision.action == "fail":
                         raise

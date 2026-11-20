@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
+from typing import Protocol
 
 from .._metadata import _freeze_metadata
 from .components import AgentComponents
@@ -47,6 +48,14 @@ class SessionSpec:
             elif first is not second:
                 return False
         return self.metadata == other.metadata
+
+
+class SessionSpecResolver(Protocol):
+    """Resolve and authorize a complete Session selection before pool admission."""
+
+    async def resolve(self, session_id: str, request: SessionOpenRequest) -> SessionSpec:
+        """Return stable capability identities while the controller is alive."""
+        ...
 
 
 class StaticSessionSpecResolver:

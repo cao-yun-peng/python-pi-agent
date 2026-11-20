@@ -66,3 +66,10 @@
 |---|---|---|---|---|---|
 | write/edit | 版本冲突、精确唯一匹配、原子发布与未知结果 | DTO + 可选 WorkspaceMutations + 工具/双 backend；stdin、实例锁、受控临时清理 | test_workspace_tools/test_sandbox，显式 Docker 故障注入 | 第 40 章 / 示例 43 / ADR 0042 | 能区分取消、提交成功但结果丢失、重放与重试；不把实例锁当作跨进程事务 |
 | ls/find/grep | 可替换读取、glob、字面量匹配、有限扫描与结果 | WorkspaceQueries + QueryLimits + 专用工具，共用规则 | 结果/扫描/深度/字节/行长、链接与文件类型 | 第 40 章 / 示例 43 / ADR 0042 | 能解释 incomplete/skipped，不把有限结果当作全量扫描；regex/.gitignore 待后续 |
+
+
+## 契约归属与架构护栏（ADR 0043）
+
+| 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
+|---|---|---|---|---|---|---|
+| 契约与静态依赖 | 接口拥有输入/输出，类型依赖也是维护依赖 | ports 的模型策略契约；runtime/session_spec 的 resolver | AST 解析绝对/相对/类型分支/局部导入，精确默认实现例外；扩展四个 mypy 模块 | test_architecture、test_port_contracts，模型/会话/API 回归 | 第 41 章、ADR 0043，示例 23/31 | 能解释 ProviderCandidate 为何不进 domain；违规导入会失败；旧模块属性消失且执行与取消语义不变 |

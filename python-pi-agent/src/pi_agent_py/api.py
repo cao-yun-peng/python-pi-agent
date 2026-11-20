@@ -135,7 +135,6 @@ from .ports import (
     NextTurnHook,
     ProviderRequestHook,
     SessionStore,
-    SessionSpecResolver,
     TelemetrySink,
     TokenEstimator,
     Tool,
@@ -153,7 +152,7 @@ from .runtime.loop import Agent
 from .runtime.session import AgentSession
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
-from .runtime.session_spec import SessionSpec, StaticSessionSpecResolver
+from .runtime.session_spec import SessionSpec, SessionSpecResolver, StaticSessionSpecResolver
 from .observability.telemetry import LoggingTelemetrySink
 from .tools.approval import (
     DenyByDefaultApprovalPolicy,

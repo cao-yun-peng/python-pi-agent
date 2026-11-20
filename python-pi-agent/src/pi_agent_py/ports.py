@@ -3,15 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from .runtime.session_spec import SessionSpec
-    from .providers.runtime import (
-        AttemptFailure,
-        ProviderCandidate,
-        RetryDecision,
-    )
+from dataclasses import dataclass
+from typing import Literal, Protocol
 
 from .domain import (
     AgentEvent,
@@ -26,6 +19,7 @@ from .domain import (
     ModelStreamEvent,
     NextTurnContext,
     ProviderRequestContext,
+    ProviderRequestPurpose,
     SandboxProcessRequest,
     SandboxProcessResult,
     ShellExecRequest,
@@ -34,7 +28,6 @@ from .domain import (
     SessionEventContext,
     SessionEventKind,
     SessionSnapshot,
-    SessionOpenRequest,
     SessionCompaction,
     TelemetryEvent,
     ToolCall as ToolCall,
@@ -47,14 +40,6 @@ from .domain import (
     WorkspaceWriteRequest, WorkspaceEditRequest, WorkspaceMutationResult,
     WorkspaceQueryRequest, WorkspaceQueryResult,
 )
-
-
-class SessionSpecResolver(Protocol):
-    """Resolve and authorize a complete Session selection before pool admission."""
-
-    async def resolve(self, session_id: str, request: SessionOpenRequest) -> SessionSpec:
-        """Return stable capability identities while the controller is alive."""
-        ...
 
 
 class ModelProvider(Protocol):
@@ -71,10 +56,63 @@ class ModelProvider(Protocol):
         ...
 
 
+RetryAction = Literal["retry_same", "try_next", "fail"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCandidate:
+    """One explicitly assembled raw provider plus routing metadata."""
+
+    name: str
+    provider: ModelProvider
+    supports_tools: bool = True
+    purposes: frozenset[ProviderRequestPurpose] = frozenset(
+        {"agent_turn", "compaction"}
+    )
+    state_owners: frozenset[str] = frozenset()
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("provider candidate name must not be empty")
+        if not self.purposes:
+            raise ValueError("provider candidate purposes must not be empty")
+        if not self.purposes <= {"agent_turn", "compaction"}:
+            raise ValueError("provider candidate contains an unknown purpose")
+        if any(not owner.strip() for owner in self.state_owners):
+            raise ValueError("provider state owner names must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptFailure:
+    """Immutable evidence supplied to retry and backoff policies."""
+
+    provider_name: str
+    error: Exception
+    retryable: bool
+    output_started: bool
+    provider_attempt: int
+    total_attempt: int
+    elapsed_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class RetryDecision:
+    """Pure retry-policy result consumed by ResilientModelRuntime."""
+
+    action: RetryAction
+    reason: str
+
+    def __post_init__(self) -> None:
+        if self.action not in {"retry_same", "try_next", "fail"}:
+            raise ValueError("unknown retry action")
+        if not self.reason.strip():
+            raise ValueError("retry decision reason must not be empty")
+
+
 class RetryPolicy(Protocol):
     """Decides whether one failed provider attempt may be retried or routed."""
 
-    def decide(self, failure: "AttemptFailure") -> "RetryDecision":
+    def decide(self, failure: AttemptFailure) -> RetryDecision:
         """Return a deterministic action without sleeping or performing I/O."""
         ...
 
@@ -82,7 +120,7 @@ class RetryPolicy(Protocol):
 class BackoffStrategy(Protocol):
     """Calculates the delay before a retry of the same provider."""
 
-    def delay_seconds(self, failure: "AttemptFailure") -> float:
+    def delay_seconds(self, failure: AttemptFailure) -> float:
         """Return a finite, non-negative delay."""
         ...
 
@@ -92,12 +130,12 @@ class RoutePolicy(Protocol):
 
     def select(
         self,
-        candidates: Sequence["ProviderCandidate"],
+        candidates: Sequence[ProviderCandidate],
         messages: Sequence[Message],
         tools: Sequence[ToolDefinition],
         *,
         context: ProviderRequestContext,
-    ) -> Sequence["ProviderCandidate"]:
+    ) -> Sequence[ProviderCandidate]:
         """Return candidates in the exact order they should be attempted."""
         ...
 
