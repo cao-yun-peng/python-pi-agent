@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pi Agent · 框架导读与架构评估</title>
+<style>
+:root{--bg:#f4f3ee;--paper:#fffefa;--ink:#20332b;--muted:#63716a;--line:#daddd3;--green:#24634f;--mint:#e4eee4}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 "Segoe UI","Microsoft YaHei",sans-serif}header,main,footer{max-width:1160px;margin:auto;padding:0 32px}header{padding-top:35px}a{color:var(--green);text-underline-offset:4px}button{font:inherit;cursor:pointer}.brand{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:18px;font-size:13px;letter-spacing:.06em}.hero{display:grid;grid-template-columns:1.5fr 1fr;gap:45px;padding:52px 0 22px;align-items:end}.eyebrow{font-size:12px;letter-spacing:.14em;color:var(--green);font-weight:700}h1{font-size:clamp(34px,4.8vw,58px);line-height:1.22;letter-spacing:-.04em;margin:16px 0 20px}h1 em{color:var(--green);font-style:normal}h2{font-size:28px;line-height:1.4;letter-spacing:-.02em;margin:0 0 22px}h2 small{color:var(--green);font:14px Consolas,monospace;margin-right:14px}h3{font-size:19px;line-height:1.5;margin:0 0 10px}p{margin:0 0 14px}.muted,.intro{color:var(--muted)}.intro{max-width:940px}.verdict{border-left:3px solid var(--green);padding-left:23px}.meta,nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.pill,nav a{border:1px solid var(--line);border-radius:25px;padding:4px 13px;background:var(--paper);font-size:12px}nav a{font-size:14px;text-decoration:none}nav a:hover{background:var(--mint)}section{margin:34px 0 55px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:17px}.card,.panel{border:1px solid var(--line);border-radius:18px;background:var(--paper);padding:24px}.card p{font-size:14px;color:var(--muted)}.big{color:var(--green);font-size:35px;font-weight:750;margin-bottom:10px;line-height:1.4}.big small{font-size:14px;font-weight:500}code{font: .87em/1.6 Consolas,monospace;background:#e9eee6;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}.diagram{border:1px solid #ccd8c8;background:#e8eee3;border-radius:22px;padding:28px}.flow{display:flex;gap:10px;align-items:stretch}.node{padding:20px 14px;background:var(--paper);border:1px solid #cad5c5;border-radius:12px;flex:1;min-width:0}.node strong{display:block}.node span{display:block;font-size:12px;color:var(--muted);margin-top:8px}.node.core{background:#244e3e;color:white}.node.core span{color:#d4e5d4}.arrow{align-self:center;font-size:23px;color:var(--green)}.adapters{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:22px}.adapters div{border:1px dashed #96af95;border-radius:10px;padding:12px;text-align:center;font-size:13px}.adapters small{display:block;color:var(--muted)}.caption{font-size:12px;color:var(--muted);margin:17px 0 0}.modules,.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}.modules{margin-top:18px}details{border:1px solid var(--line);border-radius:12px;padding:16px 20px;background:var(--paper)}summary{cursor:pointer;font-size:15px;font-weight:650}details p{font-size:14px;color:var(--muted);margin:12px 0 0}.trace{display:grid;grid-template-columns:275px 1fr;gap:22px}.steps{display:flex;flex-direction:column;gap:8px}.steps button{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:11px 15px;text-align:left;font-size:14px;color:var(--muted)}.steps button[aria-pressed=true]{color:white;background:var(--green);border-color:var(--green)}.trace .panel{min-height:330px}.phase{font-size:12px;color:var(--green);letter-spacing:.08em;margin-bottom:15px}pre{background:#213c30;color:#e9eee4;white-space:pre-wrap;border-radius:12px;padding:20px;font:13px/1.8 Consolas,monospace;overflow-wrap:anywhere}.source{font-size:12px;color:var(--muted);border-left:2px solid var(--line);padding-left:13px}.table{overflow:auto;border:1px solid var(--line);border-radius:16px;background:var(--paper)}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:16px 18px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#eaf0e5;font-size:12px;color:var(--muted)}tr:last-child td{border-bottom:0}td:first-child{min-width:145px;font-weight:650}td small{display:block;color:var(--muted);font-weight:400}.finding{display:grid;grid-template-columns:48px 1fr;gap:18px;border-top:1px solid var(--line);padding:26px 0}.finding:last-child{border-bottom:1px solid var(--line)}.finding p{font-size:14px}.tag{background:#f1e7d2;color:#89551b;font-size:12px;border-radius:8px;text-align:center;height:30px;padding:3px 8px}.decision{background:var(--mint);padding:13px 17px;border-radius:10px;font-size:14px;margin:15px 0}.list{padding-left:22px;font-size:14px;margin:12px 0 0}.list li{margin-bottom:12px}.scope{border-left:3px solid #bcccaf;padding-left:18px;font-size:13px;color:var(--muted);margin:23px 0}.reading{list-style:none;padding:0;counter-reset:r}.reading li{display:grid;grid-template-columns:35px 1fr;gap:12px;border-bottom:1px solid var(--line);padding:15px 0;counter-increment:r}.reading li:before{content:counter(r,decimal-leading-zero);color:var(--green);font:14px Consolas,monospace;padding-top:5px}.reading strong{display:block;font-size:15px}.reading span{display:block;font-size:13px;color:var(--muted)}.sources{display:grid;grid-template-columns:1fr 1fr;gap:12px 25px;font-size:13px}.sources small{display:block;color:var(--muted)}footer{border-top:1px solid var(--line);padding-top:22px;padding-bottom:35px;font-size:12px;color:var(--muted)}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #b57d36;outline-offset:4px}.print{border:1px solid var(--line);background:var(--paper);color:var(--green);border-radius:20px;padding:3px 13px;font-size:12px}
+@media(max-width:800px){header,main,footer{padding-left:20px;padding-right:20px}.hero,.cards,.modules,.two,.sources,.trace{grid-template-columns:1fr}.hero{gap:20px;padding-top:32px}.flow{flex-direction:column}.arrow{transform:rotate(90deg)}.adapters{grid-template-columns:1fr 1fr}.steps{display:grid;grid-template-columns:1fr 1fr}.brand{font-size:11px;letter-spacing:0}.diagram{padding:20px}.finding{gap:12px;grid-template-columns:40px 1fr}h2{font-size:24px}}
+@media print{body{background:white;font-size:12px}header,main,footer{padding-left:0;padding-right:0;max-width:none}nav,.print,.steps{display:none}.hero{padding-top:25px}h1{font-size:40px}section{margin-bottom:30px}.panel,.card,details,.finding{break-inside:avoid}.trace{display:block}*{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+</style></head>
+<body><header>
+<div class="brand"><strong>● PI AGENT / ENGINEERING NOTES</strong><button class="print" type="button" onclick="window.print()">打印 / 保存为 PDF</button></div>
+<div class="hero"><div><div class="eyebrow">ARCHITECTURE REVIEW · 2026.11.19</div><h1>框架已经成形，<br><em>下一步是守住边界。</em></h1><p class="muted">基于当前 Python 源码的框架导读：模块分别做什么，核心流程如何贯通，以及哪些地方值得小幅调整。</p></div><div class="verdict"><div class="eyebrow">先说判断</div><p><strong>你的理解基本成立。</strong>主要分块和依赖方向已合理。从本次检查范围看，没有整体重构或继续大规模拆包的必要。</p><p class="muted" style="font-size:14px">值得收敛的是少量类型反向引用、默认实现依赖，以及文档中新旧状态的混排。</p></div></div>
+<div class="meta"><span class="pill">pi-agent-py 0.8.0</span><span class="pill">Python ≥ 3.11</span><span class="pill">HEAD a370190 + 工作区改动</span><span class="pill">19 项聚焦测试通过</span><span class="pill">离线单文件</span></div>
+<nav aria-label="目录"><a href="#map">框架地图</a><a href="#trace">执行流程</a><a href="#strengths">已有优势</a><a href="#changes">调整建议</a><a href="#next">下一步</a><a href="#evidence">依据与验证</a></nav></header>
+<main>
+<section aria-label="判断摘要"><div class="cards">
+<div class="card"><div class="big">保留 <small>现有骨架</small></div><h3>职责已经分开</h3><p>应用负责组装与所有权，Session 负责恢复与控制，Agent 负责模型和工具的单次运行。</p></div>
+<div class="card"><div class="big">收敛 <small>局部依赖</small></div><h3>目录之外还要看引用</h3><p>接口、类型注解、默认工厂和跨目录私有辅助函数，都可能形成维护依赖。当前并非完全严格分层。</p></div>
+<div class="card"><div class="big">先验证 <small>再扩展</small></div><h3>用实际下游检验抽象</h3><p>优先用只消费稳定 API 的参考应用验证流式输出、取消和关闭，获得下一轮调整的真实依据。</p></div>
+</div></section>
+<section id="map"><h2><small>01</small>用一张图理解整个框架</h2>
+<p class="intro">这是运行时的调用关系图，箭头表示调用或消费；下面的实现通过端口接入。并不表示每个目录只能导入图中相邻目录。</p>
+<div class="diagram"><div class="flow">
+<div class="node"><strong>应用入口</strong><span>下游 CLI / Web / 业务应用<br>稳定入口 api.py</span></div><div class="arrow" aria-hidden="true">→</div>
+<div class="node"><strong>application/</strong><span>配置 / Profile / Catalog<br>Builder / Runtime / 生命周期</span></div><div class="arrow" aria-hidden="true">→</div>
+<div class="node core"><strong>runtime/</strong><span>Session 控制 / Agent loop<br>工具调度 / 压缩编排</span></div><div class="arrow" aria-hidden="true">→</div>
+<div class="node"><strong>ports + domain</strong><span>能力协议 / 消息 / 事件<br>工具契约 / 会话状态</span></div></div>
+<div class="adapters"><div><strong>providers/</strong><small>模型适配、路由与重试</small></div><div><strong>storage/ + context/</strong><small>日志、回放、投影与摘要</small></div><div><strong>tools/ + plugins.py</strong><small>工具、安全边界与扩展</small></div><div><strong>observability/</strong><small>订阅、用量与遥测</small></div></div>
+<p class="caption">基础依赖的目标方向：实现 → 协议 → 领域对象。当前源码大体遵循该方向，具体例外见第 04 节。</p></div>
+<div class="modules">
+<details open><summary>application：把零件组装成可用产品</summary><p><code>builder.py</code> 事务化创建 Provider、Store、插件与观察设施；<code>runtime.py</code> 管 Session 池和租约；<code>lifecycle.py</code> 区分 owned / borrowed，失败时回滚。这里依赖具体实现属于合理的组装职责。</p></details>
+<details open><summary>runtime：一次运行与一个会话分开</summary><p><code>loop.py</code> 执行一次 run；<code>session.py</code> 恢复历史、装配 Agent 和插件 lease；<code>control.py</code> 管 FIFO、steer、follow-up 与 abort；压缩另有编排模块。运行层与应用 facade 有不同生命周期。</p></details>
+<details><summary>domain + ports：共同语言与替换接口</summary><p>domain 提供消息、工具、事件和状态值对象；ports 定义 ModelProvider、SessionStore、ContextStrategy、ApprovalPolicy 等 Protocol。实现可以替换，但替换者必须满足相同语义。</p></details>
+<details><summary>storage + context：事实与模型视图分开</summary><p>durable log 记录可恢复事实，replay 重建 snapshot。ContextStrategy 投影当次请求；CompactionStrategy 生成摘要，Session 编排持久化。“少给模型一些历史”和“持久替换历史”属于不同机制。</p></details>
+<details><summary>providers：协议转换与请求韧性分开</summary><p>各供应商隔离认证、wire protocol 和完成判据；codec 复用通用协议片段。providers/runtime.py 消费 ModelProvider，组合路由、重试与回退，不让 Agent loop 识别供应商。</p></details>
+<details><summary>tools / plugins / observability：扩展与观察分开</summary><p>工具通过协议执行，PluginHost 事务化发布能力并管理 cleanup；观察事件隔离失败，middleware 则显式影响请求或结果。观察队列可丢失，不能承担恢复事实。</p></details>
+</div></section>
+<section id="trace"><h2><small>02</small>一次工具调用，如何穿过这些模块</h2>
+<p class="intro">点击步骤查看职责归属。这是源码机制的教学概括，不是一次真实模型请求的 trace；示例场景是读取 workspace 文件。</p>
+<div class="trace"><div class="steps" role="group" aria-label="执行步骤">
+<button type="button" data-step="0" aria-pressed="true">01 · 组装并打开 Session</button><button type="button" data-step="1" aria-pressed="false">02 · 入队并恢复历史</button><button type="button" data-step="2" aria-pressed="false">03 · 生成模型请求视图</button><button type="button" data-step="3" aria-pressed="false">04 · 提交 assistant 工具调用</button><button type="button" data-step="4" aria-pressed="false">05 · 校验、审批与执行</button><button type="button" data-step="5" aria-pressed="false">06 · 保存结果并模型续写</button><button type="button" data-step="6" aria-pressed="false">07 · settled 与资源释放</button>
+</div><div class="panel" aria-live="polite" aria-atomic="true"><div class="phase" id="phase">APPLICATION · 01 / 07</div><h3 id="title">先装配，再运行</h3><p id="body">Builder 将配置、Profile、Provider、Store 和插件组合为 Runtime；open_session 解析 SessionSpec 并获取租约。read 工具由应用显式提供 WorkspaceFiles 服务和工具注册。</p><pre id="code">配置 + Profile + Catalog + 显式资源
+→ Builder → Runtime
+→ SessionSpec → RuntimeSession lease</pre><div class="source" id="source">定位：application/builder.py · application/runtime.py</div></div></div>
+<p class="caption">Durable：消息、压缩与控制事实　／　Live：token 与运行通知　／　Capability：审批、工具与请求尝试</p>
+<noscript><p class="scope">JavaScript 已关闭。流程为：组装 → 入队与恢复 → 上下文投影 → 提交工具调用 → 校验/审批/Gate/执行 → 变换并持久化工具结果 → 模型续写与 settled。其余报告可正常阅读。</p></noscript></section>
+<section id="strengths"><h2><small>03</small>哪些分块已经做得好</h2>
+<div class="table"><table><thead><tr><th scope="col">已有设计</th><th scope="col">为什么有效</th><th scope="col">判断依据</th></tr></thead><tbody>
+<tr><td>统一组件规格</td><td>AgentComponents 将模型可见行为集中为冻结规格；Agent、Session 和应用 Runtime 围绕它协作，减少分散参数持续透传。</td><td><code>runtime/components.py</code><small>聚焦组件测试已通过</small></td></tr>
+<tr><td>控制与运行分开</td><td>队列、定向取消与 steer 不必全部挤进模型循环；Session 负责持久恢复，Agent 负责 run 的执行语义。</td><td><code>runtime/control.py</code><br><code>runtime/session.py</code></td></tr>
+<tr><td>事实与观察隔离</td><td>消息先提交 Store；live/capability 事件用于观察。缓冲观察失败不会成为恢复状态的隐式来源。</td><td><code>storage/_writer.py</code><br><code>observability/events.py</code></td></tr>
+<tr><td>扩展有生命周期</td><td>显式注册避免 import 副作用；初始化失败可回滚，关闭时尝试全部 owned cleanup，borrowed 资源不被误关。</td><td><code>plugins.py</code><br><code>application/lifecycle.py</code><small>生命周期测试已通过</small></td></tr>
+<tr><td>工具安全分多层</td><td>schema、ApprovalPolicy、Gate、ProcessSandbox 分别负责输入、审批、策略允许范围和执行隔离，替换边界明确。</td><td><code>runtime/loop.py</code><br><code>ports.py</code><small>审批不自动扩大 allowlist</small></td></tr>
+<tr><td>新增能力沿接缝接入</td><td>MCP 通过 Tool/Plugin 接入；read 通过 WorkspaceFiles 接入。具体能力保持各自实现，减少主循环中的专有分支。</td><td><code>tools/mcp/</code><br><code>tools/workspace/</code></td></tr>
+</tbody></table></div></section>
+<section id="changes"><h2><small>04</small>值得调整的是局部边界</h2>
+<p class="intro">以下是维护性建议，不是已证实的运行故障。P1 表示近期值得处理，P2 表示随真实扩展推进；仅用于本次评审排序。</p>
+<article class="finding"><span class="tag">P1</span><div><h3>让“端口只依赖领域”在类型层面也成立</h3>
+<p><strong>观察：</strong>ports.py 的 TYPE_CHECKING 分支引用 runtime.session_spec.SessionSpec，以及 providers.runtime 中的 AttemptFailure、ProviderCandidate、RetryDecision。接口签名依赖上层定义，与架构文档中“ports 只依赖 domain”的规则有差距。</p>
+<p><strong>影响：</strong>TYPE_CHECKING 避免这些导入在运行时执行，因此这不是已发生的循环导入故障；但改动运行层类型时仍需联动端口，理解基础契约也需要跳到实现目录。</p>
+<div class="decision"><strong>建议：</strong>优先提取模型路由的纯契约 DTO，保持公开导出身份与兼容性。SessionSpec 包含 AgentComponents，不能简单搬进 domain；可将会话选择契约明确归于 runtime，或将组件规格一并抽离到不依赖执行器的契约模块。先选择完整方案。</div>
+<div class="source">证据：<a href="../python-pi-agent/src/pi_agent_py/ports.py">ports.py:8–14、52、74、90</a>；<a href="../python-pi-agent/src/pi_agent_py/runtime/session_spec.py">SessionSpec</a>；<a href="../python-pi-agent/src/pi_agent_py/providers/runtime.py">模型路由 DTO</a>。验收：类型检查分支也满足依赖规则，公开 API 和行为测试保持通过。</div></div></article>
+<article class="finding"><span class="tag">P1</span><div><h3>把依赖方向变成可执行检查</h3>
+<p><strong>观察：</strong>已读的 test_api.py 验证导出身份、旧模块移除与下游用法；pyproject.toml 的 strict mypy 只列出选定模块，未完整覆盖 application 与核心编排模块。API 稳定和依赖方向需要不同证据。</p>
+<p><strong>建议：</strong>在现有测试旁增加轻量 AST 导入约束，先保护 domain 不依赖 runtime、ports 不引用具体实现、runtime 不依赖 application 或具体模型供应商。把默认实现依赖列为明确例外，再逐步收敛；分批扩大 mypy 范围。</p>
+<div class="decision">已有目录布局足够清晰。接下来更有价值的是防止新能力重新穿透边界，无需为此引入大型架构框架。</div>
+<div class="source">证据：<a href="../python-pi-agent/tests/test_api.py">test_api.py</a>；<a href="../python-pi-agent/pyproject.toml">tool.mypy.modules</a>。本次未完整检索所有测试，不断言仓内完全没有其他依赖检查。验收：故意加入违规导入时检查能够失败。</div></div></article>
+<article class="finding"><span class="tag">P2</span><div><h3>明确默认策略属于哪里</h3>
+<p><strong>观察：</strong>runtime/components.py 直接导入 FullHistoryContextStrategy、DenyByDefaultApprovalPolicy、DeclaredSideEffectGate 和 SubsetSchemaValidator，用 default_factory 创建实例。消费点依赖协议，但规格的默认构造仍选择具体实现。</p>
+<p><strong>判断：</strong>这些默认值安全且方便教学，暂时没有必须调整的证据；但当前结构应准确描述为“端口优先 + 内置安全默认”，并非完全严格分层。</p>
+<div class="decision"><strong>建议：</strong>先在架构文档明确允许这个例外。若多个产品 Profile 对默认值产生竞争，再把默认创建收敛到 Profile/Builder，同时保留清楚的最小构造体验。</div>
+<div class="source">证据：<a href="../python-pi-agent/src/pi_agent_py/runtime/components.py">components.py:63–71</a>。验收：默认拒绝策略不变，自定义策略无需改 runtime，已有组件契约保持稳定。</div></div></article>
+<article class="finding"><span class="tag">P1</span><div><h3>清理文档的新旧状态混排</h3>
+<p><strong>观察：</strong>architecture.md 的 MCP 阶段 1 段仍写 SDK owner、stdio/HTTP、YAML 等“尚未实现”，后续阶段又记录完成；roadmap.md 的历史差距表还列着旧模块路径和已修复问题，后文才更新状态。</p>
+<p><strong>影响：</strong>读者可能误以为缺少 InternalError、AgentComponents 或 run 订阅，重新规划已完成的工作。对教学项目，这会直接影响架构的可理解性。</p>
+<div class="decision"><strong>建议：</strong>文档开头给出当前能力摘要，将历史阶段显式标注为历史记录；差距表逐项显示“完成 / 部分完成 / 待实现”，保留 ADR 与提交追溯，更新旧路径。</div>
+<div class="source">证据：<a href="../python-pi-agent/docs/architecture.md">architecture.md 的 MCP 阶段 1–4</a>；<a href="../python-pi-agent/docs/roadmap.md">roadmap.md 差距表与后续进展</a>。验收：同一能力不再同时被读成“缺失”和“完成”。本次未改动这些现有文件。</div></div></article>
+<article class="finding"><span class="tag">P2</span><div><h3>按变化原因拆热点文件</h3>
+<p><strong>观察：</strong>当前 loop.py 为 1,011 行、plugins.py 为 972 行、domain.py 为 1,165 行，含空行和注释。loop.py 仍同时承载模型流归一化与工具调度细节。</p>
+<p><strong>建议：</strong>暂时保留布局。只有工具执行链持续扩展、与模型流频繁独立变化时，再抽出 ToolExecutor 一类内部协作者；领域对象也应按稳定概念拆分，而非按行数机械切割。</p>
+<div class="source">证据：<a href="../python-pi-agent/src/pi_agent_py/runtime/loop.py">loop.py:345 的 _request_model；605 的 _execute_tool_calls</a>。验收应覆盖事件顺序、取消传播、逐消息提交和 unknown 副作用语义。跨目录私有 writer / event helper 目前可视为包内协作，不必立即新增公共端口。</div></div></article>
+</section>
+<section id="next"><h2><small>05</small>下一步怎样推进</h2><div class="two">
+<div class="panel"><div class="eyebrow">现在值得做</div><h3>从“分得开”走到“证明分得开”</h3><ol class="list"><li><strong>统一当前事实。</strong>修正文档状态，记录分层例外。</li><li><strong>锁住依赖方向。</strong>增加小范围导入约束，优先收敛 ports 的上层类型依赖。</li><li><strong>验证稳定入口。</strong>用 api.py 构建 CLI 或 Web/SSE 参考应用，观察是否必须访问内部模块。</li><li><strong>按真实摩擦改动。</strong>依据新增能力的改动范围，决定是否提取工具执行器或细分契约。</li></ol></div>
+<div class="panel"><div class="eyebrow">明确触发条件再投入</div><h3>规模与部署变化后的演进</h3><ul class="list"><li><strong>多进程共享日志：</strong>JSONL 的实例级 asyncio.Lock 不提供跨进程互斥，需要存储事务或跨进程锁。</li><li><strong>历史持续增长：</strong>JSONL 多项操作重读全量事件；测得瓶颈后再做索引、快照或 SQLite 实现。</li><li><strong>独立发布需求：</strong>组件需要独立版本时再拆包；现有单包加功能目录符合仓库原则。</li><li><strong>明确并发需求：</strong>工具并行、插件热重载要与隔离、取消和卸载语义一起设计。</li></ul></div></div>
+<p class="scope">存储判断来自 JsonlSessionStore 的实例锁、_read_all_events 与 append 路径，以及 architecture.md 已记录的限制。本次未测试性能，不将其描述为当前性能故障。</p></section>
+<section><h2><small>06</small>推荐源码阅读顺序</h2><ol class="reading">
+<li><div><strong>对象与协议</strong><span>domain.py → ports.py → runtime/components.py。理解核心运行需要哪些事实和能力。</span></div></li>
+<li><div><strong>最小循环</strong><span>runtime/loop.py → test_minimal_loop.py。跟踪消息何时提交、失败与取消如何 settled。</span></div></li>
+<li><div><strong>会话与恢复</strong><span>runtime/session.py → control.py → storage/_writer.py → transitions.py。区分控制、持久提交和回放。</span></div></li>
+<li><div><strong>应用与扩展</strong><span>application/builder.py → profiles.py → lifecycle.py → plugins.py，再挑 MCP 或 read 验证能力接入路径。</span></div></li></ol></section>
+<section id="evidence"><h2><small>07</small>依据、验证与评审边界</h2>
+<div class="panel"><h3>本次实际运行的验证</h3><p style="font-size:14px">使用仓库 .venv，按 AGENTS.md 的 Windows asyncio 约束在沙箱外离线运行以下模块。未调用真实模型，未运行全仓测试。</p><div class="table"><table><thead><tr><th scope="col">模块</th><th scope="col">结果</th><th scope="col">主要证明</th></tr></thead><tbody>
+<tr><td>test_minimal_loop.py</td><td>8 / 8 通过</td><td>流式文本、完整提交、协议错误、异常分类、Provider state、取消传播</td></tr>
+<tr><td>test_components.py</td><td>8 / 8 通过</td><td>组件聚合、替换校验、旧接口移除、各层消费规格</td></tr>
+<tr><td>test_lifecycle.py</td><td>3 / 3 通过</td><td>owned / borrowed、逆序关闭、cleanup 失败处理</td></tr>
+</tbody></table></div></div>
+<p class="scope">报告基于 2026-11-19 当前工作区，版本来自 pyproject.toml，HEAD 为 a370190。工作区已有未提交的架构、sandbox 等改动，因此不等同于对纯 HEAD 的评审。本次沿入口、架构、核心调用链及相邻测试定向阅读，未全量审计所有实现，未逐一验证供应商或 MCP 传输，未评估生产负载。未重新对照上游 pi/ 行为。19 项测试证明所列行为，不能证明整个框架完全无缺陷。</p>
+<h3>可追溯资料</h3><p class="muted" style="font-size:13px">HTML 自包含，可离线阅读；以下相对源码链接需要保留仓库目录结构。</p><div class="sources">
+<div><a href="../python-pi-agent/README.md">包级 README</a><small>稳定入口与当前能力</small></div><div><a href="../python-pi-agent/docs/architecture.md">架构文档</a><small>职责、调用语义与依赖规则</small></div>
+<div><a href="../python-pi-agent/docs/adr/0032-functional-source-layout.md">ADR 0032 · 功能目录归组</a><small>现有布局的决策与迁移背景</small></div><div><a href="../python-pi-agent/src/pi_agent_py/api.py">稳定公共 API</a><small>下游应用与扩展的导入面</small></div>
+<div><a href="../python-pi-agent/docs/adr/0028-unified-agent-components-and-session-spec.md">ADR 0028 · 组件与 SessionSpec</a><small>组件聚合和会话选择设计</small></div><div><a href="../python-pi-agent/docs/roadmap.md">Roadmap</a><small>历史差距与完成进展</small></div></div>
+</section></main><footer>PI AGENT · 项目框架导读与架构评估 · 2026-11-19<br>本次仅新增此 HTML；未改动框架实现、现有文档或上游 submodule。</footer>
+<script>
+'use strict';
+const steps=[
+['APPLICATION','先装配，再运行','Builder 将配置、Profile、Provider、Store 和插件组合为 Runtime；open_session 解析 SessionSpec 并获取租约。read 工具由应用显式提供 WorkspaceFiles 服务和工具注册。','配置 + Profile + Catalog + 显式资源\n→ Builder → Runtime\n→ SessionSpec → RuntimeSession lease','application/builder.py · application/runtime.py'],
+['SESSION / CONTROL','输入进入队列，历史来自持久事实','RuntimeSession.submit 返回 RunHandle，Session control 串行分派。恢复 durable snapshot，必要时补齐尾部未决工具调用的 unknown 结果，再继续运行。输入与活动运行都有明确身份。','submit → FIFO dispatcher\n→ load durable snapshot\n→ recover unresolved tools → run','runtime/control.py · runtime/session.py · storage/_writer.py'],
+['CONTEXT / PROVIDER','请求视图不等于持久历史','ContextStrategy 投影上下文，provider_request middleware 和 Session 插件继续处理请求视图。Provider 收到 messages、tools 与 ProviderRequestContext；路由和重试属于组合层。','canonical history → ContextPlan\n→ middleware → session provider hook\n→ ModelProvider.stream','runtime/loop.py:_request_model · runtime/middleware.py · providers/runtime.py'],
+['AGENT LOOP','先完成并校验 assistant 消息','Agent 消费 TextDelta、ToolCall 和 Finish，校验完成语义，再提交完整 assistant 消息。未完成流片段不作为完整消息提交；工具调用先于工具结果成为恢复事实。','TextDelta / ToolCall / Finish\n→ validate assistant message\n→ durable commit → tool scheduling','runtime/loop.py · tests/test_minimal_loop.py'],
+['TOOLS / POLICY','把授权与实际执行分开','先校验输入，再按工具声明审批，由 Gate 执行策略限制。ReadTool 依赖 WorkspaceFiles；sandbox backend 借用 ProcessSandbox。隔离实现不可用时不回退宿主执行；取消沿执行链传播。','schema → approval (when required)\n→ execution gate → tool.execute\nReadTool → WorkspaceFiles → ProcessSandbox','runtime/loop.py:_execute_tool_calls · tools/workspace/read.py'],
+['DURABLE / NEXT TURN','保存结果，再让模型续写','ToolOutput 经过 tool_result middleware 后提交。若执行结果处理失败，固定 unknown 错误避免误导自动重试。工具续轮前可在安全边界处理 steer 和自动压缩，再请求模型。','ToolOutput → result middleware\n→ durable tool message\n→ next-turn boundary → model request','runtime/middleware.py · runtime/loop.py · runtime/compaction_orchestration.py'],
+['SETTLED / LIFECYCLE','运行结束与资源关闭是不同层次','单次 run 终态和 settled 用于观察与控制，RunHandle 可等待结果。Session 还能复用；归还 lease 不等于立即销毁所有组件。Runtime 最终关闭时结束会话并按所有权释放资源。','run → completed / failed / cancelled\n→ settled → result / observation\nRuntime close → sessions → owned cleanup','runtime/run_handle.py · application/runtime.py · application/lifecycle.py']
+];
+document.querySelectorAll('[data-step]').forEach(button=>button.addEventListener('click',()=>{
+ const n=Number(button.dataset.step),s=steps[n];
+ document.querySelectorAll('[data-step]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+ document.getElementById('phase').textContent=s[0]+' · '+String(n+1).padStart(2,'0')+' / 07';
+ document.getElementById('title').textContent=s[1];document.getElementById('body').textContent=s[2];
+ document.getElementById('code').textContent=s[3];document.getElementById('source').textContent='定位：'+s[4];
+}));
+</script></body></html>

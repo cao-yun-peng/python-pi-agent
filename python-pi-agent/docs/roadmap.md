@@ -110,7 +110,7 @@
 - B2 已实现按 Session 解析完整组件与观察 metadata，包含规格冲突拒绝、并发与取消、资源生命周期。见[教程](../tutorials/30-session-spec.md)和[示例](../examples/31_session_spec.py)。
 - B3 已实现 ProviderRegistration.parse_settings，内置和外部 Provider 统一通过 Catalog 解析 YAML。见 [ADR 0030](adr/0030-register-provider-settings-parsers.md)、[教程](../tutorials/31-registered-provider-settings.md)和[示例](../examples/32_registered_provider.py)。
 - B4 已实现 capabilities 配置、类型化 Settings 和 Catalog，通过 PluginHost 注册工具、Hook 和 Session 插件，覆盖取消与回滚。Bash 的 Settings 与校验已迁入其 capability 模块，顶层 `bash` 配置已移除。见 [ADR 0031](adr/0031-configured-capability-registration.md)、[教程](../tutorials/32-configured-capabilities.md)和[示例](../examples/33_configured_capability.py)。
-- B5 的两阶段 Middleware 已实现，随 `feat: add middleware chain for provider requests and tool results` 提交，见 ADR 0033、教程 34 和示例 35。B6 的基础类型化装饰器已完成（`b955597`），见 ADR 0034；复杂类型推导继续后续推进；可插拔 SchemaValidator 已在 E1 阶段 0 完成。
+- B5 的两阶段 Middleware 已实现，随 `feat: add middleware chain for provider requests and tool results` 提交，见 ADR 0033、教程 34 和示例 35。B6 的基础类型化装饰器已完成（`b955597`），见 ADR 0034；复杂类型推导继续后续推进；可插拔 SchemaValidator 已在 E1 阶段 0 完成。实现设计见 [B5/B6 交接文档](design/b5-b6-middleware-and-tool-decorator.md)。
 - 交付：`SessionSpecResolver`；可注册 Provider/capability 配置；middleware 链 ADR 与实现；`@tool` 装饰器。
 - 验收：在 `examples/` 外的独立测试包中新增一个 Provider 与一个配置驱动工具，不修改 `src/pi_agent_py` 任何文件。
 
