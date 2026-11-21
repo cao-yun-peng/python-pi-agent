@@ -34,7 +34,7 @@
 | 上下文压缩 | 已覆盖临时投影、完整 turn 边界、触发/摘要端口、追加式替换和乐观并发 | 已完成手动/阈值自动 durable compaction、工具续轮前触发、模型/假摘要策略、Provider purpose、JSONL v5 与 replay | 待增量摘要、精确 tokenizer、overflow 恢复和质量 eval 实现 | 已覆盖阈值决策、跳过、选择、模型协议、request context、Store 重启、失败与取消原子性 | 第 10、11、18 章 | 能分离 when/how/persist/replay，并解释为何 Hook 位于 tool result 与下一次请求之间 |
 | 插件系统 | 已覆盖 factory/API/host、Session lease、原子注册、顺序、超时、观察/拦截与释放 | 已完成 Tool + NextTurnHook + SessionPlugin request projection/settled observer + cleanup | 待 durable control port、资源发现与安全热重载 | 已覆盖双 Session 隔离、投影不污染 replay、顺序、冲突回滚、超时、取消、活动 lease 卸载保护与逆序释放 | 第 12、19 章 | 能实现插件注册与 Session 实例生命周期，解释请求拦截/后台观察错误语义，并证明关闭不会遗留监听任务或跨 Session 状态 |
 | 应用组装与生命周期 | 已覆盖 facade、Builder/Profile、显式 Catalog、资源所有权、Session lease、容量与关闭顺序 | 已完成 AgentRuntime/RuntimeSession、单次 Builder、代码 Profile、owned/borrowed scope 和内存 Session 池 | 已接入配置驱动 Docker Bash；待正式 CLI、多租户 SessionRef 与 Web/SSE | 已覆盖配置驱动 resilience/Bash、复用/持久历史、容量拒绝与驱逐、构造回滚、逆序关闭、取消和幂等关闭 | 第 25、28 章，ADR 0024、0027 | 能从 Profile 与显式依赖组装 Runtime，说明每个资源由谁关闭，并证明 transport 不需要拥有 AgentSession |
-| Run 订阅、遥测和用量 | 有界背压、定向取消、数据投影、低基数、用量估算 | EventHub、RunHandle、LoggingTelemetrySink、UsageLedger | 可选 OTel span/指标，独立应用管理 SDK；账本保留 Runtime 内的 Session 汇总 | FakeProvider 并发隔离、慢订阅、关闭/取消、失败计量；内存 span exporter 与指标读取 | [第 29 章](../tutorials/29-run-observation.md)、ADR 0029 | 能独立消费 run 与结果，验证日志不含正文，并说明 session 用量何时不完整 |
+| Run 订阅、遥测和用量 | 有界背压、定向取消、数据投影、低基数、用量估算 | EventHub、RunHandle、LoggingTelemetrySink、UsageLedger | 可选 OTel span/指标，独立应用管理 SDK；账本保留 Runtime 内的 Session 汇总；错误投影、投递健康与外部关联见[补充设计](design/observability-evolution.md)，尚未实现 | FakeProvider 并发隔离、慢订阅、关闭/取消、失败计量；内存 span exporter 与指标读取 | [第 29 章](../tutorials/29-run-observation.md)、ADR 0029 | 能独立消费 run 与结果，验证日志不含正文，并说明 session 用量何时不完整 |
 | 安全事件观察 | 已覆盖观察/拦截分离、失败隔离、数据最小化、统一 envelope、span、背压与生命周期 | 已完成 versioned AgentEventEnvelope、固定 JSON record、Isolated/Redacting/Buffered EventSink、model/tool/compaction/Hook span 及 durable event link | 待审计型 durable sink 与跨线程压力测试 | 已覆盖 envelope 校验/序列化、Agent/Session/Plugin 隔离、started/terminal 配对、duration、durable identity join、脱敏不变性、顺序投递、下游失败与关闭后丢弃 | 第 13 章、ADR 0021 | 能从 envelope 还原一次 run 的模型/工具/压缩/Hook 时间线，并解释 observer span 为何仍不能承担恢复事实 |
 | 评测 | 已完成 compaction 的结构、probe QA、模型裁判和 trace 分层方案 | 待实现离线 eval case 与 deterministic grader | 待数据集、真实模型 judge、持续评测与报告版本化 | 当前只有 runtime 契约测试 | `docs/compaction-evaluation.md` | 能用版本化数据比较摘要 prompt/模型/策略，并让 judge 与人工标签校准 |
 
@@ -73,3 +73,9 @@
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
 | 契约与静态依赖 | 接口拥有输入/输出，类型依赖也是维护依赖 | ports 的模型策略契约；runtime/session_spec 的 resolver | AST 解析绝对/相对/类型分支/局部导入，精确默认实现例外；扩展四个 mypy 模块 | test_architecture、test_port_contracts，模型/会话/API 回归 | 第 41 章、ADR 0043，示例 23/31 | 能解释 ProviderCandidate 为何不进 domain；违规导入会失败；旧模块属性消失且执行与取消语义不变 |
+
+## 模型请求持久化与离线还原
+
+| 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
+|---|---|---|---|---|---|
+| 模型请求快照 | 长期会话历史与单次实际输入分别保存；提交成功后发送；prepared 不代表 delivered | ModelRequestStore、RecordingModelProvider、内存/文件实现，独立 v1 请求记录与明确 message codec v6 | RAG/工具续轮、完整消息与定义、重试尝试、失败与取消、并发排他、损坏/预算、两个独立进程恢复 | 第 42 章、示例 44、ADR 0044 | 删除检索源并结束记录进程后，能仅凭快照重建标准 Provider 输入；解释显式设置、HTTP 请求和模型输出可复现性的区别 |

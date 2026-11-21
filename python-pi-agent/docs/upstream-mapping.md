@@ -2,6 +2,8 @@
 
 本项目是独立 Python 实现。映射用于学习设计，不承诺 API 兼容。
 
+可观测层的现状证据与演进边界见[补充设计](design/observability-evolution.md)。新增错误分类投影、投递健康、性能指标与外部 parent trace 绑定属于 Python 侧待实现方案；沿用下表的 lifecycle/telemetry 概念映射，不表示上游已提供同名能力。
+
 当前 Pi 参考固定在 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb`。
 DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637e9c2a3afe3` 的 `packages/shell`、`packages/subprocess` 与 `packages/sandbox`；只借鉴 request/spec、能力接缝、per-call policy、fail-closed 与执行证据，不复制其多包结构。
 
@@ -98,3 +100,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## Python 契约归属与依赖检查（ADR 0043）
 
 本次为 Python 自身的模块边界调整，不新增 Pi 行为等价承诺，也不改变上文固定上游 commit 的映射。既有模型组合和会话选择概念保持原语义；借鉴能力 Definition 与 Consumer 分离，把模型策略契约归 ports，会话选择契约归 runtime/session_spec。AST 检查是本项目为教学提供的本地证据，不声称对应某个未核实的上游机制；不引入插件热重载、独立包、动态依赖追踪或新的资源生命周期。证据为教程 41、test_architecture/test_port_contracts 与示例 23/31。
+
+## 请求快照与长期 Session 历史
+
+对照 DeepSeek Harness commit `f3803c96974ad4a94195fb97e5c637e9c2a3afe3` 的 `docs/architecture.md` 中 Model-visible means logged，以及 `packages/core/agent-loop/src/agent.ts` 中 request/header、request/context 与 deriveMessages，对应本项目“模型输入可从持久事实还原”的目标。Python 首版用 RecordingModelProvider 保存标准 ModelProvider 端口的自包含输入，独立于 Session 历史和观察 EventSink；不移植 Cordis、请求头增量投影或 DSH 格式迁移体系。本切片不依赖上游 Pi 行为，也不宣称捕获供应商 HTTP 序列化、隐式默认值或远端响应。见 ADR 0044、教程 42 与跨进程回归测试。

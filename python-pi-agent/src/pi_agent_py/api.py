@@ -35,6 +35,7 @@ from .application.configuration import (
 )
 from .context.strategies import FullHistoryContextStrategy, TokenBudgetContextStrategy
 from .domain import (
+    ModelRequestTarget, RecordedModelRequest,
     AGENT_EVENT_SCHEMA_VERSION,
     AgentEvent,
     AgentEventEnvelope,
@@ -152,6 +153,9 @@ from .runtime.loop import Agent
 from .runtime.session import AgentSession
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
+from .storage.model_requests import FileModelRequestStore, InMemoryModelRequestStore
+from .providers.recording import RecordingModelProvider
+from .ports import ModelRequestStore
 from .runtime.session_spec import SessionSpec, SessionSpecResolver, StaticSessionSpecResolver
 from .observability.telemetry import LoggingTelemetrySink
 from .tools.approval import (
@@ -202,6 +206,8 @@ from .tools.workspace.find import FindTool
 from .tools.workspace.grep import GrepTool
 
 __all__ = [
+    "ModelRequestTarget", "RecordedModelRequest", "ModelRequestStore",
+    "FileModelRequestStore", "InMemoryModelRequestStore", "RecordingModelProvider",
     "WorkspaceWriteRequest", "WorkspaceEditRequest", "WorkspaceMutationResult", "WorkspaceMutations",
     "WorkspaceQueryRequest", "WorkspaceQueryLimits", "WorkspaceQueryResult", "WorkspaceQueries",
     "WorkspaceEntry", "WorkspaceMatch", "WriteTool", "EditTool", "LsTool", "FindTool", "GrepTool",

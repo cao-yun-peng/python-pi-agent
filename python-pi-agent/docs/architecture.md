@@ -140,6 +140,8 @@ steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写
 
 ### Runtime 观察消费面
 
+当前实现的能力核对、可信边界与后续验收方案见[可观测层补充设计](design/observability-evolution.md)。其中错误分类投影、投递健康、性能指标与外部 trace 关联均为待实现建议，不改变下述当前契约。
+
 SessionSpec 的 metadata 保存为独立 JSON 快照，暴露在 RuntimeSession.metadata 和观察 envelope。Runtime 私有 ContextVar 随调度器、模型组合层和插件子任务传播上下文，controller sink 绑定目标 metadata 以支持外部定向取消。序列化输出 metadata，RedactingEventSink 递归处理敏感键，TelemetrySink 接收清空自由 metadata 后的投影。SessionSpec 在重启时重新解析，模型上下文仍从 SessionStore 中的消息和显式组件构造。
 
 `AgentRuntimeBuilder` 为 Runtime、Session、插件和模型组合层提供同一个观察入口，先统计用量，再向有界 `EventHub`、应用 `EventSink` 和仅含投影字段的 `TelemetrySink` 分发。应用 sink 与遥测异常分别隔离。它们属于 Runtime 基础设施，沿用 ADR 0028 的边界，不进入 `AgentComponents` 或模型上下文。关闭时先结束 Session 和生产者，发送 `runtime_closed`，再关闭 Hub 与 owned observer。
@@ -228,3 +230,11 @@ WorkspaceFiles 保留 read_text；WorkspaceMutations/WorkspaceQueries 是可选�
 test_architecture.py 解析 domain.py、_metadata.py、ports.py 和 runtime/ 的全部静态导入，包括 TYPE_CHECKING 与函数内导入。domain/_metadata 仅允许领域内部引用；ports 的包内依赖仅允许 domain。runtime 不消费 application、api、根包聚合对象或具体供应商；providers.runtime 作为供应商无关组合层允许被引用。工具/上下文实现的例外精确到消费者和目标模块：components → context.strategies、tools.approval、tools.gates、tools.schema；compaction_orchestration → context.compaction。Store writer、事件辅助与 PluginHost 仍为显式包内协作。规则不追踪动态 importlib 或通用外部依赖的传递图，不声称消除全部循环依赖。
 
 契约迁移不创建资源或改变 owned/borrowed、事件、重试、取消与 durable 语义。mypy 显式覆盖 session_spec、components、middleware、providers.runtime；其余 application/运行模块按后续独立基线扩展。见教程 41、test_port_contracts 与现有模型/会话回归。
+
+## 模型请求快照（ADR 0044）
+
+ModelRequestTarget 与 RecordedModelRequest 属于 domain；ModelRequestStore 属于 ports。providers/recording.py 在 ModelProvider.stream 入口捕获最终消息、工具定义与 ProviderRequestContext，必须先提交快照再调用借用的 Provider。它位于 ContextStrategy、请求中间件和 Session 插件的变换之后，既可接入 Agent/Session/Builder，也可包装压缩 Provider；不修改主循环或 SessionStore。
+
+storage/model_requests.py 提供内存替身与每请求一个文件的 FileModelRequestStore。记录 v1 明确使用 message codec v6，保留 thinking、structured_content 与 provider_state；文件名由 request_id/attempt_id 摘要决定，fsync 后硬链接排他发布，取消等待底层文件操作结束。独立请求快照不进入对话历史，Session JSONL v1-v6 读取和写入不变。读取只还原标准端口参数，不执行插件、工具或网络。
+
+目标模型及公共参数由应用显式提供并与适配器配置保持一致；不读取凭据或推断 SDK/HTTP 默认值。包装组合 Provider 记录逻辑请求；包装各原始重试/回退候选记录各物理尝试。请求记录只说明输入已准备，不能证明远端收到请求或生成成功；父目录掉电持久性、自动请求目录清理和跨日志原子提交不在首版保证内。见教程 42、示例 44 与 test_model_request_recording。

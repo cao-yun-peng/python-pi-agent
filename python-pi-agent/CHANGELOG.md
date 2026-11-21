@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 新增显式请求记录接缝：RecordingModelProvider 在调用前保存最终消息、工具定义、身份及公共设置，支持内存替身与排他发布的文件快照；写入失败或取消不调用模型。独立记录 v1 保留 Session message codec v6，已有 Session 格式不变。示例 44、第 42 章和 ADR 0044 覆盖进程退出后无检索源的离线还原。
+
 - **具体导入破坏性变更：**ProviderCandidate、AttemptFailure、RetryDecision、RetryAction 从 providers.runtime 移至 ports；SessionSpecResolver 从 ports 移至 runtime.session_spec。旧属性移除，不留转导出；根包既有 DTO 导出和 api.SessionSpecResolver 保持同一对象。新增 AST 依赖护栏，扩展四个核心模块的 strict mypy 范围。见 ADR 0043、教程 41。
 
 - 新增 workspace write/edit/ls/find/grep、类型化修改/查询契约及两种 backend；修改默认要求审批与显式 allow_write，新建排他发布、覆盖检查版本、精确编辑保留 BOM/未修改换行，未知结果不重试并清理自有临时文件。查询有界且不跟随链接，grep 首版为字面量、未接入 .gitignore。

@@ -150,6 +150,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 
 完成[第 29 章](../tutorials/29-run-observation.md)，验证两个并发 run 互不串流、慢订阅者不拖住 dispatcher，并用内存导出器重建父子 span。用 FakeProvider 分别观察正常、取消和缺价的用量汇总。强一致审计应作为独立 durable capability。
 
+后续练习按[可观测层补充设计](design/observability-evolution.md)推进：先核对九阶段事件与错误分类投影，再验证观察者值隔离与投递健康，最后用假时钟验证性能指标、绑定外部父 trace。这些为待实现目标；能够指出 settled、完整事件流、完整用量与完整计费之间的区别，才算掌握现有观察边界。
+
 安全执行方向下一步为截断输出设计 workspace 内可恢复的 spill 生命周期，明确路径、权限、清理和模型可见性；随后让 read/search/patch 共用规范化 workspace port，再设计 `read-only -> workspace-write` 与 network 的单次升级审批。不要为追求形式完整同时实现多套 OS-native runner，也不要把未知 Python 插件误认为已被 Shell sandbox 覆盖。
 
 上下文方向仍应实现 compaction eval 的最小离线切片，用版本化 case 和 deterministic grader 验证摘要保留目标、约束、工具发现和下一步；随后再处理精确 tokenizer 与资源加载。
@@ -206,3 +208,7 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## 契约归属与依赖检查
 
 阅读[第 41 章](../tutorials/41-contract-ownership-and-dependencies.md)与 ADR 0043，先用 ports 的策略输入/输出解释接口所有权，再追踪 SessionSpecResolver 为何属于会话规格层。运行 test_architecture、test_port_contracts、test_model_runtime、test_session_spec 与 test_api；示例 23 和 31 分别观察重试/回退事件和会话能力选择。练习仅在测试字符串中加入 TYPE_CHECKING 反向引用，确认检查能失败；说明安全默认与压缩编排例外为何按消费者精确登记。
+
+## 模型请求记录与进程退出后的还原
+
+阅读[第 42 章](../tutorials/42-recorded-model-requests.md)，运行示例 44 的 record 阶段，删除 reference.txt，再在另一个进程运行 restore。比较 Session 历史与请求快照，确认临时检索只进入后者。用 test_model_request_recording 追踪提交成功、存储失败、重复身份、重试与取消，并解释为何快照存在不能推出远端已收到请求。随后可基于这些固定输入开展离线评测，不必重跑原插件。

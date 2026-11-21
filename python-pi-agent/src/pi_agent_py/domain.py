@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from math import isfinite
 from pathlib import PurePosixPath
@@ -1024,6 +1025,43 @@ class ContextPlan:
             raise ValueError("token_budget must not be negative")
         if self.estimated_tokens is not None and self.estimated_tokens < 0:
             raise ValueError("estimated_tokens must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class ModelRequestTarget:
+    """Explicit public provider selection; the assembler keeps settings in sync.
+
+    Parameters must exclude credentials, headers, URLs, and transport secrets.
+    They describe the selected adapter, not a captured HTTP request.
+    """
+
+    provider: str
+    model: str
+    parameters: Mapping[str, JSONValue] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.provider.strip() or not self.model.strip():
+            raise ValueError("request target requires provider and model")
+        object.__setattr__(self, "parameters", _freeze_metadata(self.parameters))
+
+
+@dataclass(frozen=True, slots=True)
+class RecordedModelRequest:
+    """Detached arguments at ModelProvider.stream, before any network dispatch.
+
+    A saved request proves preparation, not delivery or a successful response.
+    Messages include request-only retrieval and opaque provider state. Reading
+    this value never executes tools, hooks, retrieval, or a model provider.
+    """
+
+    context: ProviderRequestContext
+    target: ModelRequestTarget
+    messages: tuple[Message, ...] = field(repr=False)
+    tools: tuple[ToolDefinition, ...] = field(default=(), repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "messages", deepcopy(tuple(self.messages)))
+        object.__setattr__(self, "tools", deepcopy(tuple(self.tools)))
 
 
 @dataclass(frozen=True, slots=True)

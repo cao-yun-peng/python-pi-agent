@@ -20,6 +20,7 @@ from .domain import (
     NextTurnContext,
     ProviderRequestContext,
     ProviderRequestPurpose,
+    RecordedModelRequest,
     SandboxProcessRequest,
     SandboxProcessResult,
     ShellExecRequest,
@@ -53,6 +54,20 @@ class ModelProvider(Protocol):
         context: ProviderRequestContext,
     ) -> AsyncIterator[ModelStreamEvent]:
         """Stream one assistant response for the supplied model-visible history."""
+        ...
+
+
+class ModelRequestStore(Protocol):
+    """Required request persistence, separate from best-effort EventSink delivery."""
+
+    async def record(self, request: RecordedModelRequest) -> None:
+        """Commit before dispatch; reject an already recorded request/attempt id."""
+        ...
+
+    async def read_requests(
+        self, session_id: str | None = None,
+    ) -> tuple[RecordedModelRequest, ...]:
+        """Read detached inputs offline; None selects all sessions and standalone runs."""
         ...
 
 
