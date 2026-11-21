@@ -41,7 +41,7 @@ async def main() -> None:
         print(f"seeded session in {args.path}")
         return
 
-    provider = FakeProvider([[TextDelta("项目代号是松鼠。"), Finish()]])
+    provider = FakeProvider([[TextDelta("项目代号是松鼠哦。"), Finish()]])
     session = AgentSession("jsonl-demo", store, AgentComponents(provider))
     result = await session.run("项目代号是什么？")
 

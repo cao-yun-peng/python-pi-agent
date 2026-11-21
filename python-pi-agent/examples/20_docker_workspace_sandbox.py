@@ -18,6 +18,7 @@ from pi_agent_py import (
     TextDelta,
     ToolCall,
 )
+from pi_agent_py.domain import SandboxProcessRequest
 
 
 async def main() -> None:
@@ -40,6 +41,16 @@ async def main() -> None:
         image=args.image,
         network_enabled=False,
     )
+    from pi_agent_py.domain import SandboxProcessRequest
+    dummy_request = SandboxProcessRequest(
+    argv=("echo", "hello"),
+    workdir="/workspace",
+    mode="read-only",
+    timeout_seconds=None,
+    )
+    docker_cmd = process_sandbox.build_command(dummy_request, container_name="test")
+    print("Docker 命令:", " ".join(docker_cmd))
+
     shell = SandboxedShellTool(
         process_sandbox,
         mode="workspace-write",
