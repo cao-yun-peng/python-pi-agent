@@ -62,7 +62,7 @@ class CapabilityConfigTests(unittest.TestCase):
             (configured,) = spec.capabilities
             self.assertIsInstance(configured.settings, EchoSettings)
             self.assertEqual(configured.name, "echo")
-            self.assertEqual(configured.settings.location, root / "resource")
+            self.assertEqual(configured.settings.location, (root / "resource").resolve())
             self.assertEqual(trace, [])
             self.assertEqual(original.names, ("bash",))
             with self.assertRaises(ConfigurationError):
