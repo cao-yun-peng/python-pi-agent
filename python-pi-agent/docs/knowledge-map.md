@@ -100,3 +100,6 @@
 | 理论 | 最小实现 | 完整实现边界 | 测试 | 教程与掌握标准 |
 |---|---|---|---|---|
 | 模型+工具+Harness 的组合评测；执行完成不等于修复成功 | CodingTask、TaskEnvironment、Docker Provider、正式 Runtime Consumer、CLI 和输入/轨迹/预测证据 | 单题适配已实现；真实任务分数待固定环境与模型实测，多题汇总/持续评测待实现 | FakeProvider、固定 revision、gold 隔离、持久环境、非零退出、失败、取消、截断；显式进程集成 | 第 45 章 / 示例 47 / ADR 0047；能解释 F2P/P2P、gold baseline 和固定分母，依据 trace 定位失败 |
+
+
+Windows 判分传输补充：已实现 eval.sh/patch.diff 的 UTF-8/LF 写入与作用域恢复回归；开发题 marshmallow-1359 的官方参考补丁 resolved=true、77 tests passed。仅证明环境有效，真实 Agent 成绩仍待运行。

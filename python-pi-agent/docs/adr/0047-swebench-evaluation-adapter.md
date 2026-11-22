@@ -27,3 +27,9 @@ prepare 必须固定 HF revision 和 split/ID。Docker 镜像必须已存在本�
 test_swebench_evaluation 使用 FakeProvider、脚本化 Docker runner、临时目录验证输入隔离、工具续轮、请求快照、预测格式、部分补丁、失败和取消。真实子进程传输测试显式使用 PI_AGENT_EVAL_PROCESS_INTEGRATION=1 开启，不调用模型。Docker 实例与官方 gold baseline 是独立手动集成步骤，不计入离线通过数。
 
 参考（核对日期 2026-11-22）：[官方 CLI](https://github.com/SWE-bench/SWE-bench/blob/main/docs/reference/cli.md)、[本地 JSON 加载](https://github.com/SWE-bench/SWE-bench/blob/main/swebench/harness/utils.py::load_swebench_dataset)、[开发集](https://huggingface.co/datasets/SWE-bench/SWE-bench_Lite/viewer/default/dev)。正式实验另行固定评测器 commit/版本，避免使用漂移的 main 作为结果版本。
+
+## Windows 集成验证补充
+
+实测 swebench 5.0.2 在 Windows 将 eval.sh 与 patch.diff 写成 CRLF，gold baseline 因脚本/补丁执行失败而 unresolved。采用独立 grading 子进程中的模块级 Path 构造器替换，只对这两个传入 Linux 的文件使用 UTF-8/LF 二进制写入；finally 恢复原构造器，不更改全局 pathlib、安装文件或官方测试判分。备选方案为单独部署 Linux grader；本地首版保留 Windows 应用入口。该接缝固定官方 5.0.2，依赖升级需重新验证。
+
+回归测试覆盖原始 CRLF 输入、产物字节和失败后的构造器恢复。修复后同一开发题的 gold baseline resolved=true、77 个测试通过；真实 Agent 成绩尚未测量。默认 `[eval]` 显式安装已验证的官方 grader，完整依赖版本仍由实验环境 lock 保存。

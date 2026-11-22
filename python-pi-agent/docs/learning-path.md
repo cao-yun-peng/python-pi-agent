@@ -227,3 +227,6 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## SWE-bench 评测切片
 
 阅读第 45 章，先运行示例 47 demo，查看两次 requests、tool result、patch 和 resolved=null。再固定 HF revision 选择开发题，验证 gold baseline 后接入模型。失败时区分环境、Runtime、补丁应用和测试判分；取消必须关闭任务容器。默认测试 test_swebench_evaluation 不下载数据或访问模型；真实评测须安装独立工具并显式准备镜像。
+
+
+Windows 练习：比较 CRLF 失败日志与 LF 修复后的 gold baseline，解释为什么评分进程退出 0 不等于任务 resolved，以及为什么必须先验证参考补丁。第 45 章记录固定数据版本、镜像 digest 和环境验证结果。

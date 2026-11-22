@@ -13,6 +13,7 @@ from pi_agent_py.application.evaluation.cli import demo, main, prepare
 from pi_agent_py.application.evaluation.docker import CommandResult, DockerTaskEnvironment, run_command
 from pi_agent_py.application.evaluation.runner import run_task
 from pi_agent_py.application.evaluation.tasks import CodingTask
+from pi_agent_py.application.evaluation.grading import grade, write_linux_artifact
 from pi_agent_py.domain import Finish, ModelRequestTarget, ShellExecRequest, TextDelta
 from pi_agent_py.errors import SandboxUnavailableError
 from pi_agent_py.testing import FakeProvider
@@ -33,7 +34,7 @@ class ProjectionTests(unittest.TestCase):
                 self.assertEqual(main(), 0)
                 argv = run.call_args.args[0]
                 self.assertIn(str(Path("grader-data.json").resolve()), argv)
-                self.assertIn("swebench.harness.run_evaluation", argv)
+                self.assertIn("pi_agent_py.application.evaluation.grading", argv)
                 if "--gold" in mode:
                     self.assertEqual(argv[argv.index("--predictions_path") + 1], "gold")
 
@@ -62,6 +63,35 @@ class ProjectionTests(unittest.TestCase):
                 prepare("b" * 40, "dev", [task().instance_id], out)
         with self.assertRaises(ValueError):
             prepare("main", "dev", [task().instance_id], Path("unused"))
+
+
+class GraderCompatibilityTests(unittest.TestCase):
+    def test_linux_script_and_patch_are_lf_bytes_even_with_crlf_input(self):
+        with tempfile.TemporaryDirectory() as root:
+            for name, content in (("eval.sh", "#!/bin/bash\r\nset -e\r\n"),
+                                  ("patch.diff", "--- a/a\n+++ b/a\n")):
+                target = Path(root) / name
+                write_linux_artifact(target, content)
+                self.assertNotIn(b"\r", target.read_bytes())
+                self.assertEqual(target.read_bytes(), content.replace("\r\n", "\n").encode())
+
+    def test_windows_constructor_is_scoped_and_restored_after_grader_failure(self):
+        from types import SimpleNamespace
+        from pathlib import WindowsPath
+        calls = []
+        def fail(**kwargs):
+            calls.append(kwargs)
+            self.assertTrue(issubclass(module.Path, WindowsPath))
+            raise RuntimeError("grader failure")
+        module = SimpleNamespace(Path=Path, main=fail)
+        with tempfile.TemporaryDirectory() as root, patch(
+            "pi_agent_py.application.evaluation.grading.sys.platform", "win32",
+        ), patch("pi_agent_py.application.evaluation.grading.importlib.import_module", return_value=module):
+            with self.assertRaises(RuntimeError):
+                grade("pinned.json", "dev", [task().instance_id], "gold", "unique", root)
+        self.assertIs(module.Path, Path)
+        self.assertEqual(calls[0]["predictions_path"], "gold")
+        self.assertEqual(calls[0]["dataset_name"], "pinned.json")
 
 
 class ScriptedDocker:

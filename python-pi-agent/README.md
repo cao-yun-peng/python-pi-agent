@@ -223,4 +223,4 @@ workspace 文件端口和 `read` 工具见[第 39 章](tutorials/39-workspace-re
 
 ## SWE-bench Lite 评测适配
 
-应用入口 `examples/47_swebench_evaluation.py` 提供 demo、固定 revision 的 prepare、单题 run 和官方 grade。先运行 `demo --output ../.tmp/swe-demo-001`（在包目录中）；它只用 FakeProvider，生成请求快照、会话、trace 和补丁，不代表真实任务成功率。真实 Docker/模型接入与 gold baseline 步骤见[第 45 章](tutorials/45-swebench-evaluation.md)。安装 `[eval]` 仅添加数据下载依赖，官方 SWE-bench 判分器需独立安装并固定版本。
+应用入口 `examples/47_swebench_evaluation.py` 提供 demo、固定 revision 的 prepare、单题 run 和官方 grade。先运行 `demo --output ../.tmp/swe-demo-001`（在包目录中）；它只用 FakeProvider，生成请求快照、会话、trace 和补丁，不代表真实任务成功率。真实 Docker/模型接入与 gold baseline 步骤见[第 45 章](tutorials/45-swebench-evaluation.md)。可选 `[eval]` 安装数据下载依赖和固定版本的官方判分器；Windows LF 传输兼容与真实 gold baseline 证据见同章。

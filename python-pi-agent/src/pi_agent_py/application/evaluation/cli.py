@@ -144,7 +144,7 @@ def main() -> int:
         asyncio.run(demo(args.output))
         return 0
     return subprocess.run((
-        sys.executable, "-m", "swebench.harness.run_evaluation",
+        sys.executable, "-m", "pi_agent_py.application.evaluation.grading",
         "--dataset_name", str(args.dataset.resolve()), "--split", args.split,
         "--predictions_path", "gold" if args.gold else str(args.predictions.resolve()),
         "--instance_ids", *args.instance_id, "--max_workers", "1", "--run_id", args.run_id,

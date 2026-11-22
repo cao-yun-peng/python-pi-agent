@@ -119,3 +119,6 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## SWE-bench 评测应用
 
 本切片是 Python 应用层扩展，不宣称与固定 Pi commit 的评测接口等价。借鉴既有小核心和 ShellExecutor 接缝，复用正式 Runtime；DeepSeek Harness 对应能力五要素与可重放证据，但不移植其 case/verifier/scorecard 系统。评测数据与判分契约以 SWE-bench 官方 CodingTask 字段、本地 JSON loader 和 grader 为准（2026-11-22 核对）；实际实验必须固定 HF revision、镜像 ID、Harness commit 与官方 grader 版本。首版省略多 Agent、并发调度、模型裁判和排行榜上传。见 ADR 0047、第 45 章、test_swebench_evaluation。
+
+
+Windows LF 兼容针对 swebench 5.0.2 的文件传输，不对应新增 Pi/DeepSeek Harness 能力。保持官方测试与 grader，模块内 Path 适配只影响进入 Linux 的两个文本产物；不移植第三方测试逻辑。

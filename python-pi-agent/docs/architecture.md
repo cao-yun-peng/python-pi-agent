@@ -253,3 +253,6 @@ ModelCompactionStrategy 的默认 system 文本提供八个任务恢复章节，
 ## SWE-bench 单题评测应用（ADR 0047）
 
 application/evaluation 在组装层消费正式 Runtime 和 ShellExecutor：CodingTask 白名单投影 → TaskEnvironment → BashTool → 实际 diff → 官方预测格式。DockerTaskEnvironment 独占持久容器，/testbed 文件跨调用保留，命令使用新 shell；不挂载宿主目录/凭据，默认禁网并记录 image ID。根可写，明确 partial enforcement，不改变正式 ProcessSandbox 契约。RecordingModelProvider 与 JsonlSessionStore 记录输入和执行事实；官方 grader 读取固定 revision 的独立原始数据，在干净环境判分。completed 与 resolved 分开；运行报告始终 resolved=null，评分以官方报告为准。
+
+
+Windows 官方判分通过独立 grading 子进程调用 swebench 5.0.2 main，只替换该模块的 Path 构造器，确保 eval.sh/patch.diff 为 Linux LF 字节；finally 恢复，不改变全局 pathlib、第三方安装文件或官方判分规则。真实 gold baseline 已验证，见 ADR 0047 补充和第 45 章。

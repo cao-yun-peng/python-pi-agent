@@ -17,7 +17,7 @@
 先安装可选的数据和评分依赖到单独评测虚拟环境，并记录具体版本（建议冻结 requirements）；本包导入不要求这些依赖。运行以下步骤会联网下载数据/镜像；真实 run 会调用你配置的模型。
 
 ```powershell
-python -m pip install datasets swebench
+python -m pip install -e "./python-pi-agent[eval]"
 ```
 
 从 HF 数据集 Files 页复制当前 commit hash，将下面 REVISION 替换成完整 40 位值。prepare 不接受 main，避免题库更新改变实验。
@@ -68,3 +68,9 @@ python .\python-pi-agent\examples\47_swebench_evaluation.py grade --dataset .tmp
 尝试使用不存在的本地镜像：应写 infrastructure_error、resolved=null，无预测。运行中取消应传播到模型并删除任务容器；单条命令超时也会作废容器，不能自动重试副作用未知的命令。patch 超过输出预算时拒绝发布半份补丁。
 
 本章没有实现多题调度、模型 judge、排行榜提交或压缩质量数据集。与 Pi/DeepSeek Harness 的对应关系见 ADR 0047 和 upstream-mapping；本章评测入口属于 Python 应用扩展，不依赖上游 SDK。
+
+## Windows 真实环境验证与换行兼容
+
+2026-11-22 使用 datasets 5.2.0、swebench 5.0.2 和 Docker 7.2.0，在 HF revision `b0dde1093fe417d83b7184254edf8199c1f0dff5` 的开发题 `marshmallow-code__marshmallow-1359` 上验证环境。官方任务镜像 digest 为 `sha256:440807ded8d239ea71daaf31d3158013e58b9cdfad8a56d4f82e646426d3f4e6`。真实环境测试已验证 conda 激活、跨命令文件保留与新文件 diff；官方 gold baseline 为 resolved=true，77 个测试通过。该结果验证的是参考补丁和判分环境，不是我们的 Agent 任务成功率。
+
+直接在 Windows 启动官方 5.0.2 grader 时，其 Path.write_text 会将 patch.diff 和 eval.sh 写成 CRLF，导致容器报 `pipefail: invalid option` 和补丁无法应用。本应用的 grade 子进程通过 grading.py 调用相同官方 main，仅在该模块内临时替换 Windows Path 构造器，对这两个文件写入 UTF-8/LF 字节，结束或失败均恢复原构造器；不修改安装包、全局 pathlib 或测试判分规则。汇总报告默认保存到 `.tmp/swebench-reports`，逐题日志仍在官方 logs/run_evaluation 目录。
