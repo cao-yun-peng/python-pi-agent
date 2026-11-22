@@ -222,3 +222,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## 结构化摘要练习
 
 阅读[第 44 章](../tutorials/44-structured-compaction-prompts.md)，运行示例 46，追踪 system 摘要规则、user 历史数据、空工具列表、durable checkpoint 与压缩事件。解释计划与已完成的区别、未知副作用为什么不能安全重试。运行 test_compaction、test_system_prompts 和 test_session_runtime；区分请求契约验证与真实模型摘要质量评测。
+
+
+## SWE-bench 评测切片
+
+阅读第 45 章，先运行示例 47 demo，查看两次 requests、tool result、patch 和 resolved=null。再固定 HF revision 选择开发题，验证 gold baseline 后接入模型。失败时区分环境、Runtime、补丁应用和测试判分；取消必须关闭任务容器。默认测试 test_swebench_evaluation 不下载数据或访问模型；真实评测须安装独立工具并显式准备镜像。

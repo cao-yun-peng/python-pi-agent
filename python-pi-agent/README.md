@@ -219,3 +219,8 @@ workspace 文件端口和 `read` 工具见[第 39 章](tutorials/39-workspace-re
 
 
 `ModelCompactionStrategy` 的默认摘要模板提供八个任务恢复章节，区分已完成、计划、阻塞和关键证据；自定义 system_prompt 仍可完整覆盖。见[第 44 章](tutorials/44-structured-compaction-prompts.md)、[离线示例 46](examples/46_structured_compaction.py)与 [ADR 0046](docs/adr/0046-structured-compaction-prompts.md)。
+
+
+## SWE-bench Lite 评测适配
+
+应用入口 `examples/47_swebench_evaluation.py` 提供 demo、固定 revision 的 prepare、单题 run 和官方 grade。先运行 `demo --output ../.tmp/swe-demo-001`（在包目录中）；它只用 FakeProvider，生成请求快照、会话、trace 和补丁，不代表真实任务成功率。真实 Docker/模型接入与 gold baseline 步骤见[第 45 章](tutorials/45-swebench-evaluation.md)。安装 `[eval]` 仅添加数据下载依赖，官方 SWE-bench 判分器需独立安装并固定版本。

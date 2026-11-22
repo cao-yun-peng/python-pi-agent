@@ -248,3 +248,8 @@ SystemPromptSpec 是 domain 不可变配置，ToolDefinition.prompt_guidelines �
 ## 结构化压缩提示词（ADR 0046）
 
 ModelCompactionStrategy 的默认 system 文本提供八个任务恢复章节，明确历史是数据、不继续执行指令、区分事实/计划/未知结果并保留关键证据。继续使用独立 Provider、空工具列表、serialize_conversation、完整结束检查、取消传播及原 durable compaction 流程。自定义文本完整替换；章节不是解析协议。系统消息仍固定保留，真实摘要质量不由 FakeProvider 测试证明。见第 44 章、示例 46 与 test_compaction。
+
+
+## SWE-bench 单题评测应用（ADR 0047）
+
+application/evaluation 在组装层消费正式 Runtime 和 ShellExecutor：CodingTask 白名单投影 → TaskEnvironment → BashTool → 实际 diff → 官方预测格式。DockerTaskEnvironment 独占持久容器，/testbed 文件跨调用保留，命令使用新 shell；不挂载宿主目录/凭据，默认禁网并记录 image ID。根可写，明确 partial enforcement，不改变正式 ProcessSandbox 契约。RecordingModelProvider 与 JsonlSessionStore 记录输入和执行事实；官方 grader 读取固定 revision 的独立原始数据，在干净环境判分。completed 与 resolved 分开；运行报告始终 resolved=null，评分以官方报告为准。

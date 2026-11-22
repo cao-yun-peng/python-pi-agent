@@ -93,3 +93,10 @@
 | 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|
 | 任务恢复摘要 | 分开事实、计划、验证证据和未知结果 | 既有 ModelCompactionStrategy 的八章节模板与自定义替换 | test_compaction、test_system_prompts、Session 失败/取消回归 | 第 44 章、示例 46、ADR 0046 | 能追踪摘要请求到 durable checkpoint，解释无工具边界与提示词要求，以及 FakeProvider 无法证明语义质量 |
+
+
+## 代码任务端到端评测
+
+| 理论 | 最小实现 | 完整实现边界 | 测试 | 教程与掌握标准 |
+|---|---|---|---|---|
+| 模型+工具+Harness 的组合评测；执行完成不等于修复成功 | CodingTask、TaskEnvironment、Docker Provider、正式 Runtime Consumer、CLI 和输入/轨迹/预测证据 | 单题适配已实现；真实任务分数待固定环境与模型实测，多题汇总/持续评测待实现 | FakeProvider、固定 revision、gold 隔离、持久环境、非零退出、失败、取消、截断；显式进程集成 | 第 45 章 / 示例 47 / ADR 0047；能解释 F2P/P2P、gold baseline 和固定分母，依据 trace 定位失败 |

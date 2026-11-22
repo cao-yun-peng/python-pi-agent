@@ -114,3 +114,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## 结构化压缩提示词
 
 固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/compaction/utils.ts::SUMMARIZATION_SYSTEM_PROMPT` 与 `compaction.ts::SUMMARIZATION_PROMPT` 对应摘要角色、固定恢复结构及精确路径/符号/错误保留要求。Python 增加已验证/计划/未知结果区分，沿用现有独立 ModelProvider 与空工具列表，不复制分支摘要、增量更新和严格格式协议。DeepSeek Harness 对应已存在的 CompactionStrategy 能力接缝，本次无新增资源生命周期。见 ADR 0046、第 44 章、示例 46。
+
+
+## SWE-bench 评测应用
+
+本切片是 Python 应用层扩展，不宣称与固定 Pi commit 的评测接口等价。借鉴既有小核心和 ShellExecutor 接缝，复用正式 Runtime；DeepSeek Harness 对应能力五要素与可重放证据，但不移植其 case/verifier/scorecard 系统。评测数据与判分契约以 SWE-bench 官方 CodingTask 字段、本地 JSON loader 和 grader 为准（2026-11-22 核对）；实际实验必须固定 HF revision、镜像 ID、Harness commit 与官方 grader 版本。首版省略多 Agent、并发调度、模型裁判和排行榜上传。见 ADR 0047、第 45 章、test_swebench_evaluation。
