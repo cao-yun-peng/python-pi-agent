@@ -26,6 +26,9 @@ from ..tools.approval import DenyByDefaultApprovalPolicy
 from ..tools.gates import DeclaredSideEffectGate
 from ..runtime.middleware import Middleware
 from ..tools.schema import SubsetSchemaValidator
+from ..domain import SystemPromptSpec
+from ..errors import ConfigurationError
+from .prompts import CODING_PROMPT
 
 ToolFactory = Callable[[], Tool]
 ApprovalPolicyFactory = Callable[[], ApprovalPolicy]
@@ -52,8 +55,14 @@ class AgentProfile:
     max_model_requests: int = _DEFAULT_MAX_MODEL_REQUESTS
     middleware_factories: tuple[Callable[[], Middleware], ...] = ()
     schema_validator_factory: Callable[[], SchemaValidator] | None = None
+    prompt_spec: SystemPromptSpec | None = None
 
     def __post_init__(self) -> None:
+        if self.prompt_spec is not None:
+            if not isinstance(self.prompt_spec, SystemPromptSpec):
+                raise ConfigurationError("prompt_spec must be SystemPromptSpec")
+            if self.system_prompt is not None:
+                raise ConfigurationError("system_prompt and prompt_spec are mutually exclusive")
         if not self.name.strip():
             raise ValueError("profile name must not be empty")
         if self.system_prompt is not None and not self.system_prompt.strip():
@@ -99,6 +108,7 @@ class AgentProfile:
             compaction=compaction,
             next_turn_hook=hook() if hook is not None else None,
             system_prompt=self.system_prompt,
+            prompt_spec=self.prompt_spec,
             max_model_requests=self.max_model_requests,
         )
 
@@ -112,6 +122,7 @@ def coding_profile() -> AgentProfile:
     """Return policy defaults for explicitly assembled coding tools."""
     return AgentProfile(
         name="coding",
+        prompt_spec=CODING_PROMPT,
         approval_policy_factory=DenyByDefaultApprovalPolicy,
         execution_gate_factory=lambda: DeclaredSideEffectGate(
             allowed_side_effects=("none", "read", "write", "external"),

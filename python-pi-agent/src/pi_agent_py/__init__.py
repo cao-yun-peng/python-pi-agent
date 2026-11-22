@@ -15,7 +15,7 @@ from .ports import SchemaValidator
 from .tools.decorator import DecoratedTool, ToolError, tool
 from .tools.result_truncation import TruncateToolResults
 from .runtime.middleware import Middleware
-from .domain import ToolResultContext
+from .domain import ToolResultContext, SystemPromptSpec
 from .ports import ToolResultHook
 from .errors import MiddlewareError
 from .application.provider_catalog import (
@@ -462,6 +462,7 @@ __all__ = [
     "TokenEstimator",
     "ToolCall",
     "ToolDefinition",
+    "SystemPromptSpec",
     "ToolExecutionContext",
     "ToolExecutionDeniedError",
     "ToolExecutionGate",

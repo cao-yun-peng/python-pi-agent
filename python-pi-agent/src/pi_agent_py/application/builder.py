@@ -273,6 +273,7 @@ class AgentRuntimeBuilder:
         return self
 
     def with_system_prompt(self, prompt: str | None) -> AgentRuntimeBuilder:
+        """Replace the complete prompt (None disables profile text and tool rules)."""
         if prompt is not None and not prompt.strip():
             raise ValueError("system prompt must not be empty")
         self._system_prompt = prompt
@@ -466,6 +467,7 @@ class AgentRuntimeBuilder:
                 if self._system_prompt is _UNSET
                 else cast(str | None, self._system_prompt)
             ),
+            prompt_spec=profile.prompt_spec if self._system_prompt is _UNSET else None,
             max_model_requests=(
                 profile.max_model_requests
                 if self._max_model_requests is None

@@ -11,6 +11,7 @@ from typing import cast
 
 from pi_agent_py.api import (
     AgentComponents,
+    SystemPromptSpec,
     AgentEvent,
     AgentEventEnvelope,
     AgentRuntimeBuilder,
@@ -286,6 +287,7 @@ class SessionSpecTests(unittest.IsolatedAsyncioTestCase):
             "compaction": object(),
             "next_turn_hook": object(),
             "system_prompt": "changed",
+            "prompt_spec": SystemPromptSpec("Changed"),
             "max_model_requests": 2,
         }
         self.assertEqual(

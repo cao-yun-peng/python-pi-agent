@@ -14,7 +14,11 @@ class WriteTool:
             "Use write for new files or complete rewrites; use edit for precise changes. Never retry an unknown outcome automatically.",
             {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"},
                 "expected_version": {"type": ["string", "null"]}}, "required": ["path", "content"], "additionalProperties": False},
-            side_effects="write", requires_approval=requires_approval, retry_safe=False, replay_safe=False, timeout_seconds=35)
+            side_effects="write", requires_approval=requires_approval, retry_safe=False, replay_safe=False, timeout_seconds=35,
+            prompt_guidelines=(
+                "Use write for new files or full rewrites; read existing files first and provide expected_version when overwriting.",
+                "Never automatically retry a file mutation whose outcome is unknown.",
+            ))
 
     @property
     def definition(self) -> ToolDefinition:

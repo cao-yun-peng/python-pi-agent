@@ -125,6 +125,31 @@ class ToolCall:
             raise ValueError("tool call name must not be empty")
 
 
+def _prompt_rules(value: tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(value, str):
+        raise TypeError("prompt rules must be a sequence of strings")
+    rules = tuple(value)
+    if any(not isinstance(rule, str) for rule in rules):
+        raise TypeError("prompt rules must contain strings")
+    return rules
+
+
+@dataclass(frozen=True, slots=True)
+class SystemPromptSpec:
+    """Static prompt content; contains no loaders, resources, or mutable state."""
+
+    preamble: str
+    guidelines: tuple[str, ...] = ()
+    include_tool_guidelines: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.preamble, str) or not self.preamble.strip():
+            raise ValueError("prompt preamble must not be empty")
+        if type(self.include_tool_guidelines) is not bool:
+            raise TypeError("include_tool_guidelines must be a bool")
+        object.__setattr__(self, "guidelines", _prompt_rules(self.guidelines))
+
+
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
     """Model-facing contract with detached nested schema and safety metadata."""
@@ -137,6 +162,7 @@ class ToolDefinition:
     retry_safe: bool = False
     replay_safe: bool = False
     timeout_seconds: float | None = None
+    prompt_guidelines: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -144,6 +170,7 @@ class ToolDefinition:
         if not self.description.strip():
             raise ValueError("tool description must not be empty")
         object.__setattr__(self, "input_schema", _freeze_metadata(self.input_schema))
+        object.__setattr__(self, "prompt_guidelines", _prompt_rules(self.prompt_guidelines))
         if self.input_schema.get("type") != "object":
             raise ValueError("tool input schema must have type='object'")
         if self.timeout_seconds is not None and self.timeout_seconds < 0:

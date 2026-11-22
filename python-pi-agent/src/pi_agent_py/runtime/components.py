@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Self, TypedDict, Unpack
 
 from ..context.strategies import FullHistoryContextStrategy
 from ..errors import ConfigurationError
+from ..domain import SystemPromptSpec, ToolDefinition
 from ..ports import (
     ApprovalPolicy,
     CompactionPolicy,
@@ -23,6 +25,7 @@ from ..tools.approval import DenyByDefaultApprovalPolicy
 from ..tools.gates import DeclaredSideEffectGate
 from ..tools.schema import SubsetSchemaValidator
 from .middleware import Middleware
+from .prompts import render_system_prompt
 
 
 _DEFAULT_MAX_MODEL_REQUESTS = 8
@@ -51,6 +54,7 @@ class _ComponentChanges(TypedDict, total=False):
     compaction: CompactionComponents | None
     next_turn_hook: NextTurnHook | None
     system_prompt: str | None
+    prompt_spec: SystemPromptSpec | None
     max_model_requests: int
 
 
@@ -69,8 +73,14 @@ class AgentComponents:
     max_model_requests: int = _DEFAULT_MAX_MODEL_REQUESTS
     middleware: tuple[Middleware, ...] = ()
     schema_validator: SchemaValidator = field(default_factory=SubsetSchemaValidator)
+    prompt_spec: SystemPromptSpec | None = None
 
     def __post_init__(self) -> None:
+        if self.prompt_spec is not None:
+            if not isinstance(self.prompt_spec, SystemPromptSpec):
+                raise ConfigurationError("prompt_spec must be SystemPromptSpec")
+            if self.system_prompt is not None:
+                raise ConfigurationError("system_prompt and prompt_spec are mutually exclusive")
         if type(self.max_model_requests) is not int or self.max_model_requests <= 0:
             raise ValueError("max_model_requests must be a positive integer")
         tools = tuple(self.tools)
@@ -89,3 +99,10 @@ class AgentComponents:
     def replace(self, **changes: Unpack[_ComponentChanges]) -> Self:
         """Return a validated copy with the supplied fields replaced."""
         return replace(self, **changes)
+
+    def resolve_system_prompt(self, tools: Sequence[ToolDefinition] | None = None) -> str | None:
+        """Render only after final tool selection, without mutating configuration."""
+        if self.prompt_spec is None:
+            return self.system_prompt
+        definitions = tuple(tool.definition for tool in self.tools) if tools is None else tools
+        return render_system_prompt(self.prompt_spec, definitions)

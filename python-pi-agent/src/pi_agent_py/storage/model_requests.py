@@ -153,7 +153,7 @@ def _publish(root: Path, filename: str, encoded: bytes) -> None:
 
 def _encode(request: RecordedModelRequest) -> bytes:
     record = {
-        "schema_version": 1,
+        "schema_version": 2,
         # Reuse the Session codec's explicit v6 message fields, including opaque state.
         "message_schema_version": 6,
         "context": asdict(request.context),
@@ -168,6 +168,7 @@ def _encode(request: RecordedModelRequest) -> bytes:
                 "input_schema": dict(tool.input_schema), "side_effects": tool.side_effects,
                 "requires_approval": tool.requires_approval, "retry_safe": tool.retry_safe,
                 "replay_safe": tool.replay_safe, "timeout_seconds": tool.timeout_seconds,
+                "prompt_guidelines": list(tool.prompt_guidelines),
             }
             for tool in request.tools
         ],
@@ -220,7 +221,8 @@ def _decode(encoded: bytes) -> RecordedModelRequest:
         json.dumps(raw, allow_nan=False)
         record = _require_object(raw, "request")
         _require_exact_keys(record, _REQUEST_KEYS, "request")
-        if _require_int(record["schema_version"], "schema_version") != 1:
+        version = _require_int(record["schema_version"], "schema_version")
+        if version not in (1, 2):
             raise ValueError("unsupported request schema version")
         if _require_int(record["message_schema_version"], "message_schema_version") != 6:
             raise ValueError("unsupported request message version")
@@ -253,7 +255,7 @@ def _decode(encoded: bytes) -> RecordedModelRequest:
                 for message in _require_array(record["messages"], "messages")
             ),
             tools=tuple(
-                _decode_tool(_require_object(tool, "tool"))
+                _decode_tool(_require_object(tool, "tool"), version=version)
                 for tool in _require_array(record["tools"], "tools")
             ),
         )
@@ -261,8 +263,8 @@ def _decode(encoded: bytes) -> RecordedModelRequest:
         raise SessionReplayError("invalid persisted model request") from error
 
 
-def _decode_tool(record: dict[str, object]) -> ToolDefinition:
-    _require_exact_keys(record, _TOOL_KEYS, "tool")
+def _decode_tool(record: dict[str, object], *, version: int) -> ToolDefinition:
+    _require_exact_keys(record, _TOOL_KEYS | ({"prompt_guidelines"} if version == 2 else set()), "tool")
     effects = _require_string(record["side_effects"], "side_effects")
     if effects not in {"none", "read", "write", "external"}:
         raise ValueError("unsupported tool side effects")
@@ -281,4 +283,8 @@ def _decode_tool(record: dict[str, object]) -> ToolDefinition:
         retry_safe=_require_bool(record["retry_safe"], "retry_safe"),
         replay_safe=_require_bool(record["replay_safe"], "replay_safe"),
         timeout_seconds=timeout,
+        prompt_guidelines=tuple(
+            _require_string(rule, "prompt guideline")
+            for rule in _require_array(record["prompt_guidelines"], "prompt_guidelines")
+        ) if version == 2 else (),
     )

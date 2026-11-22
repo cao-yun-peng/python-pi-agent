@@ -238,3 +238,8 @@ ModelRequestTarget 与 RecordedModelRequest 属于 domain；ModelRequestStore �
 storage/model_requests.py 提供内存替身与每请求一个文件的 FileModelRequestStore。记录 v1 明确使用 message codec v6，保留 thinking、structured_content 与 provider_state；文件名由 request_id/attempt_id 摘要决定，fsync 后硬链接排他发布，取消等待底层文件操作结束。独立请求快照不进入对话历史，与 Session JSONL 共享当前版本的消息编解码器。读取只还原标准端口参数，不执行插件、工具或网络。
 
 目标模型及公共参数由应用显式提供并与适配器配置保持一致；不读取凭据或推断 SDK/HTTP 默认值。包装组合 Provider 记录逻辑请求；包装各原始重试/回退候选记录各物理尝试。请求记录只说明输入已准备，不能证明远端收到请求或生成成功；父目录掉电持久性、自动请求目录清理和跨日志原子提交不在首版保证内。见教程 42、示例 44 与 test_model_request_recording。
+
+
+## 静态系统提示词（ADR 0045）
+
+SystemPromptSpec 是 domain 不可变配置，ToolDefinition.prompt_guidelines 贡献工具操作规则。coding 的文案归 application/prompts.py；共享 runtime 纯渲染器在插件合并与 SessionSpec 选择后解析，独立 Agent 使用冻结工具定义。完整字符串与 spec 互斥；Builder 显式字符串或 None 清除 spec。新 Session 首次提交最终 system 文本，恢复沿用历史，不热更新或迁移。SessionSpec 对 spec 按值比较。请求快照写 v2 并兼容读 v1（缺省空规则），Session schema 不变。见第 43 章、示例 45 与 test_system_prompts。

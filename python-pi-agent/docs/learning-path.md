@@ -212,3 +212,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## 模型请求记录与进程退出后的还原
 
 阅读[第 42 章](../tutorials/42-recorded-model-requests.md)，运行示例 44 的 record 阶段，删除 reference.txt，再在另一个进程运行 restore。比较 Session 历史与请求快照，确认临时检索只进入后者。用 test_model_request_recording 追踪提交成功、存储失败、重复身份、重试与取消，并解释为何快照存在不能推出远端已收到请求。随后可基于这些固定输入开展离线评测，不必重跑原插件。
+
+
+## 静态系统提示词练习
+
+阅读[第 43 章](../tutorials/43-static-system-prompts.md)，运行示例 45。添加一个显式工具规则，对比 minimal/coding、完整字符串覆盖和 None 禁用。解释为什么渲染必须晚于插件合并与 SessionSpec，以及修改默认值为什么不会更新旧历史。通过 test_system_prompts、test_session_spec 和请求快照兼容测试验证。

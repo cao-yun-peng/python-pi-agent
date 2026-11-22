@@ -244,6 +244,9 @@ class BashTool:
                 "Run one Bash command in the configured workspace. Each call "
                 "uses a fresh shell; use workdir instead of relying on a prior cd."
             ),
+            prompt_guidelines=(
+                "Each Bash call starts a fresh shell; specify workdir instead of relying on a previous cd.",
+            ),
             input_schema={
                 "type": "object",
                 "properties": {

@@ -104,3 +104,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## 请求快照与长期 Session 历史
 
 对照 DeepSeek Harness commit `f3803c96974ad4a94195fb97e5c637e9c2a3afe3` 的 `docs/architecture.md` 中 Model-visible means logged，以及 `packages/core/agent-loop/src/agent.ts` 中 request/header、request/context 与 deriveMessages，对应本项目“模型输入可从持久事实还原”的目标。Python 首版用 RecordingModelProvider 保存标准 ModelProvider 端口的自包含输入，独立于 Session 历史和观察 EventSink；不移植 Cordis、请求头增量投影或 DSH 格式迁移体系。本切片不依赖上游 Pi 行为，也不宣称捕获供应商 HTTP 序列化、隐式默认值或远端响应。见 ADR 0044、教程 42 与跨进程回归测试。
+
+
+## 静态系统提示词与工具规则
+
+对照固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/system-prompt.ts::buildRules/buildSystemPromptSections`，以及 `tools/read.ts::readToolSystemPromptContribution`、`tools/edit.ts::editToolSystemPromptContribution`。Python 采用不可变 spec、工具贡献和稳定去重，在最终组装后渲染并持久化全文。省略 promptSnippet 副本、动态章节 patch、Skills/项目文件加载和热更新；不复制 Pi 批量 edit 或绝对路径契约。DeepSeek Harness 对应 Definition/Provider/Consumer/Lifecycle/Evidence 能力边界。见 ADR 0045、第 43 章、示例 45。

@@ -163,7 +163,8 @@ class ReadToolTests(unittest.IsolatedAsyncioTestCase):
                 (ReadTool(InMemoryWorkspaceFiles({"note": b"ok"})),)
             ).build() as runtime:
                 result = await runtime.run("s", "read")
-            self.assertEqual(result.messages[2].content, "ok")
+            output, = (m for m in result.messages if m.role == "tool")
+            self.assertEqual(output.content, "ok")
 
     async def test_agent_cancellation_reaches_read_backend_without_completed_result(self):
         entered, cancelled = asyncio.Event(), asyncio.Event()

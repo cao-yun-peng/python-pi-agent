@@ -28,7 +28,7 @@ class SessionSpec:
         for component in fields(AgentComponents):
             first = getattr(self.components, component.name)
             second = getattr(other.components, component.name)
-            if component.name in {"system_prompt", "max_model_requests"}:
+            if component.name in {"system_prompt", "prompt_spec", "max_model_requests"}:
                 if first != second:
                     return False
             elif component.name in {"tools", "middleware"}:

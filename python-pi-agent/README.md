@@ -211,3 +211,8 @@ workspace 文件端口和 `read` 工具见[第 39 章](tutorials/39-workspace-re
 显式用 `RecordingModelProvider` 包装 Provider，可把请求变换后的消息、工具定义、请求身份和显式公共模型设置保存到独立 `FileModelRequestStore`。记录成功后才调用 Provider；读取不运行模型、工具或原检索插件。Session 消息日志继续保存长期会话状态，请求快照独立保存临时 RAG 输入；已有 Session JSONL 格式不变。
 
 运行[示例 44](examples/44_request_recording.py)完成记录进程退出、删除检索源、另一个进程离线还原。用法、失败/取消语义、重试包装位置与数据保留责任见[第 42 章](tutorials/42-recorded-model-requests.md)；设计见 [ADR 0044](docs/adr/0044-recorded-model-requests.md)。
+
+
+## 静态系统提示词
+
+`coding_profile()` 提供短基础说明，并按最终工具集组合 `ToolDefinition.prompt_guidelines`；minimal 默认无角色。用 `AgentProfile(prompt_spec=SystemPromptSpec(...))` 提供结构化配置；Builder 的 `with_system_prompt(text)` 完整替换，`with_system_prompt(None)` 禁用。新会话持久化最终文本，恢复沿用历史。见[第 43 章](tutorials/43-static-system-prompts.md)、[示例 45](examples/45_static_system_prompt.py)和 [ADR 0045](docs/adr/0045-static-system-prompts.md)。请求快照写 v2 并继续读取 v1。

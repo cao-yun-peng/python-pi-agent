@@ -239,7 +239,7 @@ class AgentSession:
             writer = await self._load_recovered_writer(run_id=run_id)
 
             components = self._components
-            system_prompt = components.system_prompt
+            system_prompt = components.resolve_system_prompt() if not writer.snapshot.messages else None
             if not writer.snapshot.messages and system_prompt is not None:
                 await writer.commit(
                     Message(role="system", content=system_prompt),

@@ -16,7 +16,11 @@ class EditTool:
             {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"},
                 "new_text": {"type": "string"}, "expected_version": {"type": ["string", "null"]}},
                 "required": ["path", "old_text", "new_text"], "additionalProperties": False},
-            side_effects="write", requires_approval=requires_approval, retry_safe=False, replay_safe=False, timeout_seconds=35)
+            side_effects="write", requires_approval=requires_approval, retry_safe=False, replay_safe=False, timeout_seconds=35,
+            prompt_guidelines=(
+                "Before edit, read the file and provide expected_version; old_text must match exactly once. Re-read after a version conflict.",
+                "Never automatically retry a file mutation whose outcome is unknown.",
+            ))
 
     @property
     def definition(self) -> ToolDefinition:

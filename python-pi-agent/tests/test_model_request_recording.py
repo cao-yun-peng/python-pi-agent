@@ -47,6 +47,21 @@ def sample_request():
 
 
 class RequestValueTests(unittest.TestCase):
+    def test_v2_preserves_tool_rules_and_v1_restores_empty_rules(self):
+        original = sample_request()
+        request = replace(original, tools=(replace(original.tools[0], prompt_guidelines=("Use echo.",)),))
+        encoded = storage._encode(request)
+        self.assertEqual(storage._decode(encoded), request)
+        legacy = json.loads(encoded)
+        legacy["schema_version"] = 1
+        del legacy["tools"][0]["prompt_guidelines"]
+        self.assertEqual(storage._decode(json.dumps(legacy).encode()), original)
+        for invalid in ("characters", [42], None):
+            record = json.loads(encoded)
+            record["tools"][0]["prompt_guidelines"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaises(SessionReplayError):
+                storage._decode(json.dumps(record).encode())
+
     def test_codec_round_trip_includes_every_provider_argument(self):
         request = sample_request()
         self.assertEqual(storage._decode(storage._encode(request)), request)
@@ -69,7 +84,7 @@ class RequestValueTests(unittest.TestCase):
     def test_codec_rejects_unsupported_malformed_and_nonfinite_records(self):
         baseline = json.loads(storage._encode(sample_request()))
         cases = []
-        for key, value in (("schema_version", 2), ("message_schema_version", 7),
+        for key, value in (("schema_version", 3), ("message_schema_version", 7),
                            ("schema_version", True), ("tools", {})):
             cases.append({**baseline, key: value})
         cases.append({**baseline, "context": {**baseline["context"], "purpose": "unknown"}})

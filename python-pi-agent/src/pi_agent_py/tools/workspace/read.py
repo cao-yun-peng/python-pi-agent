@@ -22,6 +22,9 @@ class ReadTool:
             }, "required": ["path"], "additionalProperties": False},
             side_effects="read", requires_approval=requires_approval,
             retry_safe=True, replay_safe=False, timeout_seconds=35.0,
+            prompt_guidelines=(
+                "For read, use workspace-relative POSIX paths; continue with next_offset when more lines remain.",
+            ),
         )
 
     @property

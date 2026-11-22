@@ -157,7 +157,8 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
             provider = FakeProvider([[ToolCall("w", "write", {"path": "x", "content": "new", "expected_version": revision}), Finish("tool_calls")], [Finish()]])
             async with await AgentRuntimeBuilder().with_provider(provider).with_profile(profile).with_tools((WriteTool(files),)).with_approval_policy(StaticApprovalPolicy(approve)).build() as runtime:
                 result = await runtime.run("s", "write")
-            self.assertTrue(result.messages[2].is_error)
+            output, = (m for m in result.messages if m.role == "tool")
+            self.assertTrue(output.is_error)
             self.assertEqual((await files.read_text(WorkspaceReadRequest("x"))).text, "old")
             self.assertEqual(calls, [])
 
@@ -181,7 +182,8 @@ class MutationDispatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(requests[0].mode, "workspace-write")
             self.assertIn(b"PRIVATE-CONTENT-", requests[0].stdin)
             self.assertNotIn("PRIVATE-CONTENT-", " ".join(requests[0].argv))
-            self.assertEqual(result.messages[2].structured_content["code"], "outcome_unknown")
+            output, = (m for m in result.messages if m.role == "tool")
+            self.assertEqual(output.structured_content["code"], "outcome_unknown")
 
     async def test_cancel_keeps_mutation_lock_until_backend_cleanup_finishes(self):
         entered, cleanup, release = asyncio.Event(), asyncio.Event(), asyncio.Event()

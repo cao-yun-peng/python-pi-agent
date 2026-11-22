@@ -119,7 +119,7 @@ class Agent:
             raise TypeError("Agent requires AgentComponents")
         if session_id is not None and not session_id.strip():
             raise ValueError("session_id must not be empty")
-        if initial_messages and components.system_prompt is not None:
+        if initial_messages and (components.system_prompt is not None or components.prompt_spec is not None):
             raise ValueError(
                 "initial_messages and system_prompt cannot be supplied together"
             )
@@ -142,7 +142,7 @@ class Agent:
         self._active_run_id: str | None = None
         self._active_turn_id: str | None = None
         self._messages = list(initial_messages)
-        initial_prompt = self._components.system_prompt
+        initial_prompt = self._components.resolve_system_prompt(self._tool_definitions)
         if not self._messages and initial_prompt is not None:
             self._messages.append(Message(role="system", content=initial_prompt))
         self._run_lock = asyncio.Lock()
@@ -160,7 +160,7 @@ class Agent:
     ) -> Agent:
         # The session commits the system prompt durably before restoring history.
         agent = cls(
-            components.replace(system_prompt=None) if initial_messages else components,
+            components.replace(system_prompt=None, prompt_spec=None) if initial_messages else components,
             event_sink=event_sink,
             initial_messages=initial_messages,
             session_id=session_id,

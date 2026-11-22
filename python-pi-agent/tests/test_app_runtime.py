@@ -192,6 +192,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             ),
             "next_turn_hook": (len(hook.calls), 2),
             "system_prompt": (provider.requests[0][0].content, "Be concise."),
+            "prompt_spec": (profile.prompt_spec, None),
             "max_model_requests": (len(provider.requests), 5),
         }
         self.assertEqual(set(observations), {field.name for field in fields(AgentComponents)})
@@ -358,9 +359,10 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "external",
         )
         self.assertTrue(provider.requested_tools[0][0].requires_approval)
-        self.assertEqual(result.messages[2].role, "tool")
-        self.assertTrue(result.messages[2].is_error)
-        self.assertIn("SandboxUnavailableError", result.messages[2].content)
+        self.assertEqual(result.messages[0].role, "system")
+        tool_result, = (message for message in result.messages if message.role == "tool")
+        self.assertTrue(tool_result.is_error)
+        self.assertIn("SandboxUnavailableError", tool_result.content)
         self.assertEqual(result.message.content, "recovered")
 
     async def test_shutdown_cancels_active_run_after_zero_grace(self) -> None:
