@@ -1,5 +1,7 @@
 # ADR 0015: Durable Event Correlation Metadata
 
+> 2026-11-22 修订：下文关于旧版 JSONL 兼容、自动生成 metadata 和兼容测试的描述记录当时的决定，现已由 [ADR 0005](0005-jsonl-session-store.md) 的修订取代。当前仅接受 schema v6，metadata 字段必须完整，非当前格式直接拒绝。
+
 ## 背景
 
 原有 durable event 只有 `session_id + sequence`。它可以重放消息，却不能回答某条消息属于哪次 run、哪次模型请求，或者是用户、模型、工具、恢复逻辑还是压缩器产生的。并行工具、队列和多 Agent 都需要稳定的因果关联。

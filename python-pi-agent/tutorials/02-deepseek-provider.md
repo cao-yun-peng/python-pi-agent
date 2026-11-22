@@ -637,7 +637,7 @@ reasoning_content SSE chunks
 - thinking 关闭时，字段没有意义；
 - 盲目回传可能增加 token，甚至触发供应商校验失败。
 
-`Message.thinking` 会随 assistant 消息进入 durable session log。JSONL schema v2 保存该字段，读取旧 schema v1 时使用空字符串，因此进程重启后的 replay 不会丢失新日志中的 reasoning 状态。日志可能包含模型推理内容，应与普通会话历史使用相同的访问控制和保留策略。
+`Message.thinking` 会随 assistant 消息进入 durable session log。当前 JSONL schema v6 要求包含该字段，因此进程重启后的 replay 不会丢失日志中的 reasoning 状态；旧版本日志直接拒绝，不自动补字段。日志可能包含模型推理内容，应与普通会话历史使用相同的访问控制和保留策略。
 
 ---
 

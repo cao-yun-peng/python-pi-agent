@@ -249,7 +249,7 @@ def _decode(encoded: bytes) -> RecordedModelRequest:
                 cast(dict[str, JSONValue], _require_object(target["parameters"], "parameters")),
             ),
             messages=tuple(
-                _decode_message(_require_object(message, "message"), 6)
+                _decode_message(_require_object(message, "message"))
                 for message in _require_array(record["messages"], "messages")
             ),
             tools=tuple(

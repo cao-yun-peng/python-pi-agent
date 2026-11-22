@@ -1,5 +1,7 @@
 # ADR 0006：保存并回传 Provider 可见的 Thinking 状态
 
+> 2026-11-22 修订：下文关于旧版 JSONL 兼容和 fixture 的描述记录当时的决定，现已由 [ADR 0005](0005-jsonl-session-store.md) 的修订取代。当前仅接受 schema v6，不补 thinking；测试验证当前格式往返与非当前格式拒绝。
+
 ## 状态
 
 Accepted

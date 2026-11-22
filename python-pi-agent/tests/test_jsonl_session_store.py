@@ -131,105 +131,54 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(event.turn_id, "run-1:turn:1")
             self.assertEqual(event.provenance, context.provenance)
 
-    async def test_reads_legacy_v1_message_without_thinking(self) -> None:
+    async def test_rejects_non_current_schema_without_changing_log(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.jsonl"
-            record = {
-                "schema_version": 1,
-                "session_id": "legacy",
-                "sequence": 1,
-                "kind": "message_committed",
-                "message": {
-                    "role": "assistant",
-                    "content": "旧消息",
-                    "tool_calls": [],
-                    "tool_call_id": None,
-                    "tool_name": None,
-                    "is_error": False,
-                    "structured_content": None,
-                },
-            }
-            path.write_text(
-                json.dumps(record, ensure_ascii=False) + "\n",
-                encoding="utf-8",
+            await JsonlSessionStore(path).append(
+                "demo", 0, [Message(role="user", content="keep me")]
             )
+            record = json.loads(path.read_text(encoding="utf-8"))
+            for version in (0, 1, 2, 3, 4, 5, 7):
+                with self.subTest(schema_version=version):
+                    record["schema_version"] = version
+                    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+                    original = path.read_bytes()
+                    store = JsonlSessionStore(path)
+                    error = f"line 1: unsupported schema_version: {version}"
+                    with self.assertRaisesRegex(SessionReplayError, error):
+                        await store.load("demo")
+                    with self.assertRaisesRegex(SessionReplayError, error):
+                        await store.append(
+                            "demo", 1, [Message(role="assistant", content="new")]
+                        )
+                    self.assertEqual(path.read_bytes(), original)
 
-            snapshot = await JsonlSessionStore(path).load("legacy")
-            event = (await JsonlSessionStore(path).read_events("legacy"))[0]
-
-            self.assertEqual(
-                snapshot.messages,
-                (Message(role="assistant", content="旧消息"),),
-            )
-            self.assertEqual(event.event_id, "legacy:1")
-            self.assertEqual(event.provenance.source, "legacy")
-
-    async def test_reads_legacy_v2_message_with_thinking(self) -> None:
+    async def test_current_schema_requires_complete_fields(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.jsonl"
-            record = {
-                "schema_version": 2,
-                "session_id": "legacy",
-                "sequence": 1,
-                "kind": "message_committed",
-                "message": {
-                    "role": "assistant",
-                    "content": "旧回答",
-                    "thinking": "旧思考",
-                    "tool_calls": [],
-                    "tool_call_id": None,
-                    "tool_name": None,
-                    "is_error": False,
-                    "structured_content": None,
-                },
-            }
-            path.write_text(
-                json.dumps(record, ensure_ascii=False) + "\n",
-                encoding="utf-8",
+            await JsonlSessionStore(path).append(
+                "demo", 0, [Message(role="user", content="hello")]
             )
-
-            snapshot = await JsonlSessionStore(path).load("legacy")
-
-            self.assertEqual(
-                snapshot.messages,
-                (
-                    Message(
-                        role="assistant",
-                        content="旧回答",
-                        thinking="旧思考",
-                    ),
-                ),
-            )
-
-    async def test_reads_legacy_v3_event_with_compaction_slot(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "sessions.jsonl"
-            record = {
-                "schema_version": 3,
-                "session_id": "legacy-v3",
-                "sequence": 1,
-                "kind": "message_committed",
-                "message": {
-                    "role": "user",
-                    "content": "旧 v3 消息",
-                    "thinking": "",
-                    "tool_calls": [],
-                    "tool_call_id": None,
-                    "tool_name": None,
-                    "is_error": False,
-                    "structured_content": None,
-                },
-                "compaction": None,
-            }
-            path.write_text(
-                json.dumps(record, ensure_ascii=False) + "\n",
-                encoding="utf-8",
-            )
-
-            event = (await JsonlSessionStore(path).read_events("legacy-v3"))[0]
-
-            self.assertEqual(event.event_id, "legacy-v3:1")
-            self.assertEqual(event.provenance.source, "legacy")
+            encoded = path.read_text(encoding="utf-8")
+            for scope, key in (
+                ("event", "event_id"),
+                ("event", "run_id"),
+                ("event", "turn_id"),
+                ("event", "provenance"),
+                ("event", "compaction"),
+                ("event", "control"),
+                ("message", "thinking"),
+                ("message", "provider_state"),
+            ):
+                with self.subTest(scope=scope, missing=key):
+                    record = json.loads(encoded)
+                    target = record if scope == "event" else record["message"]
+                    del target[key]
+                    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+                    with self.assertRaisesRegex(
+                        SessionReplayError, f"line 1: {scope} keys mismatch"
+                    ):
+                        await JsonlSessionStore(path).load("demo")
 
     async def test_compaction_survives_reopen_and_keeps_original_events(
         self,
@@ -389,7 +338,7 @@ class JsonlSessionStoreTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejects_malformed_log_and_maps_io_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.jsonl"
-            path.write_text('{"schema_version":1}\n', encoding="utf-8")
+            path.write_text('{"schema_version":6}\n', encoding="utf-8")
 
             with self.assertRaisesRegex(SessionReplayError, "line 1"):
                 await JsonlSessionStore(path).load("demo")

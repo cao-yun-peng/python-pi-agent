@@ -5,7 +5,7 @@
 1. **消息、流和最小循环**：理解一次 Agent run 如何开始、提交和 settled。
 2. **真实 Provider 适配与组装**：DeepSeek/Kimi/GLM Chat Completions 与 TiMi Responses 的认证、错误映射、模型能力、续接状态和生命周期，以及显式 YAML/dotenv 配置边界。
 3. **工具调用**：schema、调度、tool result、失败和权限。
-4. **会话与事件日志**：追加式存储、回放、恢复和分叉。
+4. **会话与事件日志**：追加式存储、回放、恢复和分叉；JSONL 仅接受当前 schema，练习验证旧版拒绝与字段完整性，不维护开发期兼容分支。
 5. **上下文策略**：资源加载、token budget、裁剪与压缩。
 6. **Provider 工程化**：重试、退避、限流、多供应商和模型能力。
 7. **插件与 Hook**：观察、拦截、生命周期和释放。

@@ -64,7 +64,7 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 | `SessionCompaction` / `context_compacted` | `CompactionEntry` 与 session context reconstruction | durable capability evidence | 保存前缀替换操作并由 replay 应用；当前不支持 split-turn 和文件跟踪 |
 | `SessionStore` / `SessionSnapshot` | `SessionManager` 与 session entries | Definition / Provider / Consumer / Evidence | 内存与单写者 JSONL Provider 均支持持久化 fork 和尾部未决工具调用恢复，待 durable tool-started 事实与多进程事务 |
 | `prepare_session_append` / `prepare_session_compaction` / `fork_session_events` | session append / compaction / fork rules | Provider 共享的纯状态转换 | 内存和 JSONL 使用同一套 replay、append、compact 与 fork 规则 |
-| `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | schema v6 支持压缩、控制 transition、event/run/turn/provenance、provider-owned state、严格格式、刷盘和 v1-v5 兼容读取，尚无跨进程文件锁与迁移工具 |
+| `JsonlSessionStore` | Pi 的 JSONL session persistence | 可替换持久化 Provider | 仅读写 schema v6，支持压缩、控制 transition、event/run/turn/provenance、provider-owned state、严格格式与刷盘；不保留开发期历史格式兼容，尚无跨进程文件锁与迁移工具 |
 | `DurableSessionEvent` | session entries + run/turn lifecycle correlation | append-only facts + replayable projection | 每个事实有稳定 event ID、run/turn 和来源；fork 通过 copied_from_event_id 保留来源 |
 | committed `Message` | agent state messages | model-visible state 必须可从 durable log 重建 | 文本、tool call、tool result 与 assistant thinking 已能回放；损坏序号会被拒绝 |
 | `run_settled` / `AgentSession.wait_until_idle()` | Pi `agent_settled` / `waitForIdle()` | per-run lifecycle + session control barrier | 明确区分单 run settled 与无活动/无 follow-up 的 session idle |

@@ -20,7 +20,7 @@ append message
 每一行包含格式版本和完整事件：
 
 ```json
-{"schema_version":2,"session_id":"demo","sequence":1,"kind":"message_committed","message":{"role":"user","content":"你好","thinking":"","tool_calls":[],"tool_call_id":null,"tool_name":null,"is_error":false,"structured_content":null}}
+{"schema_version":6,"session_id":"demo","sequence":1,"kind":"message_committed","event_id":"demo:1","run_id":null,"turn_id":null,"provenance":{"source":"user","actor_id":null,"cause_event_id":null,"copied_from_event_id":null},"message":{"role":"user","content":"你好","thinking":"","tool_calls":[],"tool_call_id":null,"tool_name":null,"is_error":false,"structured_content":null,"provider_state":[]},"compaction":null,"control":null}
 ```
 
 `schema_version` 描述磁盘格式，不等于 `SessionSnapshot.version`：
@@ -29,9 +29,9 @@ append message
 - `sequence`：事件在这个 session 中的位置。
 - `SessionSnapshot.version`：replay 完成后的日志位置。
 
-当前编码器写入 schema v2，用 `message.thinking` 保存完成的 assistant reasoning。解码器仍支持
-schema v1，并把缺失的 thinking 解释为空字符串；这是一次有测试覆盖的向后读取兼容，不是
-通用迁移框架。
+当前编码器和解码器仅支持 schema v6。`message.thinking` 保存完成的 assistant reasoning，
+`message.provider_state` 保存供应商续轮所需的 opaque state。项目处于开发阶段，只维护当前格式：
+旧版或未知版本直接报错，缺少必需字段也报错，不自动补值或迁移，开发日志需重新生成。
 
 ## 3. 严格边界验证
 
@@ -52,7 +52,7 @@ JSON 语法或记录结构损坏会抛出 `SessionReplayError`；文件读取和
 session = AgentSession(
     "demo",
     JsonlSessionStore("sessions.jsonl"),
-    provider,
+    AgentComponents(provider),
 )
 ```
 
@@ -106,7 +106,7 @@ $demoLog = Join-Path $env:TEMP "pi-agent-jsonl-$PID.jsonl"
 - 实例内锁不能协调两个独立进程。
 - “读取 version → 追加”不是跨进程原子事务。
 - 批量事件在机器突然断电时仍可能只写入一部分。
-- 除 v1→v2 的向后读取兼容外，暂无通用 schema migration、日志轮转、快照缓存和压缩。
+- 不维护历史 schema 兼容或自动迁移，暂无日志轮转和快照缓存。上下文压缩事件只改变 replay 后的上下文，不缩小日志文件。
 
 生产场景可以实现带事务的 SQLite/PostgreSQL Provider，而不改变 `AgentSession`。JSONL Provider 的价值是把序列化、刷盘、重启恢复和损坏日志语义展示清楚。
 

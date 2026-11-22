@@ -44,24 +44,20 @@ from .transitions import (
 )
 
 _SCHEMA_VERSION = 6
-_SUPPORTED_SCHEMA_VERSIONS = {1, 2, 3, 4, 5, 6}
-_LEGACY_EVENT_KEYS = {
+_EVENT_KEYS = {
     "schema_version",
     "session_id",
     "sequence",
     "kind",
     "message",
-}
-_EVENT_KEYS_V3 = {*_LEGACY_EVENT_KEYS, "compaction"}
-_EVENT_KEYS_V4 = {
-    *_EVENT_KEYS_V3,
+    "compaction",
     "event_id",
     "run_id",
     "turn_id",
     "provenance",
+    "control",
 }
-_EVENT_KEYS_V5 = {*_EVENT_KEYS_V4, "control"}
-_MESSAGE_KEYS_V1 = {
+_MESSAGE_KEYS = {
     "role",
     "content",
     "tool_calls",
@@ -69,9 +65,9 @@ _MESSAGE_KEYS_V1 = {
     "tool_name",
     "is_error",
     "structured_content",
+    "thinking",
+    "provider_state",
 }
-_MESSAGE_KEYS_V2 = {*_MESSAGE_KEYS_V1, "thinking"}
-_MESSAGE_KEYS_V6 = {*_MESSAGE_KEYS_V2, "provider_state"}
 _PROVIDER_STATE_KEYS = {"provider", "item"}
 _TOOL_CALL_KEYS = {"id", "name", "arguments"}
 _COMPACTION_KEYS = {
@@ -319,52 +315,36 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
     try:
         record = _require_object(raw, "event")
         schema_version = _require_int(record["schema_version"], "schema_version")
-        if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
+        if schema_version != _SCHEMA_VERSION:
             raise ValueError(f"unsupported schema_version: {schema_version}")
 
-        expected_event_keys = (
-            _EVENT_KEYS_V5
-            if schema_version >= 5
-            else _EVENT_KEYS_V4
-            if schema_version == 4
-            else _EVENT_KEYS_V3
-            if schema_version == 3
-            else _LEGACY_EVENT_KEYS
-        )
-        _require_exact_keys(record, expected_event_keys, "event")
+        _require_exact_keys(record, _EVENT_KEYS, "event")
 
         session_id = _require_string(record["session_id"], "session_id")
         sequence = _require_int(record["sequence"], "sequence")
         kind = _require_string(record["kind"], "kind")
-        if schema_version >= 4:
-            event_id = _require_string(record["event_id"], "event_id")
-            run_id = _require_optional_string(record["run_id"], "run_id")
-            turn_id = _require_optional_string(record["turn_id"], "turn_id")
-            provenance = _decode_provenance(
-                _require_object(record["provenance"], "provenance")
-            )
-        else:
-            event_id = f"{session_id}:{sequence}"
-            run_id = None
-            turn_id = None
-            provenance = EventProvenance(source="legacy")
+        event_id = _require_string(record["event_id"], "event_id")
+        run_id = _require_optional_string(record["run_id"], "run_id")
+        turn_id = _require_optional_string(record["turn_id"], "turn_id")
+        provenance = _decode_provenance(
+            _require_object(record["provenance"], "provenance")
+        )
         control = (
             _decode_control(
                 _require_object(record["control"], "control"),
-                schema_version,
             )
-            if schema_version >= 5 and record["control"] is not None
+            if record["control"] is not None
             else None
         )
         if kind == "message_committed":
-            if schema_version >= 3 and record["compaction"] is not None:
+            if record["compaction"] is not None:
                 raise ValueError(
                     "message_committed event compaction must be null"
                 )
             if control is not None:
                 raise ValueError("message_committed event control must be null")
             message_record = _require_object(record["message"], "message")
-            message = _decode_message(message_record, schema_version)
+            message = _decode_message(message_record)
             return DurableSessionEvent(
                 session_id=session_id,
                 sequence=sequence,
@@ -375,7 +355,7 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
                 turn_id=turn_id,
                 provenance=provenance,
             )
-        if kind == "context_compacted" and schema_version >= 3:
+        if kind == "context_compacted":
             if record["message"] is not None:
                 raise ValueError("context_compacted event message must be null")
             compaction_record = _require_object(
@@ -388,7 +368,7 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
                 session_id=session_id,
                 sequence=sequence,
                 kind="context_compacted",
-                compaction=_decode_compaction(compaction_record, schema_version),
+                compaction=_decode_compaction(compaction_record),
                 event_id=event_id,
                 run_id=run_id,
                 turn_id=turn_id,
@@ -399,7 +379,7 @@ def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
             "control_claimed",
             "control_delivered",
             "control_cancelled",
-        } and schema_version >= 5:
+        }:
             if record["message"] is not None or record["compaction"] is not None:
                 raise ValueError("control event message and compaction must be null")
             if control is None:
@@ -459,7 +439,6 @@ def _encode_control(control: ControlTransition | None) -> object:
 
 def _decode_control(
     record: Mapping[str, object],
-    schema_version: int,
 ) -> ControlTransition:
     _require_exact_keys(record, _CONTROL_KEYS, "control")
     payload_type = _require_string(record["type"], "control.type")
@@ -496,7 +475,6 @@ def _decode_control(
             claim_id=_require_string(record["claim_id"], "control.claim_id"),
             message=_decode_message(
                 _require_object(record["message"], "control.message"),
-                schema_version,
             ),
         )
     if payload_type == "cancellation":
@@ -509,16 +487,8 @@ def _decode_control(
 
 def _decode_message(
     record: Mapping[str, object],
-    schema_version: int,
 ) -> Message:
-    expected_keys = (
-        _MESSAGE_KEYS_V6
-        if schema_version >= 6
-        else _MESSAGE_KEYS_V2
-        if schema_version >= 2
-        else _MESSAGE_KEYS_V1
-    )
-    _require_exact_keys(record, expected_keys, "message")
+    _require_exact_keys(record, _MESSAGE_KEYS, "message")
     role_text = _require_string(record["role"], "message.role")
     if role_text not in _ROLES:
         raise ValueError(f"unsupported message role: {role_text}")
@@ -534,11 +504,7 @@ def _decode_message(
     return Message(
         role=cast(Role, role_text),
         content=_require_string(record["content"], "message.content"),
-        thinking=(
-            _require_string(record["thinking"], "message.thinking")
-            if schema_version >= 2
-            else ""
-        ),
+        thinking=_require_string(record["thinking"], "message.thinking"),
         tool_calls=tool_calls,
         tool_call_id=_require_optional_string(
             record["tool_call_id"],
@@ -550,17 +516,13 @@ def _decode_message(
         ),
         is_error=_require_bool(record["is_error"], "message.is_error"),
         structured_content=cast(JSONValue, record["structured_content"]),
-        provider_state=(
-            tuple(
-                _decode_provider_state(
-                    _require_object(raw_state, "message.provider_state item")
-                )
-                for raw_state in _require_array(
-                    record["provider_state"], "message.provider_state"
-                )
+        provider_state=tuple(
+            _decode_provider_state(
+                _require_object(raw_state, "message.provider_state item")
             )
-            if schema_version >= 6
-            else ()
+            for raw_state in _require_array(
+                record["provider_state"], "message.provider_state"
+            )
         ),
     )
 
@@ -591,7 +553,6 @@ def _encode_message(message: Message) -> dict[str, object]:
 
 def _decode_compaction(
     record: Mapping[str, object],
-    schema_version: int,
 ) -> SessionCompaction:
     _require_exact_keys(record, _COMPACTION_KEYS, "compaction")
     summary_record = _require_object(
@@ -607,7 +568,7 @@ def _decode_compaction(
             record["replaced_message_count"],
             "compaction.replaced_message_count",
         ),
-        summary_message=_decode_message(summary_record, schema_version),
+        summary_message=_decode_message(summary_record),
     )
 
 

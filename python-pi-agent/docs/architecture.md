@@ -124,7 +124,7 @@ durable compaction 可由 `AgentSession.compact()` 显式触发，也可在配�
 
 `SessionStore.fork()` 从源日志的指定 version 创建一个新的目标 session。两个 Store 都调用 `fork_session_events()` 复制经过 replay 校验的历史前缀，拒绝覆盖已有目标，并允许源和目标在分叉后独立追加。当前事件模型没有 `session_created` 元数据，因此持久化 fork 必须至少包含一个事件。
 
-`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。schema v2 加入 assistant thinking，v3 加入 message/compaction 互斥 payload，v4 加入 event/run/turn/provenance，v5 加入 typed control transition，v6 加入 provider-owned opaque state；解码器仍可读取 v1-v5 日志。读取、反序列化和 replay 使用相同领域对象，因此 runtime 无需感知存储变化。append、compact、record_control 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
+`JsonlSessionStore` 把多个 session 的事件写入同一个 JSONL 文件，每行包含 `schema_version` 和一个完整事件。读写仅支持当前 schema v6，包含 assistant thinking、message/compaction 互斥 payload、event/run/turn/provenance、typed control transition 和 provider-owned opaque state。开发阶段不保留历史格式兼容或自动迁移；旧版与未知版本日志直接报 `SessionReplayError`，需使用当前版本重新生成日志。读取、反序列化和 replay 使用相同领域对象，因此 runtime 无需感知存储变化。append、compact、record_control 与 fork 都通过实例内锁串行执行，写入后调用 `flush()` 与 `fsync()`；它支持进程重启后的恢复和分支恢复，但尚不支持多个进程同时写入同一文件。
 
 steer/follow-up 不再把内存 deque 当事实来源。接受控制意图先写 `control_enqueued`，dispatcher 写带 lease 的 `control_claimed`，安全边界用一个携带 user message 的 `control_delivered` 同时完成消息提交与消费；abort 或失效目标写 `control_cancelled`。Replay 由这些事实重建 `SessionSnapshot.pending_controls`。steer 绑定原 run，重启后没有活动目标就取消；follow-up 预留独立 run ID，未 claim 或 lease 已过期时由 `AgentSession.restore()` 恢复。该语义保证 durable history 中同一 control 只投递一次，但不把外部工具副作用宣传为 exactly-once。
 
@@ -235,6 +235,6 @@ test_architecture.py 解析 domain.py、_metadata.py、ports.py 和 runtime/ 的
 
 ModelRequestTarget 与 RecordedModelRequest 属于 domain；ModelRequestStore 属于 ports。providers/recording.py 在 ModelProvider.stream 入口捕获最终消息、工具定义与 ProviderRequestContext，必须先提交快照再调用借用的 Provider。它位于 ContextStrategy、请求中间件和 Session 插件的变换之后，既可接入 Agent/Session/Builder，也可包装压缩 Provider；不修改主循环或 SessionStore。
 
-storage/model_requests.py 提供内存替身与每请求一个文件的 FileModelRequestStore。记录 v1 明确使用 message codec v6，保留 thinking、structured_content 与 provider_state；文件名由 request_id/attempt_id 摘要决定，fsync 后硬链接排他发布，取消等待底层文件操作结束。独立请求快照不进入对话历史，Session JSONL v1-v6 读取和写入不变。读取只还原标准端口参数，不执行插件、工具或网络。
+storage/model_requests.py 提供内存替身与每请求一个文件的 FileModelRequestStore。记录 v1 明确使用 message codec v6，保留 thinking、structured_content 与 provider_state；文件名由 request_id/attempt_id 摘要决定，fsync 后硬链接排他发布，取消等待底层文件操作结束。独立请求快照不进入对话历史，与 Session JSONL 共享当前版本的消息编解码器。读取只还原标准端口参数，不执行插件、工具或网络。
 
 目标模型及公共参数由应用显式提供并与适配器配置保持一致；不读取凭据或推断 SDK/HTTP 默认值。包装组合 Provider 记录逻辑请求；包装各原始重试/回退候选记录各物理尝试。请求记录只说明输入已准备，不能证明远端收到请求或生成成功；父目录掉电持久性、自动请求目录清理和跨日志原子提交不在首版保证内。见教程 42、示例 44 与 test_model_request_recording。

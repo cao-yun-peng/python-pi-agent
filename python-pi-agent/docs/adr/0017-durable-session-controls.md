@@ -1,5 +1,7 @@
 # ADR 0017: Durable Session Controls
 
+> 2026-11-22 修订：下文关于继续读取旧版 JSONL 的决定已由 [ADR 0005](0005-jsonl-session-store.md) 的修订取代。当前仅接受 schema v6，控制事件的持久化与恢复语义不变。
+
 ## 背景
 
 ADR 0016 建立了 steer、follow-up、abort、settled 和 idle 控制面，但队列仍是进程内 `deque`。调用方收到 follow-up run ID 或 steer 成功返回后，进程退出仍会丢失尚未消费的意图；单独持久化消息与消费标记还会产生重复投递窗口。

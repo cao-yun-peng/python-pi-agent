@@ -56,7 +56,7 @@ python .\python-pi-agent\examples\22_provider_configuration.py chat
 
 适配器在网络前校验 key、显式 model、URL、timeout、reasoning 枚举和最小输出 token。HTTP 401/403、402、429、5xx 进入稳定领域错误；非 SSE、畸形 JSON、未知终止、函数参数不一致或流没有 terminal event 都 fail closed。超时转换为 `ProviderTimeoutError`，取消原样传播，外部注入的 `httpx.AsyncClient` 不由 Provider 关闭。
 
-`tests/test_timicc_responses_provider.py` 使用 `httpx.MockTransport` 离线覆盖文本、reasoning、usage、function argument 分片、opaque item 回放、HTTP 错误、incomplete 与 timeout；`test_minimal_loop.py` 证明 observer 不泄漏 opaque state；`test_jsonl_session_store.py` 证明 v6 往返和旧 schema 兼容。没有测试调用付费 API。
+`tests/test_timicc_responses_provider.py` 使用 `httpx.MockTransport` 离线覆盖文本、reasoning、usage、function argument 分片、opaque item 回放、HTTP 错误、incomplete 与 timeout；`test_minimal_loop.py` 证明 observer 不泄漏 opaque state；`test_jsonl_session_store.py` 证明 v6 往返、非当前 schema 拒绝和必需字段校验。没有测试调用付费 API。
 
 ## 主动省略
 

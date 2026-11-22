@@ -1,5 +1,7 @@
 # ADR 0010: Durable Compaction as a Replayable Replacement Event
 
+> 2026-11-22 amendment: historical JSONL compatibility below is superseded by [ADR 0005](0005-jsonl-session-store.md). The store now reads and writes only schema v6; compaction replay semantics are unchanged.
+
 ## Status
 
 Accepted

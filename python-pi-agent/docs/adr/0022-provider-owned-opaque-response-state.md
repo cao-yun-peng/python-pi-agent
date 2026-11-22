@@ -1,5 +1,7 @@
 # ADR 0022：持久化 Provider-owned Opaque Responses State
 
+> 2026-11-22 修订：下文关于旧版 JSONL 补空 provider state 和兼容 fixture 的描述记录当时的决定，现已由 [ADR 0005](0005-jsonl-session-store.md) 的修订取代。当前仅接受 schema v6，provider_state 字段必须存在，非当前格式直接拒绝。
+
 ## 状态
 
 Accepted
