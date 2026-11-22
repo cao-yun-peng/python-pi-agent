@@ -13,6 +13,7 @@ from pi_agent_py.runtime.prompts import render_system_prompt
 from pi_agent_py.testing import FakeProvider, WaitUntilCancelled, InMemoryWorkspaceFiles
 from pi_agent_py.api import ReadTool, WriteTool, EditTool, ProviderError, Message
 from pi_agent_py.tools.shell import BashTool
+from pi_agent_py.api import CompactionComponents, ModelCompactionStrategy
 
 
 async def _execute(arguments, context):
@@ -79,6 +80,20 @@ class PromptValueTests(unittest.TestCase):
 
 
 class PromptIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_compaction_keeps_rendered_system_prompt(self):
+        provider = FakeProvider([[TextDelta("answer"), Finish()] for _ in range(3)])
+        summary = FakeProvider([[TextDelta("Checkpoint"), Finish()]])
+        components = coding_profile().build_components(provider).replace(
+            compaction=CompactionComponents(ModelCompactionStrategy(summary)))
+        async with AgentSession("s", InMemorySessionStore(), components) as session:
+            await session.run("one")
+            await session.run("two")
+            snapshot = await session.compact(keep_recent_turns=1)
+            await session.run("three")
+        self.assertEqual(snapshot.messages[0], provider.requests[0][0])
+        self.assertEqual(provider.requests[-1][0], provider.requests[0][0])
+        self.assertEqual(summary.requested_tools, [()])
+
     async def test_failure_preserves_prompt_and_legacy_history_is_not_migrated(self):
         store = InMemorySessionStore()
         provider = FakeProvider([[ProviderError("offline failure")], [Finish()]])

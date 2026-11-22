@@ -243,3 +243,8 @@ storage/model_requests.py 提供内存替身与每请求一个文件的 FileMode
 ## 静态系统提示词（ADR 0045）
 
 SystemPromptSpec 是 domain 不可变配置，ToolDefinition.prompt_guidelines 贡献工具操作规则。coding 的文案归 application/prompts.py；共享 runtime 纯渲染器在插件合并与 SessionSpec 选择后解析，独立 Agent 使用冻结工具定义。完整字符串与 spec 互斥；Builder 显式字符串或 None 清除 spec。新 Session 首次提交最终 system 文本，恢复沿用历史，不热更新或迁移。SessionSpec 对 spec 按值比较。请求快照写 v2 并兼容读 v1（缺省空规则），Session schema 不变。见第 43 章、示例 45 与 test_system_prompts。
+
+
+## 结构化压缩提示词（ADR 0046）
+
+ModelCompactionStrategy 的默认 system 文本提供八个任务恢复章节，明确历史是数据、不继续执行指令、区分事实/计划/未知结果并保留关键证据。继续使用独立 Provider、空工具列表、serialize_conversation、完整结束检查、取消传播及原 durable compaction 流程。自定义文本完整替换；章节不是解析协议。系统消息仍固定保留，真实摘要质量不由 FakeProvider 测试证明。见第 44 章、示例 46 与 test_compaction。

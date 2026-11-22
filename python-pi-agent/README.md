@@ -216,3 +216,6 @@ workspace 文件端口和 `read` 工具见[第 39 章](tutorials/39-workspace-re
 ## 静态系统提示词
 
 `coding_profile()` 提供短基础说明，并按最终工具集组合 `ToolDefinition.prompt_guidelines`；minimal 默认无角色。用 `AgentProfile(prompt_spec=SystemPromptSpec(...))` 提供结构化配置；Builder 的 `with_system_prompt(text)` 完整替换，`with_system_prompt(None)` 禁用。新会话持久化最终文本，恢复沿用历史。见[第 43 章](tutorials/43-static-system-prompts.md)、[示例 45](examples/45_static_system_prompt.py)和 [ADR 0045](docs/adr/0045-static-system-prompts.md)。请求快照写 v2 并继续读取 v1。
+
+
+`ModelCompactionStrategy` 的默认摘要模板提供八个任务恢复章节，区分已完成、计划、阻塞和关键证据；自定义 system_prompt 仍可完整覆盖。见[第 44 章](tutorials/44-structured-compaction-prompts.md)、[离线示例 46](examples/46_structured_compaction.py)与 [ADR 0046](docs/adr/0046-structured-compaction-prompts.md)。

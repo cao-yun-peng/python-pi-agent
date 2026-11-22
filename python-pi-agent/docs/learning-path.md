@@ -217,3 +217,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 ## 静态系统提示词练习
 
 阅读[第 43 章](../tutorials/43-static-system-prompts.md)，运行示例 45。添加一个显式工具规则，对比 minimal/coding、完整字符串覆盖和 None 禁用。解释为什么渲染必须晚于插件合并与 SessionSpec，以及修改默认值为什么不会更新旧历史。通过 test_system_prompts、test_session_spec 和请求快照兼容测试验证。
+
+
+## 结构化摘要练习
+
+阅读[第 44 章](../tutorials/44-structured-compaction-prompts.md)，运行示例 46，追踪 system 摘要规则、user 历史数据、空工具列表、durable checkpoint 与压缩事件。解释计划与已完成的区别、未知副作用为什么不能安全重试。运行 test_compaction、test_system_prompts 和 test_session_runtime；区分请求契约验证与真实模型摘要质量评测。

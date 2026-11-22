@@ -109,3 +109,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 ## 静态系统提示词与工具规则
 
 对照固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/system-prompt.ts::buildRules/buildSystemPromptSections`，以及 `tools/read.ts::readToolSystemPromptContribution`、`tools/edit.ts::editToolSystemPromptContribution`。Python 采用不可变 spec、工具贡献和稳定去重，在最终组装后渲染并持久化全文。省略 promptSnippet 副本、动态章节 patch、Skills/项目文件加载和热更新；不复制 Pi 批量 edit 或绝对路径契约。DeepSeek Harness 对应 Definition/Provider/Consumer/Lifecycle/Evidence 能力边界。见 ADR 0045、第 43 章、示例 45。
+
+
+## 结构化压缩提示词
+
+固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/compaction/utils.ts::SUMMARIZATION_SYSTEM_PROMPT` 与 `compaction.ts::SUMMARIZATION_PROMPT` 对应摘要角色、固定恢复结构及精确路径/符号/错误保留要求。Python 增加已验证/计划/未知结果区分，沿用现有独立 ModelProvider 与空工具列表，不复制分支摘要、增量更新和严格格式协议。DeepSeek Harness 对应已存在的 CompactionStrategy 能力接缝，本次无新增资源生命周期。见 ADR 0046、第 44 章、示例 46。

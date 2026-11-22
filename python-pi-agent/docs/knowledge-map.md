@@ -86,3 +86,10 @@
 | 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|
 | 提示词与工具规则 | 产品文案与运行机制分离；最终工具决定规则 | SystemPromptSpec、工具贡献、纯渲染、Builder 覆盖和 durable 复用 | test_system_prompts、SessionSpec、API、快照 v1/v2 | 第 43 章、示例 45、ADR 0045 | 能解释插件时序、无角色默认、恢复不迁移，以及 FakeProvider 的验证边界 |
+
+
+## 结构化压缩模板
+
+| 知识点 | 理论 | 最小实现 / 完整实现 | 测试 | 教程 | 掌握标准 |
+|---|---|---|---|---|---|
+| 任务恢复摘要 | 分开事实、计划、验证证据和未知结果 | 既有 ModelCompactionStrategy 的八章节模板与自定义替换 | test_compaction、test_system_prompts、Session 失败/取消回归 | 第 44 章、示例 46、ADR 0046 | 能追踪摘要请求到 durable checkpoint，解释无工具边界与提示词要求，以及 FakeProvider 无法证明语义质量 |
