@@ -59,3 +59,31 @@ run_failed 与 resolved=true 可以并存：请求次数耗尽时导出的补丁
 取消一次 FakeProvider run，再恢复，验证第一次用户消息仍在模型上下文中，工具结果不会被重复执行；修改 patch 验证 checksum 拒绝；删除一条 batch row 验证汇总拒绝丢失分母；让 grader 退出 0 但报告 empty_patch 验证 resolved 仍为 false。
 
 对应 Pi/DeepSeek Harness 的会话、Provider 策略与可重放证据接缝，使用单包应用编排。省略多 Agent、并行 worker、分布式锁、模型 judge 与排行榜上传，设计见 ADR 0048。
+
+## 首批真实运行：dev-smoke-001
+
+2026-11-23 使用代码 commit `e1ae46950d5e6364a6a3d48d9413f519a8222f43`、SWE-bench/SWE-bench_Lite dev split、HF revision `b0dde1093fe417d83b7184254edf8199c1f0dff5`，预先固定三题，不按结果替换。模型为 `kimi-k2.6`，thinking enabled，max_tokens 8192，provider timeout 90 秒；策略为本章默认的 40 次逻辑请求、1200 秒、30 秒启动间隔、最多 3 次物理尝试。独立评测环境为 Python 3.12、swebench 5.0.2、datasets 5.2.0、docker 7.2.0；任务内 Python 与依赖由各自镜像提供。
+
+| 题目 | Gold control | 运行终态 / 请求数 / 耗时 | 候选判分 |
+|---|---|---|---|
+| marshmallow-code__marshmallow-1343 | 通过 | request_limit / 40 / 1183 秒 | empty_patch，未执行候选测试，未解决 |
+| marshmallow-code__marshmallow-1359 | 通过 | completed / 36 / 1067 秒 | graded，76 passed、1 failed，未解决 |
+| pydicom__pydicom-1139 | 未通过 | environment_failed / 0 / 未调用模型 | preflight_failed，未生成候选 |
+
+固定分母汇总为 0/3；实际两题调用模型，一题在环境校验时被拦截。这是流程和失败诊断的小样本，不代表整个数据集的能力分数。累计已返回 usage 为 input 584435、output 13255、total 597690 tokens；76 次逻辑请求对应 76 次物理请求，本批没有触发供应商重试。重试和中断续跑依靠离线确定性测试验证，不能声称本批经历了这两种路径。
+
+三题实际镜像 ID 分别为：
+
+- 1343：`sha256:a61197e0b29461e34010cd83570424eb91a7f265574a81c82ff79e55c6c10f29`
+- 1359：`sha256:440807ded8d239ea71daaf31d3158013e58b9cdfad8a56d4f82e646426d3f4e6`
+- pydicom：`sha256:a2344b4b6db428913523e14f576fe358d6ae0c349cd77ac82e616188955ddb3b`
+
+输出位于仓库根 `.tmp/evaluation/batches/dev-smoke-001/`，不提交原始模型响应、数据或会话。先打开 summary.json 看固定分母及两个终态，再沿 row.case_path 或 row.official_report 查证：
+
+1. 1343 的 session 最后一个工具是 `git checkout -- src/marshmallow/schema.py`。模型先后产生了缩进错误与重复函数声明，最终主动撤销修改，因此 checkpoint 中 patch 为零字节。
+2. 1359 的补丁用嵌套 getattr 避免访问不存在的 opts，复现中的 List/Tuple 可以初始化。但官方新增测试 `TestParentAndName::test_datetime_list_inner_format` 期望继承 Schema 的 `iso8601`，实际得到默认 `iso`。其余 76 项通过，说明“崩溃消失”仍不足以证明语义正确。gold control 的 77 项全部通过。
+3. pydicom 的 gold 新增三项迭代/包含测试通过，但两个既有 PASS_TO_PASS 测试因 `self.tag` 不存在而失败。镜像使用 pytest 8.3.5，原测试用旧式 setup/teardown。已在该镜像内禁网运行最小对照：setup 未调用、setup_method 调用，得到 1 failed / 1 passed。这里的 environment_failed 是本项目预检分类；官方报告的 infra_failure=false，不能混淆。后续应单独固定兼容的测试依赖和新镜像身份，再以新批次重做 gold control，不能改写本批报告或删除失败测试。
+
+本批结束后执行正式 summarize，并以完全相同的参数执行 batch --resume。前后核对 185 个证据文件的内容 hash 与时间戳（排除可重建的 state/summary 和锁文件）均不变，物理请求仍为 76 次；没有新解题或新判分。这验证已完成题目的幂等跳过。冻结历史也在实测中生效：模型多次 git log 只能看到 base commit，无法沿后续提交找到修复。
+
+下一轮先修复 pydicom 测试环境，再围绕“重复查历史、碎片读取、修改后缺少测试”设计独立实验。不要在本批中追加提示、放宽预算、替换题目或反复跑失败题后仅报告成功结果。
