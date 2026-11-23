@@ -44,6 +44,11 @@ EventSource: TypeAlias = Literal[
 ]
 SessionState: TypeAlias = Literal["idle", "running", "aborting", "settled"]
 EventKind: TypeAlias = Literal[
+    "lease_heartbeat_started",
+    "lease_renewed",
+    "lease_lost",
+    "lease_cleanup_failed",
+    "lease_heartbeat_stopped",
     "mcp_connection_started",
     "mcp_connection_ready",
     "mcp_connection_failed",

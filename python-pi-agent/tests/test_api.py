@@ -35,6 +35,10 @@ from pi_agent_py.api import (
 
 _STABLE_EXPORTS = frozenset(
     """
+    SessionLeaseManager ExecutionGrantManager LeaseClock SystemLeaseClock
+    InMemoryLeaseManager RedisLeaseManager RedisLeaseSettings RedisLeaseClient
+    LeaseHeartbeat LeaseHeartbeatSettings LeaseCleanupFailure
+    LeaseLostError LeaseStorageError LeaseTimeoutError
     PostgresExecutionStore execution_operation SessionExecutionStore ExecutionWriter
     RunSubmission RunRecord RunCheckpoint ExecutionGrant ExecutionReceipt
     OperationIdentity SessionLease ClaimExecutionRequest ExecutionStepRequest

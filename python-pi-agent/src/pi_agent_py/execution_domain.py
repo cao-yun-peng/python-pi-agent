@@ -507,3 +507,25 @@ ExecutionRequest: TypeAlias = (
     | FinishExecutionRequest
     | CancelQueuedRequest
 )
+
+
+def lease_ttl_ms(ttl: float) -> int:
+    if (
+        isinstance(ttl, bool)
+        or not isinstance(ttl, (int, float))
+        or not isfinite(ttl)
+        or not 0.001 <= ttl <= 86400
+    ):
+        raise SessionValidationError(
+            "lease TTL must be finite, between 1ms and 24 hours"
+        )
+    return int(ttl * 1000)
+
+
+def same_lease(first: SessionLease, second: SessionLease) -> bool:
+    return (first.session_id, first.owner_id, first.claim_id, first.nonce) == (
+        second.session_id,
+        second.owner_id,
+        second.claim_id,
+        second.nonce,
+    )

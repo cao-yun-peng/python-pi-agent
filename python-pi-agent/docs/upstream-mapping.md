@@ -1,8 +1,10 @@
 # Upstream Mapping
 
-PG 执行存储（ADR 0052）将本项目既有 Run/Session replay 与显式事务接缝落地，新增 epoch 裁决、绑定 writer、完整请求摘要和历史回执引用。它不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名分布式 API 承诺。DeepSeek Harness 对应契约/Provider/Consumer/生命周期/证据：执行端口、PG、示例 53、借用 pool/显式迁移、故障与并发测试。省略 Redis、自动接管和外部副作用去重；见教程 50。
+Redis 租约与心跳（ADR 0053）是本项目新增的分布式协调机制，不声称与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 存在同名 API。它沿用现有端口、能力事件和资源 owner。DeepSeek Harness 对应 Definition=SessionLeaseManager/LeaseClock/ExecutionGrantManager、Provider=内存/Redis/PG、Consumer=独立 LeaseHeartbeat、Lifecycle=显式借用客户端/等待任务与清理退出、Evidence=手动时钟与真实双存储测试。省略 Runtime 自动注入、恢复扫描、Redis 高可用部署和外部副作用去重；见教程 51、示例 54。
 
-PostgresSessionStore（ADR 0051）独立实现 Python 六方法 SessionStore，复用本项目共享 Codec/prepare_*；不宣称 Pi 提供同名 SQL 适配器。DeepSeek Harness 对应 Definition=SessionStore、Provider=PG、Consumer=AgentSession、Lifecycle=借用 pool/显式迁移、Evidence=共享及真实事务契约。省略执行权、Redis 和恢复 worker；完整 JSONB/generated columns 与版本化迁移为本项目选择，见教程 49。
+PG 执行存储（ADR 0052）将本项目既有 Run/Session replay 与显式事务接缝落地，新增 epoch 裁决、绑定 writer、完整请求摘要和历史回执引用。它不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名分布式 API 承诺。DeepSeek Harness 对应契约/Provider/Consumer/生命周期/证据：执行端口、PG、示例 53、借用 pool/显式迁移、故障与并发测试。自动接管和外部副作用去重仍待实现；独立 Redis/心跳见 ADR 0053，执行存储见教程 50。
+
+PostgresSessionStore（ADR 0051）独立实现 Python 六方法 SessionStore，复用本项目共享 Codec/prepare_*；不宣称 Pi 提供同名 SQL 适配器。DeepSeek Harness 对应 Definition=SessionStore、Provider=PG、Consumer=AgentSession、Lifecycle=借用 pool/显式迁移、Evidence=共享及真实事务契约。基础 Store 不承担执行权、Redis 和恢复 worker；完整 JSONB/generated columns 与版本化迁移为本项目选择，见教程 49。
 
 共享 Codec（ADR 0050）属于 Python 存储内部复用，沿用现有 DurableSessionEvent/ProviderState 与显式端口映射；不新增 Pi commit 或 DeepSeek Harness API 等价承诺。省略格式升级和外部日志迁移，证据见教程 48、示例 51 与 test_session_codec。
 

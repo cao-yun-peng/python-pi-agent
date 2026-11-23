@@ -33,9 +33,11 @@ agent.yaml -> coding_profile -> BashTool -> SandboxedBashExecutor -> Docker work
 
 ## 开发与 CI
 
+Redis 协调租约与受监督心跳已实现：内存替身、单 key Lua 比较续期/释放、Redis → PG 续期、失租取消和等待清理。见[第 51 章](tutorials/51-redis-leases-heartbeat.md)、[示例 54](examples/54_redis_heartbeat.py)和 ADR 0053。安装 `.[postgres,redis]`，客户端由应用显式管理；Runtime 注入与自动恢复仍待后续阶段。
+
 独立 PG 执行存储已实现 Run journal、检查点、PG epoch、绑定 writer 与幂等回执，见[第 50 章](tutorials/50-postgres-execution-storage.md)和[示例 53](examples/53_postgres_execution.py)。新数据库执行完整迁移，已有 001 数据库增加 002。示例使用 FakeProvider 和合成协调租约；现有 Runtime 不会自动启用分布式执行。
 
-PostgreSQL 基础会话存储通过可选 `.[postgres]` 安装，借用调用方的异步连接池；迁移必须显式执行。参见[第 49 章](tutorials/49-postgres-session-store.md)和[FakeProvider 示例 52](examples/52_postgres_sessions.py)。默认测试不连接数据库；设置 `PI_AGENT_POSTGRES_TEST_DSN` 才运行真实 PG 契约。此切片尚不包含分布式租约和自动接管。
+PostgreSQL 基础会话存储通过可选 `.[postgres]` 安装，借用调用方的异步连接池；迁移必须显式执行。参见[第 49 章](tutorials/49-postgres-session-store.md)和[FakeProvider 示例 52](examples/52_postgres_sessions.py)。默认测试不连接数据库；设置 `PI_AGENT_POSTGRES_TEST_DSN` 才运行真实 PG 契约。该基础存储切片不负责执行租约；独立租约和心跳见第 51 章，自动接管仍待实现。
 
 在仓库根目录创建并激活开发用虚拟环境。Windows PowerShell 使用 `py -3.11 -m venv .venv` 和 `.\.venv\Scripts\Activate.ps1`，Linux 使用 `python3.11 -m venv .venv` 和 `source .venv/bin/activate`。进入 `python-pi-agent` 后运行：
 

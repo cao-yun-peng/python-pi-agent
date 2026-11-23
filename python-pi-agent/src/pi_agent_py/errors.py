@@ -232,6 +232,22 @@ class SessionCommitUnknownError(SessionStorageError):
         self.operation_id = operation_id
 
 
+class LeaseStorageError(SessionStorageError):
+    """Lease infrastructure failed; never interpret it as occupied or lost."""
+
+
+class LeaseTimeoutError(LeaseStorageError):
+    """A lease operation did not finish within its cancellation deadline."""
+
+
+class LeaseLostError(SessionConflictError):
+    """Supervised execution stopped because its lease can no longer be trusted."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("execution lease lost: " + reason)
+        self.reason = reason
+
+
 def _error_category(error: AgentError) -> str:
     """Return a stable run-event category, including for adapter subclasses."""
     categories = (

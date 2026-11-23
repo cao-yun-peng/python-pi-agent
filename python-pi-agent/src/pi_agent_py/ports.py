@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
+from contextlib import AbstractAsyncContextManager
 from typing import Literal, Protocol
 
 from .execution_domain import (
@@ -313,6 +314,8 @@ class SessionLeaseManager(Protocol):
 
     Adapters preserve cancellation and classify infrastructure errors. The
     resource owner closes clients only after all users and heartbeats stop.
+    Successful acquisition/renewal installs the requested TTL (floored to ms)
+    from that operation, not merely a positive remainder of the old expiry.
     """
 
     async def acquire(
@@ -322,6 +325,28 @@ class SessionLeaseManager(Protocol):
     async def renew(self, lease: SessionLease, ttl: float) -> SessionLease | None: ...
 
     async def release(self, lease: SessionLease) -> bool: ...
+
+
+class LeaseClock(Protocol):
+    """Inject both display time and monotonic deadlines, sleep and cancellation."""
+
+    def unix_time(self) -> float: ...
+    def monotonic(self) -> float: ...
+    async def sleep(self, seconds: float) -> None: ...
+    def timeout(self, seconds: float) -> AbstractAsyncContextManager[object]: ...
+
+
+class ExecutionGrantManager(Protocol):
+    """Narrow heartbeat dependency already implemented by execution stores.
+
+    Renewal revalidates live authority and extends it by at least ttl from DB
+    time, without reviving expired grants. Both calls cooperate with cancellation.
+    """
+
+    async def renew_grant(self, grant: ExecutionGrant, ttl: float) -> ExecutionGrant: ...
+    async def release_grant(self, grant: ExecutionGrant) -> bool:
+        """Compare-release even after expiry; preserve epoch and interrupted Run."""
+        ...
 
 
 class ExecutionWriter(Protocol):
@@ -346,7 +371,7 @@ class ExecutionWriter(Protocol):
         ...
 
 
-class SessionExecutionStore(Protocol):
+class SessionExecutionStore(ExecutionGrantManager, Protocol):
     """Durable distributed execution boundary, independent of SessionStore.
 
     No method performs model/tool I/O. Implementations transact under a Session
@@ -379,16 +404,10 @@ class SessionExecutionStore(Protocol):
         """
         ...
 
-    async def renew_grant(self, grant: ExecutionGrant, ttl: float) -> ExecutionGrant: ...
-
     async def claim_maintenance(
         self, lease: SessionLease, ttl: float, operation: OperationIdentity,
     ) -> ExecutionGrant:
         """Acquire compact-only permission; interrupted active Runs take priority."""
-        ...
-
-    async def release_grant(self, grant: ExecutionGrant) -> bool:
-        """Compare-release without erasing epoch or an interrupted active Run."""
         ...
 
     async def load_execution(self, session_id: str, run_id: str) -> RunRecord | None: ...

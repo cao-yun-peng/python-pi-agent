@@ -158,6 +158,14 @@ from .storage.postgres import PostgresSessionStore
 from .storage.execution import PostgresExecutionStore
 from .storage.execution_codec import execution_operation
 from .ports import SessionExecutionStore, ExecutionWriter
+from .ports import SessionLeaseManager, ExecutionGrantManager, LeaseClock
+from .lease_clock import SystemLeaseClock
+from .storage.lease import InMemoryLeaseManager
+from .storage.redis_lease import RedisLeaseManager, RedisLeaseSettings, RedisLeaseClient
+from .runtime.lease_heartbeat import (
+    LeaseHeartbeat, LeaseHeartbeatSettings, LeaseCleanupFailure,
+)
+from .errors import LeaseLostError, LeaseStorageError, LeaseTimeoutError
 from .execution_domain import (
     RunSubmission, RunRecord, RunCheckpoint, ExecutionGrant, ExecutionReceipt,
     OperationIdentity, SessionLease, ClaimExecutionRequest, ExecutionStepRequest,
@@ -221,6 +229,10 @@ from .tools.workspace.find import FindTool
 from .tools.workspace.grep import GrepTool
 
 __all__ = [
+    "SessionLeaseManager", "ExecutionGrantManager", "LeaseClock", "SystemLeaseClock",
+    "InMemoryLeaseManager", "RedisLeaseManager", "RedisLeaseSettings", "RedisLeaseClient",
+    "LeaseHeartbeat", "LeaseHeartbeatSettings", "LeaseCleanupFailure",
+    "LeaseLostError", "LeaseStorageError", "LeaseTimeoutError",
     "PostgresExecutionStore", "execution_operation", "SessionExecutionStore", "ExecutionWriter",
     "RunSubmission", "RunRecord", "RunCheckpoint", "ExecutionGrant", "ExecutionReceipt",
     "OperationIdentity", "SessionLease", "ClaimExecutionRequest", "ExecutionStepRequest",
