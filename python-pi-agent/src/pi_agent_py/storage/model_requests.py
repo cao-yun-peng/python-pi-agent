@@ -21,7 +21,7 @@ from ..domain import (
 from ..errors import (
     SessionConflictError, SessionReplayError, SessionStorageError, SessionValidationError,
 )
-from .jsonl import (
+from ._codec import (
     _decode_message, _encode_message, _require_array, _require_bool,
     _require_exact_keys, _require_int, _require_object, _require_optional_string,
     _require_string,

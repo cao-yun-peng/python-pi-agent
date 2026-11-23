@@ -1,5 +1,7 @@
 # Learning Path
 
+会话格式练习：阅读第 48 章并运行示例 51，观察完整事件 round-trip 和旧 schema 拒绝；再运行 JSONL 与模型请求快照测试，解释格式复用为何没有赋予文件多进程写入能力。
+
 每一阶段都必须形成可运行的纵向切片，而不是先造一批空接口。
 
 分布式执行的首个机制切片见[第 47 章](../tutorials/47-execution-journal-contracts.md)和示例 50：先复习第 17 章 durable controls，再运行纯执行日志轨迹，练习 delivered 与 completed、checkpoint、预算不重置和旧许可拒绝。此时不需要 PG/Redis；真实存储与 Runtime 接线按[开发规格](design/phase-1-distributed-session-storage.md)后续步骤完成，不能把纯 replay 当成事务已经落盘。

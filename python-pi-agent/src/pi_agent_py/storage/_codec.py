@@ -1,0 +1,509 @@
+"""Shared schema v6 event codec; no file, driver or runtime dependencies."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+from typing import cast
+
+from ..domain import (
+    ControlCancellation,
+    ControlClaim,
+    ControlDelivery,
+    ControlDeliveryKind,
+    ControlTransition,
+    DurableSessionEvent,
+    EventProvenance,
+    EventSource,
+    JSONObject,
+    JSONValue,
+    Message,
+    ProviderState,
+    QueuedControl,
+    Role,
+    SessionCompaction,
+    SessionEventKind,
+    ToolCall,
+)
+
+
+from ..errors import (
+    SessionReplayError,
+    SessionValidationError,
+)
+
+
+_SCHEMA_VERSION = 6
+
+
+_EVENT_KEYS = {
+    "schema_version",
+    "session_id",
+    "sequence",
+    "kind",
+    "message",
+    "compaction",
+    "event_id",
+    "run_id",
+    "turn_id",
+    "provenance",
+    "control",
+}
+
+
+_MESSAGE_KEYS = {
+    "role",
+    "content",
+    "tool_calls",
+    "tool_call_id",
+    "tool_name",
+    "is_error",
+    "structured_content",
+    "thinking",
+    "provider_state",
+}
+
+
+_PROVIDER_STATE_KEYS = {"provider", "item"}
+
+
+_TOOL_CALL_KEYS = {"id", "name", "arguments"}
+
+
+_COMPACTION_KEYS = {
+    "replace_start",
+    "replaced_message_count",
+    "summary_message",
+}
+
+
+_PROVENANCE_KEYS = {
+    "source",
+    "actor_id",
+    "cause_event_id",
+    "copied_from_event_id",
+}
+
+
+_CONTROL_KEYS = {
+    "type",
+    "control_id",
+    "delivery",
+    "prompt",
+    "run_id",
+    "target_run_id",
+    "cause_run_id",
+    "claim_id",
+    "owner_id",
+    "lease_expires_at",
+    "message",
+    "reason",
+}
+
+
+_ROLES = {"system", "user", "assistant", "tool"}
+
+
+def _encode_event(event: DurableSessionEvent) -> str:
+    message = _encode_message(event.message) if event.message is not None else None
+    compaction = None
+    if event.compaction is not None:
+        compaction = {
+            "replace_start": event.compaction.replace_start,
+            "replaced_message_count": event.compaction.replaced_message_count,
+            "summary_message": _encode_message(event.compaction.summary_message),
+        }
+    record = {
+        "schema_version": _SCHEMA_VERSION,
+        "session_id": event.session_id,
+        "sequence": event.sequence,
+        "kind": event.kind,
+        "event_id": event.event_id,
+        "run_id": event.run_id,
+        "turn_id": event.turn_id,
+        "provenance": {
+            "source": event.provenance.source,
+            "actor_id": event.provenance.actor_id,
+            "cause_event_id": event.provenance.cause_event_id,
+            "copied_from_event_id": event.provenance.copied_from_event_id,
+        },
+        "message": message,
+        "compaction": compaction,
+        "control": _encode_control(event.control),
+    }
+    try:
+        return json.dumps(
+            record,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    except (TypeError, ValueError) as error:
+        raise SessionValidationError(
+            "session event contains a value that is not JSON serializable"
+        ) from error
+
+
+def _decode_event(line: str, line_number: int) -> DurableSessionEvent:
+    if not line.strip():
+        raise SessionReplayError(f"empty JSONL record at line {line_number}")
+
+    try:
+        raw: object = json.loads(line)
+    except json.JSONDecodeError as error:
+        raise SessionReplayError(
+            f"invalid JSONL record at line {line_number}"
+        ) from error
+
+    try:
+        record = _require_object(raw, "event")
+        schema_version = _require_int(record["schema_version"], "schema_version")
+        if schema_version != _SCHEMA_VERSION:
+            raise ValueError(f"unsupported schema_version: {schema_version}")
+
+        _require_exact_keys(record, _EVENT_KEYS, "event")
+
+        session_id = _require_string(record["session_id"], "session_id")
+        sequence = _require_int(record["sequence"], "sequence")
+        kind = _require_string(record["kind"], "kind")
+        event_id = _require_string(record["event_id"], "event_id")
+        run_id = _require_optional_string(record["run_id"], "run_id")
+        turn_id = _require_optional_string(record["turn_id"], "turn_id")
+        provenance = _decode_provenance(
+            _require_object(record["provenance"], "provenance")
+        )
+        control = (
+            _decode_control(
+                _require_object(record["control"], "control"),
+            )
+            if record["control"] is not None
+            else None
+        )
+        if kind == "message_committed":
+            if record["compaction"] is not None:
+                raise ValueError("message_committed event compaction must be null")
+            if control is not None:
+                raise ValueError("message_committed event control must be null")
+            message_record = _require_object(record["message"], "message")
+            message = _decode_message(message_record)
+            return DurableSessionEvent(
+                session_id=session_id,
+                sequence=sequence,
+                kind="message_committed",
+                message=message,
+                event_id=event_id,
+                run_id=run_id,
+                turn_id=turn_id,
+                provenance=provenance,
+            )
+        if kind == "context_compacted":
+            if record["message"] is not None:
+                raise ValueError("context_compacted event message must be null")
+            compaction_record = _require_object(
+                record["compaction"],
+                "compaction",
+            )
+            if control is not None:
+                raise ValueError("context_compacted event control must be null")
+            return DurableSessionEvent(
+                session_id=session_id,
+                sequence=sequence,
+                kind="context_compacted",
+                compaction=_decode_compaction(compaction_record),
+                event_id=event_id,
+                run_id=run_id,
+                turn_id=turn_id,
+                provenance=provenance,
+            )
+        if kind in {
+            "control_enqueued",
+            "control_claimed",
+            "control_delivered",
+            "control_cancelled",
+        }:
+            if record["message"] is not None or record["compaction"] is not None:
+                raise ValueError("control event message and compaction must be null")
+            if control is None:
+                raise ValueError("control event is missing its payload")
+            return DurableSessionEvent(
+                session_id=session_id,
+                sequence=sequence,
+                kind=cast(SessionEventKind, kind),
+                control=control,
+                event_id=event_id,
+                run_id=run_id,
+                turn_id=turn_id,
+                provenance=provenance,
+            )
+        raise ValueError(f"unsupported event kind: {kind}")
+    except (KeyError, TypeError, ValueError) as error:
+        raise SessionReplayError(
+            f"invalid session event at line {line_number}: {error}"
+        ) from error
+
+
+def _encode_control(control: ControlTransition | None) -> object:
+    if control is None:
+        return None
+    record: dict[str, object] = {key: None for key in _CONTROL_KEYS}
+    record["control_id"] = control.control_id
+    if isinstance(control, QueuedControl):
+        record.update(
+            type="queued",
+            delivery=control.delivery,
+            prompt=control.prompt,
+            run_id=control.run_id,
+            target_run_id=control.target_run_id,
+            cause_run_id=control.cause_run_id,
+        )
+    elif isinstance(control, ControlClaim):
+        record.update(
+            type="claim",
+            claim_id=control.claim_id,
+            owner_id=control.owner_id,
+            lease_expires_at=control.lease_expires_at,
+        )
+    elif isinstance(control, ControlDelivery):
+        record.update(
+            type="delivery",
+            claim_id=control.claim_id,
+            message=_encode_message(control.message),
+        )
+    elif isinstance(control, ControlCancellation):
+        record.update(type="cancellation", reason=control.reason)
+    else:
+        raise SessionValidationError(
+            f"unsupported control payload: {type(control).__name__}"
+        )
+    return record
+
+
+def _decode_control(
+    record: Mapping[str, object],
+) -> ControlTransition:
+    _require_exact_keys(record, _CONTROL_KEYS, "control")
+    payload_type = _require_string(record["type"], "control.type")
+    control_id = _require_string(record["control_id"], "control.control_id")
+    if payload_type == "queued":
+        delivery = _require_string(record["delivery"], "control.delivery")
+        if delivery not in {"steer", "follow_up"}:
+            raise ValueError(f"unsupported control delivery: {delivery}")
+        return QueuedControl(
+            control_id=control_id,
+            delivery=cast(ControlDeliveryKind, delivery),
+            prompt=_require_string(record["prompt"], "control.prompt"),
+            run_id=_require_string(record["run_id"], "control.run_id"),
+            target_run_id=_require_optional_string(
+                record["target_run_id"], "control.target_run_id"
+            ),
+            cause_run_id=_require_optional_string(
+                record["cause_run_id"], "control.cause_run_id"
+            ),
+        )
+    if payload_type == "claim":
+        expires = record["lease_expires_at"]
+        if isinstance(expires, bool) or not isinstance(expires, (int, float)):
+            raise ValueError("control.lease_expires_at must be a number")
+        return ControlClaim(
+            control_id=control_id,
+            claim_id=_require_string(record["claim_id"], "control.claim_id"),
+            owner_id=_require_string(record["owner_id"], "control.owner_id"),
+            lease_expires_at=float(expires),
+        )
+    if payload_type == "delivery":
+        return ControlDelivery(
+            control_id=control_id,
+            claim_id=_require_string(record["claim_id"], "control.claim_id"),
+            message=_decode_message(
+                _require_object(record["message"], "control.message"),
+            ),
+        )
+    if payload_type == "cancellation":
+        return ControlCancellation(
+            control_id=control_id,
+            reason=_require_string(record["reason"], "control.reason"),
+        )
+    raise ValueError(f"unsupported control payload type: {payload_type}")
+
+
+def _decode_message(
+    record: Mapping[str, object],
+) -> Message:
+    _require_exact_keys(record, _MESSAGE_KEYS, "message")
+    role_text = _require_string(record["role"], "message.role")
+    if role_text not in _ROLES:
+        raise ValueError(f"unsupported message role: {role_text}")
+
+    raw_tool_calls = record["tool_calls"]
+    if not isinstance(raw_tool_calls, list):
+        raise TypeError("message.tool_calls must be an array")
+
+    tool_calls = tuple(
+        _decode_tool_call(_require_object(raw_call, "tool_call"))
+        for raw_call in raw_tool_calls
+    )
+    return Message(
+        role=cast(Role, role_text),
+        content=_require_string(record["content"], "message.content"),
+        thinking=_require_string(record["thinking"], "message.thinking"),
+        tool_calls=tool_calls,
+        tool_call_id=_require_optional_string(
+            record["tool_call_id"],
+            "message.tool_call_id",
+        ),
+        tool_name=_require_optional_string(
+            record["tool_name"],
+            "message.tool_name",
+        ),
+        is_error=_require_bool(record["is_error"], "message.is_error"),
+        structured_content=cast(JSONValue, record["structured_content"]),
+        provider_state=tuple(
+            _decode_provider_state(
+                _require_object(raw_state, "message.provider_state item")
+            )
+            for raw_state in _require_array(
+                record["provider_state"], "message.provider_state"
+            )
+        ),
+    )
+
+
+def _encode_message(message: Message) -> dict[str, object]:
+    return {
+        "role": message.role,
+        "content": message.content,
+        "thinking": message.thinking,
+        "tool_calls": [
+            {
+                "id": call.id,
+                "name": call.name,
+                "arguments": call.arguments,
+            }
+            for call in message.tool_calls
+        ],
+        "tool_call_id": message.tool_call_id,
+        "tool_name": message.tool_name,
+        "is_error": message.is_error,
+        "structured_content": message.structured_content,
+        "provider_state": [
+            {"provider": state.provider, "item": state.item}
+            for state in message.provider_state
+        ],
+    }
+
+
+def _decode_compaction(
+    record: Mapping[str, object],
+) -> SessionCompaction:
+    _require_exact_keys(record, _COMPACTION_KEYS, "compaction")
+    summary_record = _require_object(
+        record["summary_message"],
+        "compaction.summary_message",
+    )
+    return SessionCompaction(
+        replace_start=_require_int(
+            record["replace_start"],
+            "compaction.replace_start",
+        ),
+        replaced_message_count=_require_int(
+            record["replaced_message_count"],
+            "compaction.replaced_message_count",
+        ),
+        summary_message=_decode_message(summary_record),
+    )
+
+
+def _decode_provider_state(record: Mapping[str, object]) -> ProviderState:
+    _require_exact_keys(record, _PROVIDER_STATE_KEYS, "provider_state")
+    return ProviderState(
+        provider=_require_string(record["provider"], "provider_state.provider"),
+        item=cast(
+            JSONObject,
+            _require_object(record["item"], "provider_state.item"),
+        ),
+    )
+
+
+def _decode_provenance(record: Mapping[str, object]) -> EventProvenance:
+    _require_exact_keys(record, _PROVENANCE_KEYS, "provenance")
+    source = _require_string(record["source"], "provenance.source")
+    if source not in {
+        "user",
+        "model",
+        "tool",
+        "runtime",
+        "plugin",
+        "recovery",
+        "compaction",
+        "legacy",
+    }:
+        raise ValueError(f"unsupported provenance source: {source}")
+    return EventProvenance(
+        source=cast(EventSource, source),
+        actor_id=_require_optional_string(record["actor_id"], "provenance.actor_id"),
+        cause_event_id=_require_optional_string(
+            record["cause_event_id"], "provenance.cause_event_id"
+        ),
+        copied_from_event_id=_require_optional_string(
+            record["copied_from_event_id"],
+            "provenance.copied_from_event_id",
+        ),
+    )
+
+
+def _decode_tool_call(record: Mapping[str, object]) -> ToolCall:
+    _require_exact_keys(record, _TOOL_CALL_KEYS, "tool_call")
+    arguments = _require_object(record["arguments"], "tool_call.arguments")
+    return ToolCall(
+        id=_require_string(record["id"], "tool_call.id"),
+        name=_require_string(record["name"], "tool_call.name"),
+        arguments=cast(JSONObject, arguments),
+    )
+
+
+def _require_object(value: object, name: str) -> dict[str, object]:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise TypeError(f"{name} must be an object")
+    return cast(dict[str, object], value)
+
+
+def _require_array(value: object, name: str) -> list[object]:
+    if not isinstance(value, list):
+        raise TypeError(f"{name} must be an array")
+    return value
+
+
+def _require_exact_keys(
+    record: Mapping[str, object],
+    expected: set[str],
+    name: str,
+) -> None:
+    actual = set(record)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        raise ValueError(f"{name} keys mismatch; missing={missing}, extra={extra}")
+
+
+def _require_string(value: object, name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string")
+    return value
+
+
+def _require_optional_string(value: object, name: str) -> str | None:
+    if value is not None and not isinstance(value, str):
+        raise TypeError(f"{name} must be a string or null")
+    return value
+
+
+def _require_int(value: object, name: str) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{name} must be an integer")
+    return value
+
+
+def _require_bool(value: object, name: str) -> bool:
+    if type(value) is not bool:
+        raise TypeError(f"{name} must be a boolean")
+    return value

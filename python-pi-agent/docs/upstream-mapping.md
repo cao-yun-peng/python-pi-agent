@@ -1,5 +1,7 @@
 # Upstream Mapping
 
+共享 Codec（ADR 0050）属于 Python 存储内部复用，沿用现有 DurableSessionEvent/ProviderState 与显式端口映射；不新增 Pi commit 或 DeepSeek Harness API 等价承诺。省略格式升级和外部日志迁移，证据见教程 48、示例 51 与 test_session_codec。
+
 本项目是独立 Python 实现。映射用于学习设计，不承诺 API 兼容。
 
 Run 执行契约（ADR 0049）复用本项目已有的 Session replay、稳定事件引用和显式端口概念。独立 Run journal、检查点及 PG epoch 是 Python 侧新增设计，不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名 API 或分布式恢复等价承诺。DeepSeek Harness 对应 Definition/Provider/Consumer/Lifecycle/Evidence 接缝：值对象/端口、纯转换、示例与契约测试、无隐式副作用、可重放证据。首版省略 PG/Redis Provider、实际 RecoveryWorker 和外部副作用去重；详见第 47 章与后续开发规格。

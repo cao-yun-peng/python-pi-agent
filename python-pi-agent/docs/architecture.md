@@ -1,5 +1,7 @@
 # Architecture
 
+共享会话 codec（ADR 0050）：`storage/_codec.py` 独占 schema v6 事件/消息格式；JSONL 只处理文件 I/O，模型请求快照也改为依赖共享模块。字段、错误和编码字节语义保持不变。见教程 48、示例 51 与 test_session_codec。
+
 ## 分布式执行契约切片 ADR 0049
 
 `execution_domain.py` 是与 domain 同层的纯领域模块，定义 RunSubmission、RunCheckpoint、ExecutionGrant、ExecutionAuthority、OperationIdentity 和独立 RunEvent。`storage/execution_transitions.py` 计算可持久化计划和 replay；Session sequence 与 Run revision 分开。普通 prompt 可生成 accepted 事实，control_delivered 不结束 Run；最终 assistant 后可从 boundary 完成，工具中断保留未决集合。
