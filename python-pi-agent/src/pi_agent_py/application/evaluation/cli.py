@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
+import hashlib
 import json
 import re
 import subprocess
@@ -19,6 +20,9 @@ from ..provider_catalog import default_provider_catalog
 from .docker import DockerTaskEnvironment
 from .runner import run_task
 from .tasks import CodingTask
+from .policy import EvaluationPolicy
+from .cases import read_record, digest, run_case, output_lock
+from .batch import OfficialGrader, run_batch, summarize
 
 
 DATASET = "SWE-bench/SWE-bench_Lite"
@@ -46,31 +50,55 @@ def prepare(revision: str, split: str, ids: list[str], output: Path) -> None:
 
 
 async def infer(args: argparse.Namespace) -> int:
-    manifest = json.loads(args.tasks.read_text(encoding="utf-8"))
-    matches = [CodingTask.from_row(row) for row in manifest["tasks"] if row["instance_id"] == args.instance_id]
-    if len(matches) != 1:
-        raise ValueError("select exactly one task from the prepared manifest")
+    manifest = read_record(args.tasks)
+    raw_tasks, raw_source = manifest.get("tasks"), manifest.get("source")
+    if not isinstance(raw_tasks, list) or not isinstance(raw_source, dict):
+        raise ValueError("invalid prepared task manifest")
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in raw_source.items()):
+        raise ValueError("manifest source values must be strings")
+    tasks = [CodingTask.from_row(row) for row in raw_tasks if isinstance(row, dict)]
+    if len(tasks) != len(raw_tasks) or len({task.instance_id for task in tasks}) != len(tasks):
+        raise ValueError("invalid or duplicate task rows")
+    if args.command == "run":
+        tasks = [task for task in tasks if task.instance_id == args.instance_id]
+        if len(tasks) != 1:
+            raise ValueError("select exactly one task from the prepared manifest")
+    values = read_record(args.policy) if args.policy else {}
+    if args.max_requests is not None:
+        values["max_requests"] = args.max_requests
+    if args.timeout is not None:
+        values["timeout_seconds"] = args.timeout
+    policy = EvaluationPolicy.parse(values)
     catalog = default_provider_catalog()
     loaded = load_app_config(args.config, env_path=args.env, provider_catalog=catalog)
     if loaded.spec.capabilities:
         raise ValueError("benchmark provider config must not enable application capabilities")
+    if loaded.spec.resilience.enabled:
+        raise ValueError("evaluation retries are configured in --policy, not provider YAML resilience")
     commit = subprocess.run(("git", "rev-parse", "HEAD"), check=True, capture_output=True, text=True).stdout.strip()
-    source = dict(manifest["source"])
+    source = {str(key): str(value) for key, value in raw_source.items()}
+    source["tasks_sha256"] = digest(args.tasks)
     source["harness_dirty"] = str(bool(subprocess.run(
         ("git", "status", "--porcelain", "--ignore-submodules=all"),
         check=True, capture_output=True, text=True,
     ).stdout.strip())).lower()
+    source["provider_timeout_seconds"] = str(getattr(loaded.provider_config, "timeout_seconds", "default"))
+    source["provider_endpoint_sha256"] = hashlib.sha256(str(getattr(loaded.provider_config, "base_url", "")).encode()).hexdigest()
     settings = {name: getattr(loaded.provider_config, name) for name in (
-        "temperature", "max_tokens", "thinking", "reasoning_effort", "tool_stream",
+        "temperature", "max_tokens", "thinking", "thinking_keep", "reasoning_effort", "tool_stream",
     ) if isinstance(getattr(loaded.provider_config, name, None), (str, int, float, bool))}
     built = await catalog.build(loaded.provider_name, loaded.provider_config)
     try:
-        report = await run_task(
-            matches[0], DockerTaskEnvironment(), built.provider,
-            ModelRequestTarget(loaded.provider_name, loaded.spec.provider.model, settings), args.output,
-            source=source, code_commit=commit,
-            max_requests=args.max_requests, timeout_seconds=args.timeout,
-        )
+        target = ModelRequestTarget(loaded.provider_name, loaded.spec.provider.model, settings)
+        if args.command == "batch":
+            grader = OfficialGrader(args.grader_data, source.get("split", "dev"))
+            report = await run_batch(tasks, DockerTaskEnvironment, built.provider, target, grader, args.output,
+                policy=policy, source=source, code_commit=commit, grading_data_sha256=grader.data_sha256,
+                resume=args.resume)
+            print(json.dumps({key: report[key] for key in ("selected_instances", "resolved_instances", "execution_counts", "grade_counts")}))
+            return 0
+        report = await run_case(tasks[0], DockerTaskEnvironment, built.provider, target, args.output,
+                               source=source, code_commit=commit, policy=policy, resume=args.resume)
         print(json.dumps({"status": report["status"], "resolved": None, "output": str(args.output)}))
         return 0 if report["status"] == "completed" else 1
     finally:
@@ -122,8 +150,22 @@ def main() -> int:
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--env", type=Path)
     p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--max-requests", type=int, default=30)
-    p.add_argument("--timeout", type=float, default=600)
+    p.add_argument("--max-requests", type=int)
+    p.add_argument("--timeout", type=float)
+    p.add_argument("--policy", type=Path)
+    p.add_argument("--resume", action="store_true")
+    p = commands.add_parser("batch", help="Serial cases, shared admission, gold controls and official grading")
+    p.add_argument("--tasks", type=Path, required=True)
+    p.add_argument("--grader-data", type=Path, required=True)
+    p.add_argument("--config", type=Path, required=True)
+    p.add_argument("--env", type=Path)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--max-requests", type=int)
+    p.add_argument("--timeout", type=float)
+    p.add_argument("--policy", type=Path)
+    p.add_argument("--resume", action="store_true")
+    p = commands.add_parser("summarize", help="Rebuild summary from saved state, without model calls")
+    p.add_argument("--output", type=Path, required=True)
     p = commands.add_parser("demo")
     p.add_argument("--output", type=Path, required=True)
     p = commands.add_parser("grade")
@@ -138,8 +180,12 @@ def main() -> int:
     if args.command == "prepare":
         prepare(args.revision, args.split, args.instance_id, args.output)
         return 0
-    if args.command == "run":
+    if args.command in {"run", "batch"}:
         return asyncio.run(infer(args))
+    if args.command == "summarize":
+        with output_lock(args.output):
+            print(json.dumps(summarize(args.output), ensure_ascii=False, indent=2))
+        return 0
     if args.command == "demo":
         asyncio.run(demo(args.output))
         return 0

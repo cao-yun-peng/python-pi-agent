@@ -1,0 +1,9 @@
+{
+  "max_requests": 40,
+  "timeout_seconds": 1200,
+  "min_request_interval_seconds": 30,
+  "retry_attempts": 3,
+  "retry_base_seconds": 30,
+  "retry_max_seconds": 60,
+  "retry_elapsed_seconds": 180
+}

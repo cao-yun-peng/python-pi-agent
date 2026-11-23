@@ -100,7 +100,7 @@ class ScriptedDocker:
         self.command_error = None
         self.diff = CommandResult(0, "diff --git a/a b/a\n")
 
-    async def __call__(self, argv, timeout):
+    async def __call__(self, argv, timeout, *, stdin=None):
         self.calls.append(argv)
         if argv[1:3] == ("image", "inspect"):
             return CommandResult(0, "sha256:" + "a" * 64)
@@ -270,6 +270,19 @@ class BenchmarkImageIntegrationTests(unittest.IsolatedAsyncioTestCase):
             await env.execute(env.resolve(ShellExecRequest("printf persisted > .pi-eval-probe")))
             result = await env.execute(env.resolve(ShellExecRequest("cat .pi-eval-probe")))
             self.assertEqual(result.stdout.text, "persisted")
-            self.assertIn(".pi-eval-probe", await env.export_patch())
+            patch = await env.export_patch()
+            self.assertIn(".pi-eval-probe", patch)
+            history = await env.execute(env.resolve(ShellExecRequest("git rev-list --all --count && git rev-parse HEAD")))
+            self.assertEqual(history.stdout.text.splitlines(), ["1", selected.base_commit])
+            unavailable = await env.execute(env.resolve(ShellExecRequest("git cat-file -e f7e8062c^{commit}")))
+            self.assertNotEqual(unavailable.exit_code, 0)
         finally:
             await env.close()
+        restored = DockerTaskEnvironment()
+        try:
+            await restored.start(selected)
+            await restored.restore_patch(patch)
+            result = await restored.execute(restored.resolve(ShellExecRequest("cat .pi-eval-probe")))
+            self.assertEqual(result.stdout.text, "persisted")
+        finally:
+            await restored.close()

@@ -230,3 +230,8 @@ Provider resilience 的下一步不是继续堆策略，而是先用现有 attem
 
 
 Windows 练习：比较 CRLF 失败日志与 LF 修复后的 gold baseline，解释为什么评分进程退出 0 不等于任务 resolved，以及为什么必须先验证参考补丁。第 45 章记录固定数据版本、镜像 digest 和环境验证结果。
+
+
+## 串行批次与预算恢复
+
+第 46 章和示例 48 将单题接缝组合为批次。先用 FakeProvider/fake clock 验证共享 limiter、pre-output retry、取消后的 checkpoint、预算不重置和固定分母；再用真实 Docker 验证 base-only 历史及补丁恢复。正式 batch 先逐题 gold control，再运行模型，最后独立评分。练习从 runtime_error 与 resolved=true 的并存解释执行和任务正确性，并验证 --resume 不重跑已评分失败题。

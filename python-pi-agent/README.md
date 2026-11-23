@@ -224,3 +224,6 @@ workspace 文件端口和 `read` 工具见[第 39 章](tutorials/39-workspace-re
 ## SWE-bench Lite 评测适配
 
 应用入口 `examples/47_swebench_evaluation.py` 提供 demo、固定 revision 的 prepare、单题 run 和官方 grade。先运行 `demo --output ../.tmp/swe-demo-001`（在包目录中）；它只用 FakeProvider，生成请求快照、会话、trace 和补丁，不代表真实任务成功率。真实 Docker/模型接入与 gold baseline 步骤见[第 45 章](tutorials/45-swebench-evaluation.md)。可选 `[eval]` 安装数据下载依赖和固定版本的官方判分器；Windows LF 传输兼容与真实 gold baseline 证据见同章。
+
+
+正式评测已提供 `run --policy ... --resume`、串行 `batch`、`batch --resume` 和离线 `summarize`。策略示例为仓库顶层 evaluation-policy.json.example；每批次共享限流，复用已有重试，恢复会话与补丁时不增加预算。每题先 gold control 再独立评分，失败和空补丁仍在分母中；任务容器默认只保留 base commit 的 Git 对象。先运行[离线批次示例 48](examples/48_serial_evaluation.py)，再阅读[第 46 章](tutorials/46-serial-evaluation.md)。

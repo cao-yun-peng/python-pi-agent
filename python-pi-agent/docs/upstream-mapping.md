@@ -122,3 +122,8 @@ DeepSeek Harness Shell/沙箱概念对照 commit `f3803c96974ad4a94195fb97e5c637
 
 
 Windows LF 兼容针对 swebench 5.0.2 的文件传输，不对应新增 Pi/DeepSeek Harness 能力。保持官方测试与 grader，模块内 Path 适配只影响进入 Linux 的两个文本产物；不移植第三方测试逻辑。
+
+
+## 串行评测应用（ADR 0048）
+
+仍沿用固定 Pi commit 56b25ff4ebbd8a119ef9185447c7b2416059dbcb 所对照的 Session/模型循环概念，本次没有新增上游 API 等价承诺。DeepSeek Harness 对应显式能力接缝、生命周期和可重放证据；Python 以同包应用实现 limiter/Provider、checkpoint/Consumer、grader 与固定分母汇总，不移植其大型服务图、自动资源发现或多 Agent 编排。批次策略、OS 输出锁与基于 checksum 的文件恢复属于本项目的评测应用语义；Definition/Provider/Consumer/Lifecycle/Evidence 见 ADR 0048。

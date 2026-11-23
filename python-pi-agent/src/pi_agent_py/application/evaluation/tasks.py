@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from ...ports import ShellExecutor
 
@@ -53,4 +53,11 @@ class TaskEnvironment(ShellExecutor, Protocol):
 
     async def close(self) -> None:
         """Remove task processes and filesystem, including after cancellation."""
+        ...
+
+
+@runtime_checkable
+class RestorableTaskEnvironment(Protocol):
+    async def restore_patch(self, patch: str) -> None:
+        """Apply a previously exported workspace checkpoint to the base tree."""
         ...

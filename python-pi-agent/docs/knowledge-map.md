@@ -103,3 +103,12 @@
 
 
 Windows 判分传输补充：已实现 eval.sh/patch.diff 的 UTF-8/LF 写入与作用域恢复回归；开发题 marshmallow-1359 的官方参考补丁 resolved=true、77 tests passed。仅证明环境有效，真实 Agent 成绩仍待运行。
+
+
+## 串行评测与续跑契约（ADR 0048）
+
+| 理论 | 实现 | 测试 | 教程与掌握标准 |
+|---|---|---|---|
+| 请求启动限流、逻辑请求/物理尝试、固定分母、状态与文件恢复 | EvaluationPolicy、SharedRequestLimiter、run_case、run_batch、OfficialGrader、正式 CLI | fake clock、429、取消、checksum/镜像变更拒绝、预算不重置、OS 锁、失败分母、grade 错误隔离；真实 Docker 限制未来 Git 对象与 stdin 恢复 | 第 46 章 / 示例 48；能验证恢复对话和工作区、不重复工具，并从固定清单报告全部结果 |
+
+上文“多题汇总待实现”由本切片补齐串行范围；并行、分布式租约、token 硬限额和持续评测平台仍未实现。
