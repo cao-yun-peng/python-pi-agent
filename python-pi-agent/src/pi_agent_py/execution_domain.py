@@ -446,3 +446,64 @@ class ExecutionReceipt:
     session: SessionSnapshot
     run: RunRecord | None = None
     grant: ExecutionGrant | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimExecutionRequest:
+    lease: SessionLease
+    ttl: float
+    purpose: GrantPurpose = "run"
+
+    def __post_init__(self) -> None:
+        _time(self.ttl, "ttl")
+        if self.ttl <= 0 or self.purpose not in ("run", "maintenance"):
+            raise SessionValidationError("invalid execution claim request")
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionStepRequest:
+    grant: ExecutionGrant
+    command: ProgressCommand | None
+    mutations: tuple[ExecutionMutation, ...]
+    expected_session_version: int
+    expected_revision: int
+
+    def __post_init__(self) -> None:
+        _integer(self.expected_session_version, "expected_session_version")
+        _integer(self.expected_revision, "expected_revision")
+        if not isinstance(self.mutations, tuple):
+            raise SessionValidationError("mutations must be a tuple")
+
+
+@dataclass(frozen=True, slots=True)
+class FinishExecutionRequest:
+    grant: ExecutionGrant
+    finish: FinishRun
+    expected_session_version: int
+    expected_revision: int
+
+    def __post_init__(self) -> None:
+        _integer(self.expected_session_version, "expected_session_version")
+        _integer(self.expected_revision, "expected_revision", 1)
+
+
+@dataclass(frozen=True, slots=True)
+class CancelQueuedRequest:
+    session_id: str
+    run_id: str
+    reason: str
+    expected_revision: int
+
+    def __post_init__(self) -> None:
+        for name in ("session_id", "run_id", "reason"):
+            _text(getattr(self, name), name)
+        _integer(self.expected_revision, "expected_revision", 1)
+
+
+ExecutionRequest: TypeAlias = (
+    RunSubmission
+    | ClaimExecutionRequest
+    | ExecutionStepRequest
+    | FinishExecutionRequest
+    | CancelQueuedRequest
+)

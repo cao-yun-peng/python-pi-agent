@@ -1,5 +1,7 @@
 # Learning Path
 
+执行存储练习：阅读[第 50 章](../tutorials/50-postgres-execution-storage.md)并运行 FakeProvider 示例 53，比较当前历史与原操作回执。解释为什么完整请求摘要要包含实际消息、为什么 COMMIT 回复丢失不能重跑工具，再验证旧 epoch 和事务取消回滚。合成协调租约只作本章边界替身，Redis 和 Runtime 接线仍按后续步骤完成。
+
 数据库存储练习：完成共享 Codec 后阅读[第 49 章](../tutorials/49-postgres-session-store.md)，使用自己准备的 PG 数据库显式迁移，运行 FakeProvider 示例 52，再用独立连接池验证冲突、回滚、重开与 fork。理解基础 SessionStore 与尚未实现的执行租约控制面区别。
 
 会话格式练习：阅读第 48 章并运行示例 51，观察完整事件 round-trip 和旧 schema 拒绝；再运行 JSONL 与模型请求快照测试，解释格式复用为何没有赋予文件多进程写入能力。

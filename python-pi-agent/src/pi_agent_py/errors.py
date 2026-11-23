@@ -223,6 +223,15 @@ class SessionStorageError(AgentError):
     """A session store could not read or persist durable data."""
 
 
+class SessionCommitUnknownError(SessionStorageError):
+    """A COMMIT reply was lost; query the operation before attempting more work."""
+
+    def __init__(self, session_id: str, operation_id: str) -> None:
+        super().__init__("execution commit outcome is unknown; resolve the operation")
+        self.session_id = session_id
+        self.operation_id = operation_id
+
+
 def _error_category(error: AgentError) -> str:
     """Return a stable run-event category, including for adapter subclasses."""
     categories = (

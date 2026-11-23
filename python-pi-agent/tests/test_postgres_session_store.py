@@ -1,11 +1,8 @@
 """Offline adapter errors plus explicitly enabled real PostgreSQL contracts."""
 
 import asyncio
-import importlib
-import os
 import unittest
 from contextlib import asynccontextmanager
-from uuid import uuid4
 
 from pi_agent_py.domain import Message, QueuedControl, ControlClaim, ControlDelivery
 from pi_agent_py.errors import (
@@ -24,7 +21,7 @@ from pi_agent_py.storage.postgres_migrations import (
 from session_store_contract import SessionStoreContract
 
 
-_DSN = os.environ.get("PI_AGENT_POSTGRES_TEST_DSN")
+from postgres_fixture import PostgresFixture, _DSN
 
 
 class DriverFailure(Exception):
@@ -90,37 +87,9 @@ class PostgresBoundaryTests(unittest.IsolatedAsyncioTestCase):
 @unittest.skipUnless(
     _DSN, "set PI_AGENT_POSTGRES_TEST_DSN for isolated PostgreSQL integration"
 )
-class PostgresSessionStoreTests(SessionStoreContract, unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.driver = importlib.import_module("asyncpg")
-        self.admin = await self.driver.connect(_DSN)
-        self.schema = "pi_test_" + uuid4().hex
-        await self.admin.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.pools = []
-        self.pool = await self.new_pool()
-        self.store = PostgresSessionStore(self.pool)
-        await self.store.ensure_schema()
-
-    async def new_pool(self):
-        pool = await self.driver.create_pool(
-            _DSN,
-            min_size=1,
-            max_size=12,
-            server_settings={
-                "search_path": self.schema,
-                "application_name": self.schema,
-            },
-        )
-        self.pools.append(pool)
-        return pool
-
-    async def asyncTearDown(self):
-        for pool in self.pools:
-            await asyncio.wait_for(pool.close(), timeout=10)
-        # schema is a generated fixture identifier in the dedicated test database.
-        await self.admin.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
-        await self.admin.close()
-
+class PostgresSessionStoreTests(
+    PostgresFixture, SessionStoreContract, unittest.IsolatedAsyncioTestCase
+):
     async def make_store(self):
         return self.store
 
@@ -293,21 +262,31 @@ class PostgresSessionStoreTests(SessionStoreContract, unittest.IsolatedAsyncioTe
 
     async def test_migrations_repeat_and_concurrent_runners(self):
         await self.pool.execute(
-            "DROP TABLE schema_migrations, session_controls, session_events, sessions CASCADE"
+            "DROP TABLE schema_migrations, session_operations, run_events, session_runs, session_controls, session_events, sessions CASCADE"
         )
         results = await asyncio.gather(*(apply_migrations(self.pool) for _ in range(6)))
-        self.assertEqual(sum(result == (1,) for result in results), 1)
         self.assertEqual(
-            await self.pool.fetchval("SELECT count(*) FROM schema_migrations"), 1
+            sum(
+                result == tuple(m.version for m in load_migrations())
+                for result in results
+            ),
+            1,
+        )
+        self.assertEqual(
+            await self.pool.fetchval("SELECT count(*) FROM schema_migrations"),
+            len(load_migrations()),
         )
         self.assertEqual(await apply_migrations(self.pool), ())
 
     async def test_migration_checksum_and_unknown_version_rejected(self):
-        await self.pool.execute("UPDATE schema_migrations SET checksum=repeat('0',64)")
+        await self.pool.execute(
+            "UPDATE schema_migrations SET checksum=repeat('0',64) WHERE version=1"
+        )
         with self.assertRaisesRegex(SessionStorageError, "checksum"):
             await apply_migrations(self.pool)
         await self.pool.execute(
-            "UPDATE schema_migrations SET checksum=$1", load_migrations()[0].checksum
+            "UPDATE schema_migrations SET checksum=$1 WHERE version=1",
+            load_migrations()[0].checksum,
         )
         await self.pool.execute(
             "INSERT INTO schema_migrations(version,name,checksum) VALUES(99,'future',repeat('0',64))"
@@ -317,7 +296,7 @@ class PostgresSessionStoreTests(SessionStoreContract, unittest.IsolatedAsyncioTe
 
     async def test_failed_migration_rolls_back_ddl_and_version_marker(self):
         broken = Migration(
-            2, "002_broken.sql", "CREATE TABLE rollback_probe(id integer); SELECT 1/0;"
+            3, "003_broken.sql", "CREATE TABLE rollback_probe(id integer); SELECT 1/0;"
         )
         with self.assertRaises(SessionStorageError):
             await apply_migrations(self.pool, (*load_migrations(), broken))
@@ -325,7 +304,8 @@ class PostgresSessionStoreTests(SessionStoreContract, unittest.IsolatedAsyncioTe
             await self.pool.fetchval("SELECT to_regclass('rollback_probe')")
         )
         self.assertEqual(
-            await self.pool.fetchval("SELECT count(*) FROM schema_migrations"), 1
+            await self.pool.fetchval("SELECT count(*) FROM schema_migrations"),
+            len(load_migrations()),
         )
 
     async def test_borrowed_pool_remains_open(self):

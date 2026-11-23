@@ -9,6 +9,7 @@ from typing import Protocol
 from ..errors import (
     AgentError,
     SessionConflictError,
+    SessionCommitUnknownError,
     SessionStorageError,
     SessionValidationError,
 )
@@ -62,8 +63,10 @@ async def postgres_transaction(
     *,
     isolation: str = "read_committed",
     readonly: bool = False,
+    commit_identity: tuple[str, str] | None = None,
 ) -> AsyncIterator[PostgresConnection]:
     """Translate after rollback/release; never retry I/O or suppress cancellation."""
+    body_completed = False
     try:
         async with pool.acquire(timeout=settings.acquire_timeout) as connection:
             async with connection.transaction(isolation=isolation, readonly=readonly):
@@ -73,11 +76,22 @@ async def postgres_transaction(
                     f"{max(1, int(settings.statement_timeout * 1000))}ms",
                 )
                 yield connection
+                body_completed = True
     except AgentError:
         raise
     except Exception as error:
         state = getattr(error, "sqlstate", None)
         constraint = getattr(error, "constraint_name", None)
+        if (
+            body_completed
+            and commit_identity is not None
+            and (
+                state is None
+                or (isinstance(state, str) and state.startswith("08"))
+                or state in {"57P01", "57P02", "57P03"}
+            )
+        ):
+            raise SessionCommitUnknownError(*commit_identity) from error
         if state == "23505" and constraint in {
             "sessions_pkey",
             "session_events_pkey",

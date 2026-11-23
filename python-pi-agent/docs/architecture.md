@@ -1,10 +1,16 @@
 # Architecture
 
+## PostgreSQL 执行存储 ADR 0052
+
+`storage/execution.py` 实现 SessionExecutionStore 与绑定 writer。002 增加 Run journal、Run/检查点投影、幂等回执、队列计数和 active_run 外键。Session → Run 锁顺序内更新事件、控制、进度和回执；PG 在取得锁后读取时间并裁决 epoch。`execution_mutations.py` 校验实际模型历史与检查点命令，`execution_codec.py` 提供 v1 journal 格式及完整请求摘要。
+
+历史回执通过 Session 日志前缀、当时 Run record/grant 重建。COMMIT 回复失联时抛 SessionCommitUnknownError 并允许按操作身份查询；重试同 key 返回原结果，旧许可不能写新事实。执行存储已可独立使用，但 Redis LeaseManager、后台心跳、AgentRuntime 自动注入与恢复编排仍未实现。见 ADR 0052、教程 50 和示例 53。
+
 ## PostgreSQL 基础存储 ADR 0051
 
 `storage/postgres.py` 借用外部 pool 实现六方法 SessionStore；行锁、共享 prepare_* 和唯一约束保证同版本写入竞争，事件/版本/控制投影原子提交。读取与 fork 使用 repeatable-read，一份完整 v6 JSONB envelope 配合 generated columns 保持索引与内容一致。`postgres_migrations.py` 和显式 migrate CLI 使用 advisory lock、版本/checksum 与事务 DDL；SQL 随 wheel 发布，驱动属于可选 postgres extra。
 
-基础存储仅提供 local 模式写入；distributed 标记拒绝无许可写及直接 fork。执行日志、PG grant、Redis 与 RecoveryWorker 尚未接入。见 [ADR 0051](adr/0051-postgres-session-store.md)、[教程 49](../tutorials/49-postgres-session-store.md)、示例 52 和三种 Store 的共享契约。
+基础存储仅提供 local 模式写入；distributed 标记拒绝无许可写及直接 fork。执行日志与 PG grant 由 ADR 0052 的独立端口提供，Redis 与 RecoveryWorker 尚未接入。见 [ADR 0051](adr/0051-postgres-session-store.md)、[教程 49](../tutorials/49-postgres-session-store.md)、示例 52 和三种 Store 的共享契约。
 
 共享会话 codec（ADR 0050）：`storage/_codec.py` 独占 schema v6 事件/消息格式；JSONL 只处理文件 I/O，模型请求快照也改为依赖共享模块。字段、错误和编码字节语义保持不变。见教程 48、示例 51 与 test_session_codec。
 
@@ -12,7 +18,7 @@
 
 `execution_domain.py` 是与 domain 同层的纯领域模块，定义 RunSubmission、RunCheckpoint、ExecutionGrant、ExecutionAuthority、OperationIdentity 和独立 RunEvent。`storage/execution_transitions.py` 计算可持久化计划和 replay；Session sequence 与 Run revision 分开。普通 prompt 可生成 accepted 事实，control_delivered 不结束 Run；最终 assistant 后可从 boundary 完成，工具中断保留未决集合。
 
-`ports.py` 新增 SessionExecutionStore、ExecutionWriter、SessionLeaseManager；现有六方法 SessionStore 和 JSONL schema v6 不变。PG 将维护 epoch 与执行原子提交，Redis 仅作协调；执行控制面目前只有契约、纯转换和确定性证据，尚未提供执行存储、后台任务或 Runtime 注入。基础会话数据库适配器由 ADR 0051 提供。新端口由资源所有者显式装配，纯模块无生命周期副作用。详见 [ADR 0049](adr/0049-execution-journal-contracts.md)、[教程 47](../tutorials/47-execution-journal-contracts.md)和[开发规格](design/phase-1-distributed-session-storage.md)。
+`ports.py` 新增 SessionExecutionStore、ExecutionWriter、SessionLeaseManager；现有六方法 SessionStore 和 JSONL schema v6 不变。PG 将维护 epoch 与执行原子提交，Redis 仅作协调；执行存储由 ADR 0052 落地，后台任务和 Runtime 注入尚未提供。基础会话数据库适配器由 ADR 0051 提供。新端口由资源所有者显式装配，纯模块无生命周期副作用。详见 [ADR 0049](adr/0049-execution-journal-contracts.md)、[教程 47](../tutorials/47-execution-journal-contracts.md)和[开发规格](design/phase-1-distributed-session-storage.md)。
 
 ## 当前边界
 

@@ -35,6 +35,13 @@ from pi_agent_py.api import (
 
 _STABLE_EXPORTS = frozenset(
     """
+    PostgresExecutionStore execution_operation SessionExecutionStore ExecutionWriter
+    RunSubmission RunRecord RunCheckpoint ExecutionGrant ExecutionReceipt
+    OperationIdentity SessionLease ClaimExecutionRequest ExecutionStepRequest
+    FinishExecutionRequest CancelQueuedRequest CommitPrompt DispatchModel
+    CommitAssistant CommitToolResults ContinueRun FinishRun AppendExecutionMessages
+    DeliverExecutionControl RecordExecutionControl CompactExecutionHistory
+    DurableEventIdentity SessionCommitUnknownError
     SystemPromptSpec ModelRequestTarget RecordedModelRequest ModelRequestStore FileModelRequestStore InMemoryModelRequestStore RecordingModelProvider
     AllowedMcpConnections McpCallResult McpConnectionSpec McpContent McpLimits McpServerSettings McpToolDescriptor McpConnector McpEndpoint McpConnectionPolicy McpConnectionError McpAuthenticationError McpProtocolError McpTransportError McpResultError McpRequestNotStartedError McpTool mcp_tool_name mcp_plugin McpSdkOptions SdkMcpConnector SecretResolver MappingSecretResolver McpServerConfig McpCapabilitySettings parse_mcp_settings mcp_capability_registration
     SchemaValidator SubsetSchemaValidator JsonSchemaValidator

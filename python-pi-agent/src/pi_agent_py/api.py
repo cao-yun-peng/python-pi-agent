@@ -155,6 +155,18 @@ from .runtime.session import AgentSession
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
 from .storage.postgres import PostgresSessionStore
+from .storage.execution import PostgresExecutionStore
+from .storage.execution_codec import execution_operation
+from .ports import SessionExecutionStore, ExecutionWriter
+from .execution_domain import (
+    RunSubmission, RunRecord, RunCheckpoint, ExecutionGrant, ExecutionReceipt,
+    OperationIdentity, SessionLease, ClaimExecutionRequest, ExecutionStepRequest,
+    FinishExecutionRequest, CancelQueuedRequest, CommitPrompt, DispatchModel,
+    CommitAssistant, CommitToolResults, ContinueRun, FinishRun, AppendExecutionMessages,
+    DeliverExecutionControl, RecordExecutionControl, CompactExecutionHistory,
+)
+from .domain import DurableEventIdentity
+from .errors import SessionCommitUnknownError
 from .storage._postgres_driver import PostgresPool, PostgresSettings
 from .storage.model_requests import FileModelRequestStore, InMemoryModelRequestStore
 from .providers.recording import RecordingModelProvider
@@ -209,6 +221,13 @@ from .tools.workspace.find import FindTool
 from .tools.workspace.grep import GrepTool
 
 __all__ = [
+    "PostgresExecutionStore", "execution_operation", "SessionExecutionStore", "ExecutionWriter",
+    "RunSubmission", "RunRecord", "RunCheckpoint", "ExecutionGrant", "ExecutionReceipt",
+    "OperationIdentity", "SessionLease", "ClaimExecutionRequest", "ExecutionStepRequest",
+    "FinishExecutionRequest", "CancelQueuedRequest", "CommitPrompt", "DispatchModel",
+    "CommitAssistant", "CommitToolResults", "ContinueRun", "FinishRun", "AppendExecutionMessages",
+    "DeliverExecutionControl", "RecordExecutionControl", "CompactExecutionHistory",
+    "DurableEventIdentity", "SessionCommitUnknownError",
     "ModelRequestTarget", "RecordedModelRequest", "ModelRequestStore",
     "FileModelRequestStore", "InMemoryModelRequestStore", "RecordingModelProvider",
     "WorkspaceWriteRequest", "WorkspaceEditRequest", "WorkspaceMutationResult", "WorkspaceMutations",

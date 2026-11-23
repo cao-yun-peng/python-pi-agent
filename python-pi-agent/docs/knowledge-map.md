@@ -2,6 +2,7 @@
 
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
+| PG 执行存储 ADR 0052 | 原子检查点、epoch、完整幂等请求与提交不确定性 | PostgresExecutionStore / execution_mutations / v1 journal codec | 独立存储完成；Redis、Runtime 与恢复编排待实现 | 默认摘要/codec/纯转换；真实并发、历史回执、丢 COMMIT 回复、回滚、维护/steer/预算及升级 | [第 50 章](../tutorials/50-postgres-execution-storage.md)、示例 53 | 能查询不确定提交的原结果，拒绝伪造摘要/旧 epoch，并解释存储原子性不保证工具副作用 exactly-once |
 | PostgreSQL 基础存储 ADR 0051 | 乐观版本、行锁、事务、迁移和投影 | 六方法 Store、显式 migration CLI、借用 pool | local 模式完成；分布式执行日志/租约待实现 | 三种 Store 共享契约；独立池并发、rollback、超时/取消、迁移并发/checksum | [第 49 章](../tutorials/49-postgres-session-store.md)、示例 52 | 能区分 CAS/唯一约束/行锁与执行权，证明失败无半批次并解释迁移版本与事件 schema 的区别 |
 | 共享事件 Codec ADR 0050 | 格式契约与 I/O 分离 | storage/_codec.py | JSONL 与请求快照复用，v6 行为不变 | 固定字节、全部载荷、字段错误、既有持久与取消回归 | [第 48 章](../tutorials/48-shared-session-codec.md)、示例 51 | 能列举 content 之外的持久字段并复现严格解码拒绝 |
 | Run 执行契约 ADR 0049 | 指令交付与执行终态、检查点、fencing、幂等及预算 | execution_domain / execution_transitions；可持久化计划与 replay | 契约切片完成；PG/Redis/Runtime 接线待实现 | test_execution_contracts：状态矩阵、取消、到期接管、旧许可、去重、预算与损坏日志 | [第 47 章](../tutorials/47-execution-journal-contracts.md)、示例 50 | 能重建普通 prompt Run，解释 delivered 不等于 completed，并指出纯转换不证明 SQL 原子性或副作用 exactly-once |
