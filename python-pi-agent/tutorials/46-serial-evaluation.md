@@ -117,3 +117,22 @@ verify 的 script 必须包含真正执行的 assert。工具在同镜像的新�
 断言应表达预期值与行为一致性，并覆盖相关配置/边界。1359 的教训是“既有 911 项全过”仍可能漏掉新回归；把 print 中可疑的差异写成 assert 才有明确反馈。`verification.json` 与 report.verification 给出脚本 hash、基线/候选结果和 patch hash，后续修改会使先前成功证据失效。completed、current_patch_verified 和官方 resolved 是三个不同结论，不能互相替代；验证工具没有接触官方隐藏测试。
 
 本轮复测保持每题 40 次请求、1200 秒与 30 秒启动间隔，固定原来的两道 marshmallow 开发题；同时更换模型与工作流，因此结果只证明新组合的表现，不能分离二者各自贡献。旧的原始记录保持不变。
+
+## 2.7 与新工作流的真实复测
+
+2026-11-23 冻结 commit `6a975a325fc2b0f30906a66010c65703b70311a5`，使用 kimi-k2.7-code（thinking enabled / max_tokens 8192 / provider timeout 90 秒），固定 dev revision、原始两道任务镜像与上一轮相同预算。新输出为 `.tmp/evaluation/batches/dev-smoke-002-k27-workflow/`，输入为同名 data/ 子目录。
+
+| 任务 | 旧 2.6 组合 | 新 2.7 + 工作流 | 新逻辑请求数 / 墙钟 | 自建断言 / 官方判分 |
+|---|---|---|---|---|
+| marshmallow-code__marshmallow-1343 | request_limit、空补丁、未解决 | completed、resolved=true | 24 / 707.5 秒 | 5 个断言通过；官方 25 passed |
+| marshmallow-code__marshmallow-1359 | completed、格式继承测试失败、未解决 | runtime_error、resolved=true | 31 / 1048.9 秒 | 26 个断言通过；官方 77 passed |
+
+两题均调用一次 edit 和一次 verify，未查询后续 Git 历史。1343 第 15 次请求开始修改，第 20 次建立红绿证据，最后通过原库 779 项测试。1359 第 22 次修改、第 29 次建立红绿证据，使用 schema.root 取得根 Schema 配置，覆盖容器内字段的日期格式继承，原库 911 项测试与官方新增回归均通过。两份 verification.json 都与最后导出的 patch hash 匹配。
+
+1359 在修复、断言和 diff 检查完成后，第 31 次逻辑请求遭遇 ProviderRateLimitError，三次物理尝试均失败，中间两次等待 60 秒，最终为 ProviderExhaustedError。没有助手最终回答，执行终态保留 runtime_error。补丁已经导出且独立官方测试全过，所以 resolved=true；不能把这次运行称为正常收尾，也不能把这个错误改成 completed。trace 没有证明具体是 RPM、TPM 或其他账号限额，不凭错误类别猜测。
+
+本批固定分母 2/2；只与旧批相同两题的 0/2 对照，不把旧批 pydicom 环境失败混入模型比较。累计 55 次逻辑、57 次物理请求；已返回 usage 为 input 570595、output 14200、total 584795 tokens，不保证涵盖服务端未返回用量。启动限流等待分别为 512.3 与 614.0 秒，第二题另有 120 秒重试退避，仍是墙钟预算的重要消耗。模型和工作流同时改变且每题只有一次尝试，此结果不能估计独立改造收益或全体测试集成功率。
+
+已执行正式 summarize 和同参数 batch --resume；145 个证据文件的内容 hash 与时间戳不变，物理请求保持 57 次，已评分题未重跑。对照明细在 `.tmp/evaluation/analysis/dev-smoke-002-k27-workflow/comparison.json`。
+
+实测后独立修复两个接口细节：DockerTaskEnvironment 允许 /testbed 范围内的绝对 workdir，仍拒绝越界、.. 与反斜杠；read/edit 的文件 path 仍要求相对目录。edit 返回修改起始行和附近内容，避免长文件修改后却回显前 160 行。新增回归先复现失败后修复，真实 Docker 验证通过；最新默认测试运行 539 项、15 项显式跳过，其余通过。两项后续修复未重新调用模型，批次结果仍属于上面的冻结 commit。

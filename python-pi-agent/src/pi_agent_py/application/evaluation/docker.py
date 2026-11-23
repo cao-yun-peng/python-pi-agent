@@ -148,8 +148,12 @@ class DockerTaskEnvironment:
 
     def resolve(self, request: ShellExecRequest) -> ShellExecSpec:
         path = PurePosixPath(request.workdir or ".")
-        if path.is_absolute() or ".." in path.parts or "\\" in str(path):
-            raise ValueError("workdir must be relative to /testbed")
+        if ".." in path.parts or "\\" in str(path):
+            raise ValueError("workdir must stay inside /testbed")
+        if path.is_absolute():
+            if not path.is_relative_to('/testbed'):
+                raise ValueError("workdir must stay inside /testbed")
+            path = path.relative_to('/testbed')
         return ShellExecSpec(request.command, str(PurePosixPath("/testbed") / path),
                              min(request.timeout_seconds or 120, 600))
 

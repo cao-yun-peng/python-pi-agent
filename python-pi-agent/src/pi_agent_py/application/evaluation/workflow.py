@@ -34,12 +34,14 @@ try:
     original = path.read_bytes()
     text = original.decode('utf-8')
     version = hashlib.sha256(original).hexdigest()
+    changed_line = None
     if args['operation'] == 'edit':
         if version != args['expected_sha256']:
             raise ValueError('stale file version; read the file again')
         old, new = args['old_text'], args['new_text']
         if not old or len(old) > 65536 or len(new) > 65536 or text.count(old) != 1:
             raise ValueError('old_text must match exactly once; replacement limit is 64 KB')
+        changed_line = text[:text.index(old)].count('\n') + 1
         updated = text.replace(old, new, 1)
         if path.suffix == '.py':
             try:
@@ -61,12 +63,16 @@ try:
         text = updated
         version = hashlib.sha256(path.read_bytes()).hexdigest()
     start, end = args.get('start_line', 1), args.get('end_line', 160)
+    if changed_line is not None:
+        start = max(1, changed_line - 5)
+        end = start + min(159, new.count('\n') + 12)
     if type(start) is not int or type(end) is not int or start < 1 or end < start or end-start >= 500:
         raise ValueError('read range must contain 1 to 500 lines')
     lines = text.splitlines()
     excerpt = '\n'.join(str(i+1) + ': ' + lines[i] for i in range(start-1, min(end, len(lines))))
     print(json.dumps({'path':str(relative), 'sha256':version, 'total_lines':len(lines),
                       'content':excerpt[:20000], 'truncated':len(excerpt)>20000,
+                      'changed_start_line':changed_line,
                       'syntax_checked':args['operation']=='edit' and path.suffix=='.py'}))
 except Exception as error:
     print(json.dumps({'error':type(error).__name__, 'details':str(error)}))

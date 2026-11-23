@@ -83,6 +83,18 @@ class BudgetTests(unittest.IsolatedAsyncioTestCase):
 
 
 class EditingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_edit_feedback_shows_modified_region_instead_of_file_header(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'bug.py'
+            path.write_text('# header\n' * 200 + 'value = 1\n')
+            env = LocalEnvironment(root)
+            read, edit = ContainerFileTool(env, 'read'), ContainerFileTool(env, 'edit')
+            version = (await invoke(read, {'path': 'bug.py', 'start_line': 200, 'end_line': 201})).structured_content['sha256']
+            result = await invoke(edit, {'path': 'bug.py', 'old_text': 'value = 1', 'new_text': 'value = 2', 'expected_sha256': version})
+            self.assertFalse(result.is_error)
+            self.assertIn('201: value = 2', result.content)
+            self.assertEqual(result.structured_content['changed_start_line'], 201)
+
     async def test_syntax_stale_and_ambiguous_edits_leave_original_bytes(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "bug.py"

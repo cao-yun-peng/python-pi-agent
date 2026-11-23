@@ -43,3 +43,5 @@ verify 接受不超过 64 KB 的自包含 Python 断言脚本，用同一镜像�
 completed 仍表示循环正常结束，verification.current_patch_verified 独立表示这一版本补丁的红绿证据；缺失证据不会伪装成已验证，也不自动合成模型调用或改写助手回答。官方 grader 的 resolved 仍是修复成败依据。语法检查不证明逻辑正确，断言存在/执行也不证明覆盖充分；新工具是可观测验证接缝，省略通用测试生成器、自动最终回答拦截和恶意脚本证明系统。
 
 示例 49 使用脚本化 Provider/环境，正式工具与 Runtime 共同执行；test_evaluation_workflow 使用真正的 helper 子进程覆盖预算、编辑拒绝、红绿验证、失效和取消。真实 Docker 另覆盖 Python 3.9 的语法拒绝、原文件不变、越界拒绝、未修复拒绝与参考补丁红绿通过。默认 Kimi 新请求使用 kimi-k2.7-code；显式 2.6 测试仅保留历史行为兼容。
+
+真实复测后补充：模型给 bash 指定 /testbed 时原先被相对路径约束拒绝，现允许 /testbed 内的绝对 workdir，并继续拒绝越界、.. 和反斜杠；文件工具路径保持相对。edit 的回显定位修改行附近，附 changed_start_line。两项都有先失败的回归和真实 Docker 检查。冻结 6a975a3 的两题复测均 resolved=true，其中 1359 最终请求三次供应商限流导致 runtime_error，故正常收尾和解决结果仍分别报告。参见教程 46，不以额外重试改写结果。

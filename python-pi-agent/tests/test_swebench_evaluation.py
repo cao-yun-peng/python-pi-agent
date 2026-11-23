@@ -114,6 +114,15 @@ class ScriptedDocker:
 
 
 class DockerEnvironmentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_workdir_accepts_task_root_absolute_paths_but_rejects_escape(self):
+        env = DockerTaskEnvironment(runner=ScriptedDocker())
+        self.assertEqual(env.resolve(ShellExecRequest('pwd', '/testbed')).workdir, '/testbed')
+        self.assertEqual(env.resolve(ShellExecRequest('pwd', '/testbed/src')).workdir, '/testbed/src')
+        self.assertEqual(env.resolve(ShellExecRequest('pwd', 'src')).workdir, '/testbed/src')
+        for path in ('/testbed2', '/etc', '/testbed/../etc', '../src', '..\\src'):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                env.resolve(ShellExecRequest('pwd', path))
+
     async def test_persistent_identity_no_host_mount_and_real_nonzero_exit(self):
         docker = ScriptedDocker()
         env = DockerTaskEnvironment(runner=docker)
