@@ -2,6 +2,8 @@
 
 每一阶段都必须形成可运行的纵向切片，而不是先造一批空接口。
 
+分布式执行的首个机制切片见[第 47 章](../tutorials/47-execution-journal-contracts.md)和示例 50：先复习第 17 章 durable controls，再运行纯执行日志轨迹，练习 delivered 与 completed、checkpoint、预算不重置和旧许可拒绝。此时不需要 PG/Redis；真实存储与 Runtime 接线按[开发规格](design/phase-1-distributed-session-storage.md)后续步骤完成，不能把纯 replay 当成事务已经落盘。
+
 1. **消息、流和最小循环**：理解一次 Agent run 如何开始、提交和 settled。
 2. **真实 Provider 适配与组装**：DeepSeek/Kimi/GLM Chat Completions 与 TiMi Responses 的认证、错误映射、模型能力、续接状态和生命周期，以及显式 YAML/dotenv 配置边界。
 3. **工具调用**：schema、调度、tool result、失败和权限。

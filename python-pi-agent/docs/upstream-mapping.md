@@ -2,6 +2,8 @@
 
 本项目是独立 Python 实现。映射用于学习设计，不承诺 API 兼容。
 
+Run 执行契约（ADR 0049）复用本项目已有的 Session replay、稳定事件引用和显式端口概念。独立 Run journal、检查点及 PG epoch 是 Python 侧新增设计，不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名 API 或分布式恢复等价承诺。DeepSeek Harness 对应 Definition/Provider/Consumer/Lifecycle/Evidence 接缝：值对象/端口、纯转换、示例与契约测试、无隐式副作用、可重放证据。首版省略 PG/Redis Provider、实际 RecoveryWorker 和外部副作用去重；详见第 47 章与后续开发规格。
+
 可观测层的现状证据与演进边界见[补充设计](design/observability-evolution.md)。新增错误分类投影、投递健康、性能指标与外部 parent trace 绑定属于 Python 侧待实现方案；沿用下表的 lifecycle/telemetry 概念映射，不表示上游已提供同名能力。
 
 当前 Pi 参考固定在 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb`。

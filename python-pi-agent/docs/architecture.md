@@ -1,5 +1,11 @@
 # Architecture
 
+## 分布式执行契约切片 ADR 0049
+
+`execution_domain.py` 是与 domain 同层的纯领域模块，定义 RunSubmission、RunCheckpoint、ExecutionGrant、ExecutionAuthority、OperationIdentity 和独立 RunEvent。`storage/execution_transitions.py` 计算可持久化计划和 replay；Session sequence 与 Run revision 分开。普通 prompt 可生成 accepted 事实，control_delivered 不结束 Run；最终 assistant 后可从 boundary 完成，工具中断保留未决集合。
+
+`ports.py` 新增 SessionExecutionStore、ExecutionWriter、SessionLeaseManager；现有六方法 SessionStore 和 JSONL schema v6 不变。PG 将维护 epoch 与原子写入，Redis 仅作协调；目前只有契约、纯转换和确定性证据，尚未提供数据库适配器、后台任务或 Runtime 注入。新端口由资源所有者显式装配，纯模块无生命周期副作用。详见 [ADR 0049](adr/0049-execution-journal-contracts.md)、[教程 47](../tutorials/47-execution-journal-contracts.md)和[开发规格](design/phase-1-distributed-session-storage.md)。
+
 ## 当前边界
 
 ```text

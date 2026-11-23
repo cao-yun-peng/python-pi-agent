@@ -6,6 +6,11 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from .execution_domain import (
+    ExecutionGrant, ExecutionMutation, ExecutionReceipt, FinishRun,
+    OperationIdentity, ProgressCommand, RunRecord, RunSubmission, SessionLease,
+)
+
 from .domain import (
     AgentEvent,
     ApprovalDecision,
@@ -300,6 +305,130 @@ class SessionStore(Protocol):
         at_version: int | None = None,
     ) -> SessionSnapshot:
         """Persist a non-empty source prefix as a new target session."""
+        ...
+
+
+class SessionLeaseManager(Protocol):
+    """Borrowed coordination client; None means occupied/lost, not I/O failure.
+
+    Adapters preserve cancellation and classify infrastructure errors. The
+    resource owner closes clients only after all users and heartbeats stop.
+    """
+
+    async def acquire(
+        self, session_id: str, owner_id: str, claim_id: str, ttl: float,
+    ) -> SessionLease | None: ...
+
+    async def renew(self, lease: SessionLease, ttl: float) -> SessionLease | None: ...
+
+    async def release(self, lease: SessionLease) -> bool: ...
+
+
+class ExecutionWriter(Protocol):
+    """Writer bound to one immutable grant; each commit revalidates PG authority."""
+
+    async def commit_step(
+        self, operation: OperationIdentity, command: ProgressCommand | None,
+        mutations: tuple[ExecutionMutation, ...], *, expected_session_version: int,
+        expected_revision: int,
+    ) -> ExecutionReceipt:
+        """Atomically persist session facts, checkpoint and deduplication receipt.
+
+        Empty mutations are allowed for dispatch/boundary decisions without
+        session writes. A missing command is allowed only for compaction or
+        control enqueue/claim/cancellation that preserves Run progress. Multiple
+        steering deliveries can share one ContinueRun transaction. Maintenance
+        grants authorize compaction only, never control or message mutations.
+        Adapters validate command/mutation/reference agreement,
+        copy mutable message payloads and reject stale boundary observations.
+        The operation digest covers the full command AND mutation request.
+        """
+        ...
+
+
+class SessionExecutionStore(Protocol):
+    """Durable distributed execution boundary, independent of SessionStore.
+
+    No method performs model/tool I/O. Implementations transact under a Session
+    lock, use DB time and preserve cancellation. Admission authorization belongs
+    to the application. Submission-key and operation-id collisions with different
+    inputs are validation errors; lost authority is a conflict. Borrowed pools
+    are not closed by this port. Explicit migration/startup precedes consumption.
+    """
+
+    async def submit_run(self, submission: RunSubmission) -> RunRecord:
+        """Durably accept prompt or atomically enqueue the follow-up control.
+
+        Enforce (session, submission_key) idempotence, assign queue order under
+        the Session lock, and reject another submission reusing the run id.
+        """
+        ...
+
+    async def list_candidates(self, limit: int) -> tuple[str, ...]:
+        """Discover unique Session IDs, without granting execution ownership."""
+        ...
+
+    async def claim_next(
+        self, lease: SessionLease, ttl: float, operation: OperationIdentity,
+    ) -> ExecutionReceipt | None:
+        """Recover active Run first, else FIFO; atomically advance epoch/attempt.
+
+        None means no eligible work. Redis coordination must still be valid.
+        An exhausted active Run is durably failed in this transaction instead of
+        being endlessly rescanned; it must not dispatch another attempt.
+        """
+        ...
+
+    async def renew_grant(self, grant: ExecutionGrant, ttl: float) -> ExecutionGrant: ...
+
+    async def claim_maintenance(
+        self, lease: SessionLease, ttl: float, operation: OperationIdentity,
+    ) -> ExecutionGrant:
+        """Acquire compact-only permission; interrupted active Runs take priority."""
+        ...
+
+    async def release_grant(self, grant: ExecutionGrant) -> bool:
+        """Compare-release without erasing epoch or an interrupted active Run."""
+        ...
+
+    async def load_execution(self, session_id: str, run_id: str) -> RunRecord | None: ...
+
+    async def cancel_queued(
+        self, session_id: str, run_id: str, operation: OperationIdentity,
+        reason: str, *, expected_revision: int,
+    ) -> ExecutionReceipt:
+        """Authorized admission cancellation without an execution grant.
+
+        Serialize with claim_next; reject if already running. Cancel the linked
+        pending follow-up control atomically, without cancelling another Run.
+        """
+        ...
+
+    def bind_writer(self, grant: ExecutionGrant) -> ExecutionWriter:
+        """Bind identity only; no connection acquisition or import side effects."""
+        ...
+
+    async def commit_step(
+        self, grant: ExecutionGrant, operation: OperationIdentity,
+        command: ProgressCommand | None, mutations: tuple[ExecutionMutation, ...], *,
+        expected_session_version: int, expected_revision: int,
+    ) -> ExecutionReceipt: ...
+
+    async def finish_run(
+        self, grant: ExecutionGrant, operation: OperationIdentity, finish: FinishRun,
+        *, expected_session_version: int, expected_revision: int,
+    ) -> ExecutionReceipt:
+        """Atomically settle at a validated boundary and release active Run.
+
+        Check accepted steering before completion. This must serialize with
+        control admission; stale expected versions cannot close the window.
+        """
+        ...
+
+    async def resolve_operation(
+        self, session_id: str, operation_id: str,
+    ) -> ExecutionReceipt | None:
+        """Return committed receipt; None is not proof a concurrent commit failed."""
         ...
 
 

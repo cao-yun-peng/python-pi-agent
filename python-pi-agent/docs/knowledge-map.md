@@ -2,6 +2,7 @@
 
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
+| Run 执行契约 ADR 0049 | 指令交付与执行终态、检查点、fencing、幂等及预算 | execution_domain / execution_transitions；可持久化计划与 replay | 契约切片完成；PG/Redis/Runtime 接线待实现 | test_execution_contracts：状态矩阵、取消、到期接管、旧许可、去重、预算与损坏日志 | [第 47 章](../tutorials/47-execution-journal-contracts.md)、示例 50 | 能重建普通 prompt Run，解释 delivered 不等于 completed，并指出纯转换不证明 SQL 原子性或副作用 exactly-once |
 | MCP 配置（E1 阶段 4） | 纯解析、秘密引用、显式装配与目标授权 | McpCapabilitySettings、SecretResolver、mcp_capability_registration | YAML/稳定 API 完成，复用插件与 owner | 零连接预检、Catalog 双端、Fake 续轮、真实 YAML HTTP、缺 SDK 导入 | [第 38 章](../tutorials/38-mcp-configured-capability.md)、ADR 0039 | 能证明配置不自动授予启动/工具权限，秘密不入 Settings/log |
 | MCP HTTP（E1 阶段 3） | 原始接收与解析后预算、HTTP 所有权和凭据边界 | 受限 httpx2 transport、SDK Streamable HTTP | HTTP 已完成；YAML/凭据引用后续 | 字节流停止、401/断流/超限、modern/legacy、无重发和正常关闭 | [第 37 章](../tutorials/37-mcp-sdk-transports.md)、ADR 0038 | 能证明解析前拒绝，并区分 unknown 与资源清理失败 |
 | MCP SDK owner/stdio（E1 阶段 2） | 同任务上下文、有界队列、取消隔离、真实进程释放 | OwnedMcpEndpoint、SdkMcpConnector、分页 DTO 边界 | stdio 已实现；HTTP/wire 预算后续 | owner/SDK 脚本测试；显式 modern/legacy、远端取消、断连、Windows 树退出 | [第 37 章](../tutorials/37-mcp-sdk-transports.md)、ADR 0037 | 能证明跨任务关闭不泄漏且失败不重发 |
