@@ -195,6 +195,7 @@ async def run_batch(
                         limiter=limiter,
                     )
                     row.update(execution_status=execution["status"], error_type=execution.get("error_type"),
+                               verification=execution.get('verification'), rate_limit_wait_seconds=execution.get('rate_limit_wait_seconds'),
                                reported_usage=execution.get("reported_usage", {}), case_path=str(case_root),
                                consumed_requests=execution.get("consumed_requests"),
                                duration_seconds=execution.get("duration_seconds"))

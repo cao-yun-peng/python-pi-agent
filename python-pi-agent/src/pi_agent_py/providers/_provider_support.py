@@ -28,7 +28,7 @@ DEEPSEEK_DEFAULT_BASE_URL: Final = "https://api.deepseek.com"
 DEEPSEEK_DEFAULT_THINKING: Final = "disabled"
 
 KIMI_DEFAULT_API_KEY_ENV: Final = "MOONSHOT_API_KEY"
-KIMI_DEFAULT_MODEL: Final = "kimi-k2.6"
+KIMI_DEFAULT_MODEL: Final = "kimi-k2.7-code"
 KIMI_DEFAULT_BASE_URL: Final = "https://api.moonshot.cn/v1"
 
 GLM_DEFAULT_API_KEY_ENV: Final = "ZAI_API_KEY"

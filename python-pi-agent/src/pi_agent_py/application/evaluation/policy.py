@@ -64,13 +64,18 @@ class SharedRequestLimiter:
         self._clock, self._sleep = clock, sleep
         self._lock = asyncio.Lock()
         self._last: float | None = clock() if initial_wait else None
+        self.waited_seconds = 0.0
 
     async def acquire(self) -> None:
         async with self._lock:
             if self._last is not None:
                 delay = self.interval - (self._clock() - self._last)
                 if delay > 0:
-                    await self._sleep(delay)
+                    waiting = self._clock()
+                    try:
+                        await self._sleep(delay)
+                    finally:
+                        self.waited_seconds += max(0, self._clock() - waiting)
             self._last = self._clock()
 
 

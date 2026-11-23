@@ -52,6 +52,7 @@ class AdmissionTests(unittest.IsolatedAsyncioTestCase):
         other = LimitedProvider(raw, limiter)
         self.assertEqual([e async for e in other.stream([Message("user", "b")], context=context())], [Finish()])
         self.assertEqual(time.now, 60)
+        self.assertEqual(limiter.waited_seconds, 60)
         self.assertEqual(len(raw.requests), 3)
         self.assertNotEqual(raw.request_contexts[0].attempt_id, raw.request_contexts[1].attempt_id)
 

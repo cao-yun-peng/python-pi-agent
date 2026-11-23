@@ -29,3 +29,17 @@
 ## 验证方式
 
 FakeProvider 覆盖 429 重试、取消、恢复后的原历史、工作区恢复和预算不重置；fake clock 覆盖启动间隔；测试覆盖篡改拒绝、变更镜像、输出锁、失败分母、批次恢复和评分进程退出 0 但空补丁。真实 Docker 集成验证仅一个 commit、base hash 不变、未来 Git 对象不可读及 stdin patch 恢复。默认测试不联网、不调用付费模型。
+
+## 2026-11-23：针对失败轨迹的工作流补充
+
+1343 的两次行号编辑造成语法错误，最后一次请求撤销了修改；1359 虽跑过 911 个已有测试，却忽略了自己打印出的日期格式继承差异。两题的等待占墙钟约 74%/82%，且模型不可见剩余额度。
+
+在应用层显式组装 BudgetFeedback（ProviderRequestHook）、容器 read/edit 工具与 AssertionVerifier，复用 Middleware、ShellExecutor 和 TaskEnvironment；不修改主循环。每个请求在原 system 后插入带时间点的预算 system 投影，保留对话与 thinking。最终逻辑/物理快照保存该投影；墙钟包含限流，最后五次请求或 150 秒内提示收尾。SharedRequestLimiter 同时累计实际等待，段/单题/批次行记录它。
+
+read 返回行号与 SHA-256；edit 要求旧版本和唯一原文匹配，在容器实际 Python 下编译 .py 后原子替换。路径限制在 /testbed，拒绝修改 .git；不直接接入宿主 WorkspaceMutations。两工具借用环境，不注册后台资源，未知写入结果不重试。
+
+verify 接受不超过 64 KB 的自包含 Python 断言脚本，用同一镜像的新原始容器运行相同脚本，再检查候选。原始需以 AssertionError/TypeError/AttributeError/ValueError 失败，候选需实际经过 assert 并正常完成。候选必须有非空 diff；成功证据绑定完整 patch SHA-256，后续变更使其失效。每次显式验证都会重新建立基线；基线容器在成功、失败和取消时关闭。新段续跑要求重新验证，不从内存或旧段猜测成功。
+
+completed 仍表示循环正常结束，verification.current_patch_verified 独立表示这一版本补丁的红绿证据；缺失证据不会伪装成已验证，也不自动合成模型调用或改写助手回答。官方 grader 的 resolved 仍是修复成败依据。语法检查不证明逻辑正确，断言存在/执行也不证明覆盖充分；新工具是可观测验证接缝，省略通用测试生成器、自动最终回答拦截和恶意脚本证明系统。
+
+示例 49 使用脚本化 Provider/环境，正式工具与 Runtime 共同执行；test_evaluation_workflow 使用真正的 helper 子进程覆盖预算、编辑拒绝、红绿验证、失效和取消。真实 Docker 另覆盖 Python 3.9 的语法拒绝、原文件不变、越界拒绝、未修复拒绝与参考补丁红绿通过。默认 Kimi 新请求使用 kimi-k2.7-code；显式 2.6 测试仅保留历史行为兼容。

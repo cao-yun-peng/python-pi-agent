@@ -97,3 +97,23 @@ run_failed 与 resolved=true 可以并存：请求次数耗尽时导出的补丁
 新单题输入是 `.tmp/evaluation/data/pydicom-1139-pytest7-v1/`，tasks.json 与 grader-data.json 的 image 都固定到 `sha256:207a12ce24421c982205adaf70219e1339b9b647cc298f4d586c6ed3a0e36a7c`，source 标注 environment_profile，environment.json 记录原始数据 hash 与镜像身份。原数据的其他行字段未变。未来重建可运行配方旁的 prepare.py，从本地 tag 解析新 ID 并生成独立目录。
 
 证据为 `.tmp/evaluation/controls/pydicom-pytest7-v1/verification.json`、gold/、negative/ 和 runtime-check.json。它们证明环境修复有效；dev-smoke-001 仍保留原始的 0/3 与预检失败记录。使用新环境进行模型评测时应创建新批次并使用新的两份输入。
+
+## 从失败轨迹改进工作流
+
+新评测默认使用 kimi-k2.7-code。默认配置与 agent.yaml.example 同步；2.6 的已存记录和显式兼容单测保持原版本。先运行无需 Docker、密钥与网络的正式组装示例：
+
+```powershell
+.\.venv\Scripts\python.exe python-pi-agent/examples/49_evaluation_workflow.py --output .tmp/evaluation/demo-workflow-next
+```
+
+示例用脚本化环境替身返回文件/断言结果，复用正式 read/edit/verify、Middleware 和 Runtime，输出明确标为 synthetic_only；不能当作真实文件检查或模型分数。
+
+BudgetFeedback 在 ProviderRequestHook 边界插入 system 投影：已用次数、当前调用后的剩余次数、准备时的剩余墙钟和验证状态。最后五次调用或 150 秒内提醒先验证再收尾。它不向 canonical session 追加临时消息；请求快照保存实际投影，所以仍能还原模型输入。消息类型使用 system，避免改变 Kimi 的最后 user 边界或丢失 thinking。剩余时间是准备时值，之后的限流等待继续消耗墙钟；rate_limit_wait_seconds 记录实际等待，取消期间的已等待时间也计入。
+
+read 从容器返回带行号内容和 SHA-256，edit 用 expected_sha256 + old_text/new_text 做唯一精确替换；文件版本变化、匹配不唯一或 .py 编译不通过，都不会写入。工具仅通过 TaskEnvironment 操作容器，不访问宿主工作区。应合并独立 bash 读取，避免每个短命令都占一次有间隔的模型请求。
+
+verify 的 script 必须包含真正执行的 assert。工具在同镜像的新原始容器和当前容器运行同一脚本，检查原始失败、候选成功，并将证据绑定当前完整 diff。仅 print、assert True、未执行的 assert、两边都失败或两边都通过都不能建立验证。原始失败不包含环境导入错误；脚本需自包含，不依赖模型新建的辅助文件。每次 verify 都关闭原始控制容器，候选容器继续由 run_task 关闭。
+
+断言应表达预期值与行为一致性，并覆盖相关配置/边界。1359 的教训是“既有 911 项全过”仍可能漏掉新回归；把 print 中可疑的差异写成 assert 才有明确反馈。`verification.json` 与 report.verification 给出脚本 hash、基线/候选结果和 patch hash，后续修改会使先前成功证据失效。completed、current_patch_verified 和官方 resolved 是三个不同结论，不能互相替代；验证工具没有接触官方隐藏测试。
+
+本轮复测保持每题 40 次请求、1200 秒与 30 秒启动间隔，固定原来的两道 marshmallow 开发题；同时更换模型与工作流，因此结果只证明新组合的表现，不能分离二者各自贡献。旧的原始记录保持不变。

@@ -5,7 +5,7 @@ version: 1
 provider:
   name: kimi
   api_key_env: MOONSHOT_API_KEY
-  model: kimi-k2.6
+  model: kimi-k2.7-code
   base_url: https://api.moonshot.cn/v1
   timeout_seconds: 120
   thinking: enabled

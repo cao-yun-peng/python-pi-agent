@@ -263,3 +263,5 @@ Windows 官方判分通过独立 grading 子进程调用 swebench 5.0.2 main，�
 application/evaluation/policy.py 定义强类型策略、批次共享的启动间隔与 Provider decorator；物理重试复用 providers/runtime。cases.py 以冻结 case manifest、原始绝对 deadline、逻辑输入快照计数和 session/patch checksum 管理恢复；OS 锁、原子状态发布和镜像身份校验防止混用。batch.py 逐题 gold control → case → 官方 grader，取消传播、错误隔离并保持固定分母；CLI 提供 run --resume、batch --resume 和离线 summarize。Docker 默认以非本地浅克隆只保留原 base commit，移除未来对象和 remote；restore_patch 通过 stdin 恢复，模型网络仍关闭。执行终态、判分状态和解决比例独立存储；已评分的失败题不会因 batch resume 自动重跑。
 
 任务测试依赖的兼容修复在镜像配方层完成，例如 evaluation/images/pydicom-1139-pytest7。准备脚本只替换任务和官方 grader 原始行的 image 字段为同一个不可变本地 ID，并保留 profile 与来源 hash；运行时和评分器沿用既有端口。旧实验不变，新环境使用独立输入和输出，通过 gold 与未修复对照验证。
+
+评测工作流以 workflow.py 的 ProviderRequestHook 反馈预算，最终投影由请求快照保存；容器 read/edit/verify 复用 ShellExecutor。精确编辑先验证版本、唯一匹配和 Python 语法，再原子写入；verify 拥有独立原始基线容器，借用候选环境，验证同断言红绿结果并绑定 patch SHA-256。completed、verification 与官方 resolved 独立；新段重新验证，不修改主循环。Kimi 默认模型改为 kimi-k2.7-code，旧模型记录可读。

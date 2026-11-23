@@ -237,3 +237,5 @@ Windows 练习：比较 CRLF 失败日志与 LF 修复后的 gold baseline，解
 第 46 章和示例 48 将单题接缝组合为批次。先用 FakeProvider/fake clock 验证共享 limiter、pre-output retry、取消后的 checkpoint、预算不重置和固定分母；再用真实 Docker 验证 base-only 历史及补丁恢复。正式 batch 先逐题 gold control，再运行模型，最后独立评分。练习从 runtime_error 与 resolved=true 的并存解释执行和任务正确性，并验证 --resume 不重跑已评分失败题。
 
 环境练习：构建 evaluation/images/pydicom-1139-pytest7，比较同一个旧 hooks 探针在 pytest 8 与 7 的表现；用 prepare.py 生成解题/判分共用的镜像输入，再比较参考补丁全过与未修复对照仅新增功能测试失败。解释为什么不能删掉失败测试、改写原批次或只给 Agent 容器降级依赖。实测证据见第 46 章环境修复补充。
+
+失败轨迹练习：运行示例 49，从 requests 中定位剩余预算，确认 session 中没有临时预算消息；比较编辑返回 0 与源码语法正确的区别。用 print-only、assert True、原始失败/候选通过和验证后改变补丁四种情况理解 verify。test_evaluation_workflow 与真实 Docker 检查覆盖这些接缝；详细边界见第 46 章与 ADR 0048 补充。

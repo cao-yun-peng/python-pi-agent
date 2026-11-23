@@ -59,7 +59,7 @@ class KimiProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured_request["authorization"], "Bearer test-key")
         request_body = captured_request["body"]
         assert isinstance(request_body, dict)
-        self.assertEqual(request_body["model"], "kimi-k2.6")
+        self.assertEqual(request_body["model"], "kimi-k2.7-code")
         self.assertEqual(request_body["stream_options"], {"include_usage": True})
         self.assertNotIn("thinking", request_body)
 
@@ -173,13 +173,13 @@ class KimiProviderTests(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(client.aclose)
 
         await _collect(
-            KimiProvider(KimiConfig(api_key="test-key"), client=client),
+            KimiProvider(KimiConfig(api_key="test-key", model="kimi-k2.6"), client=client),
             history,
             [],
         )
         await _collect(
             KimiProvider(
-                KimiConfig(api_key="test-key", thinking_keep="all"),
+                KimiConfig(api_key="test-key", model="kimi-k2.6", thinking_keep="all"),
                 client=client,
             ),
             history,

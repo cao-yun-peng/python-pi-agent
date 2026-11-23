@@ -116,3 +116,7 @@ Windows 判分传输补充：已实现 eval.sh/patch.diff 的 UTF-8/LF 写入与
 2026-11-23 已运行固定三题 dev-smoke-001：两题调用模型（一个空补丁、一个官方 76 通过 / 1 失败），一题 gold control 因旧式 setup 与镜像 pytest 不兼容被拦截，固定分母 0/3。已验证正式 summarize 和结束后的 batch --resume 不新增请求或判分；本批未触发真实 API 重试或运行中断，二者仍由确定性测试覆盖。题目、模型参数、版本、镜像身份、诊断和证据读取见第 46 章。
 
 pydicom 兼容环境已独立验证：固定 pytest 7.4.4 的镜像让旧 hooks 探针通过，官方参考补丁 41 项全过；未修复对照的 P2P 38 项全过、F2P 3 项仍失败。准备脚本固定解题/判分一致的 image ID，并保留原始输入；掌握标准是能用两个对照区分环境故障和功能缺陷。见 evaluation/images/pydicom-1139-pytest7 与第 46 章补充。
+
+| 工作流知识点 | 实现与证据 | 掌握标准 |
+|---|---|---|
+| 预算反馈、可靠编辑、回归断言 | workflow.py / Middleware / read-edit-verify；test_evaluation_workflow、示例 49、真实 Docker 语法拒绝与红绿对照 | 能解释请求投影与 durable history、剩余额度与限流墙钟、脚本执行成功与补丁正确的差异；能复现 stale/语法/取消路径和验证后的补丁失效 |

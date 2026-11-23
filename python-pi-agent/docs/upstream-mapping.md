@@ -129,3 +129,5 @@ Windows LF 兼容针对 swebench 5.0.2 的文件传输，不对应新增 Pi/Deep
 仍沿用固定 Pi commit 56b25ff4ebbd8a119ef9185447c7b2416059dbcb 所对照的 Session/模型循环概念，本次没有新增上游 API 等价承诺。DeepSeek Harness 对应显式能力接缝、生命周期和可重放证据；Python 以同包应用实现 limiter/Provider、checkpoint/Consumer、grader 与固定分母汇总，不移植其大型服务图、自动资源发现或多 Agent 编排。批次策略、OS 输出锁与基于 checksum 的文件恢复属于本项目的评测应用语义；Definition/Provider/Consumer/Lifecycle/Evidence 见 ADR 0048。
 
 pydicom 的 pytest 兼容配方属于任务环境准备，复用已有 TaskEnvironment 和官方 swebench 5.0.2 make_test_spec 对 row.image 的消费语义。它不新增 Pi/DeepSeek Harness API 映射；省略通用镜像注册、构建调度和全数据集自动依赖推断。用固定 base/wheel hash、同一任务/判分 image ID、gold 与未修复对照提供证据。
+
+预算/编辑/验证工作流仍是应用组装：复用 ProviderRequestHook、Tool 和 ShellExecutor 端口，对应 DeepSeek Harness 的显式接缝与模型可见输入留痕。容器精确编辑借鉴已有 EditTool 的唯一匹配和版本检查概念，不把宿主文件端口接进任务容器；没有新增固定 Pi API 等价承诺。原始基线红绿验证及 patch hash 绑定属于本项目评测语义，省略自动测试生成、通用编辑器和最终回答重写。

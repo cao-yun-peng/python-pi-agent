@@ -143,6 +143,7 @@ async def run_case(
                 code_commit=code_commit, max_requests=remaining_requests, timeout_seconds=remaining_seconds,
                 policy=policy, limiter=shared, resume_from=previous,
                 expected_image_id=(str(last_report["image_id"]) if previous is not None else None),
+                environment_factory=environment_factory,
             )
         finally:
             if (current / "report.json").exists():
@@ -164,6 +165,12 @@ async def run_case(
                             if type(value := usage.get(key)) is int:
                                 totals[key] += value
                 result["reported_usage"] = totals
+                wait_seconds = 0.0
+                for segment in [*segments, current]:
+                    value = read_record(segment / 'report.json').get('rate_limit_wait_seconds', 0)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        wait_seconds += value
+                result['rate_limit_wait_seconds'] = wait_seconds
                 for name in ("patch.diff", "predictions.jsonl"):
                     if (current / name).is_file():
                         (output / name).write_bytes((current / name).read_bytes())
