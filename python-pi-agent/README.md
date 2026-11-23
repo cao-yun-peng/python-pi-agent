@@ -33,6 +33,8 @@ agent.yaml -> coding_profile -> BashTool -> SandboxedBashExecutor -> Docker work
 
 ## 开发与 CI
 
+PostgreSQL 基础会话存储通过可选 `.[postgres]` 安装，借用调用方的异步连接池；迁移必须显式执行。参见[第 49 章](tutorials/49-postgres-session-store.md)和[FakeProvider 示例 52](examples/52_postgres_sessions.py)。默认测试不连接数据库；设置 `PI_AGENT_POSTGRES_TEST_DSN` 才运行真实 PG 契约。此切片尚不包含分布式租约和自动接管。
+
 在仓库根目录创建并激活开发用虚拟环境。Windows PowerShell 使用 `py -3.11 -m venv .venv` 和 `.\.venv\Scripts\Activate.ps1`，Linux 使用 `python3.11 -m venv .venv` 和 `source .venv/bin/activate`。进入 `python-pi-agent` 后运行：
 
 ```sh

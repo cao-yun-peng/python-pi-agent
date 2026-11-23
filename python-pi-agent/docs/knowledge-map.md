@@ -2,6 +2,7 @@
 
 | 知识点 | 理论 | 最小实现 | 完整实现 | 测试 | 教程 | 掌握标准 |
 |---|---|---|---|---|---|---|
+| PostgreSQL 基础存储 ADR 0051 | 乐观版本、行锁、事务、迁移和投影 | 六方法 Store、显式 migration CLI、借用 pool | local 模式完成；分布式执行日志/租约待实现 | 三种 Store 共享契约；独立池并发、rollback、超时/取消、迁移并发/checksum | [第 49 章](../tutorials/49-postgres-session-store.md)、示例 52 | 能区分 CAS/唯一约束/行锁与执行权，证明失败无半批次并解释迁移版本与事件 schema 的区别 |
 | 共享事件 Codec ADR 0050 | 格式契约与 I/O 分离 | storage/_codec.py | JSONL 与请求快照复用，v6 行为不变 | 固定字节、全部载荷、字段错误、既有持久与取消回归 | [第 48 章](../tutorials/48-shared-session-codec.md)、示例 51 | 能列举 content 之外的持久字段并复现严格解码拒绝 |
 | Run 执行契约 ADR 0049 | 指令交付与执行终态、检查点、fencing、幂等及预算 | execution_domain / execution_transitions；可持久化计划与 replay | 契约切片完成；PG/Redis/Runtime 接线待实现 | test_execution_contracts：状态矩阵、取消、到期接管、旧许可、去重、预算与损坏日志 | [第 47 章](../tutorials/47-execution-journal-contracts.md)、示例 50 | 能重建普通 prompt Run，解释 delivered 不等于 completed，并指出纯转换不证明 SQL 原子性或副作用 exactly-once |
 | MCP 配置（E1 阶段 4） | 纯解析、秘密引用、显式装配与目标授权 | McpCapabilitySettings、SecretResolver、mcp_capability_registration | YAML/稳定 API 完成，复用插件与 owner | 零连接预检、Catalog 双端、Fake 续轮、真实 YAML HTTP、缺 SDK 导入 | [第 38 章](../tutorials/38-mcp-configured-capability.md)、ADR 0039 | 能证明配置不自动授予启动/工具权限，秘密不入 Settings/log |

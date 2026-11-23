@@ -154,6 +154,8 @@ from .runtime.loop import Agent
 from .runtime.session import AgentSession
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
+from .storage.postgres import PostgresSessionStore
+from .storage._postgres_driver import PostgresPool, PostgresSettings
 from .storage.model_requests import FileModelRequestStore, InMemoryModelRequestStore
 from .providers.recording import RecordingModelProvider
 from .ports import ModelRequestStore
@@ -309,6 +311,9 @@ __all__ = [
     "InMemorySessionStore",
     "InternalError",
     "JsonlSessionStore",
+    "PostgresSessionStore",
+    "PostgresPool",
+    "PostgresSettings",
     "JSONObject",
     "JSONValue",
     "load_app_config",

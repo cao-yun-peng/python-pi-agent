@@ -209,6 +209,8 @@ from .tools.sandbox import DockerProcessSandbox
 from .tools.shell import BashTool, SandboxedBashExecutor, SandboxedShellTool
 from .storage.memory import InMemorySessionStore
 from .storage.jsonl import JsonlSessionStore
+from .storage.postgres import PostgresSessionStore
+from .storage._postgres_driver import PostgresPool, PostgresSettings
 from .storage.transitions import (
     SessionAppendPlan,
     SessionCompactionPlan,
@@ -366,6 +368,9 @@ __all__ = [
     "JSONObject",
     "JSONValue",
     "JsonlSessionStore",
+    "PostgresSessionStore",
+    "PostgresPool",
+    "PostgresSettings",
     "KimiSettings",
     "LoadedAppConfig",
     "LifecycleScope",

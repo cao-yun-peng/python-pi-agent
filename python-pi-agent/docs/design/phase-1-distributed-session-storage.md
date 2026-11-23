@@ -1,13 +1,14 @@
 # Phase 1 PostgreSQL Redis 分布式会话存储与恢复开发规格
 
-> 状态：待实现的开发规格；不代表当前项目已支持分布式执行。
+> 状态：分步开发中，基础会话存储已落地；不代表当前项目已支持分布式执行。
 > 日期：2026-11-23。
 
 > Step 2 已完成：共享 schema v6 codec 与 JSONL/模型请求快照复用；见 ADR 0050、教程 48 和示例 51。
+> Step 3 已完成：PG 六方法、借用 pool、显式迁移、共享契约和真实事务测试；见 ADR 0051、教程 49、示例 52。001 迁移只创建基础表，Run 表和 active_run 外键在 Step 4 加入；完整 v6 envelope 存入 JSONB，索引字段使用生成列。
 > 源码基线：`dfcf7de`；适用包：`python-pi-agent/src/pi_agent_py`。
 > 决策级别：本文确定本阶段的建议实现路线；实现前将重要决定写入新 ADR，并明确修订 ADR 0017 的恢复范围。
 
-> 开发进度：Step 1 已加入执行值对象、端口、纯状态机与契约测试，见 [ADR 0049](../adr/0049-execution-journal-contracts.md) 和[教程 47](../../tutorials/47-execution-journal-contracts.md)。当前只生成可持久化计划，PG/Redis 与运行时接线尚未实现。领域类型位于 `execution_domain.py`，纯转换位于 `storage/execution_transitions.py`；绑定 writer 的完整操作摘要与纯命令摘要须分开。
+> Step 1 已加入执行值对象、端口、纯状态机与契约测试，见 [ADR 0049](../adr/0049-execution-journal-contracts.md) 和[教程 47](../../tutorials/47-execution-journal-contracts.md)。执行控制面当前只生成可持久化计划，PG 执行日志、Redis 与运行时接线尚未实现。领域类型位于 `execution_domain.py`，纯转换位于 `storage/execution_transitions.py`；绑定 writer 的完整操作摘要与纯命令摘要须分开。
 
 本阶段解决两个问题：将会话事件持久化到 PostgreSQL；在执行进程崩溃后，由其他 Worker 安全取得执行权，继续未完成的 Run。PostgreSQL 保存会话历史、Run 检查点和执行权代次，Redis 提供执行租约协调。租约过期不等于工具副作用已经停止，恢复始终保留“外部执行结果未知”的语义。
 

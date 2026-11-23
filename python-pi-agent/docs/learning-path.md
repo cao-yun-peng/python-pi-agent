@@ -1,5 +1,7 @@
 # Learning Path
 
+数据库存储练习：完成共享 Codec 后阅读[第 49 章](../tutorials/49-postgres-session-store.md)，使用自己准备的 PG 数据库显式迁移，运行 FakeProvider 示例 52，再用独立连接池验证冲突、回滚、重开与 fork。理解基础 SessionStore 与尚未实现的执行租约控制面区别。
+
 会话格式练习：阅读第 48 章并运行示例 51，观察完整事件 round-trip 和旧 schema 拒绝；再运行 JSONL 与模型请求快照测试，解释格式复用为何没有赋予文件多进程写入能力。
 
 每一阶段都必须形成可运行的纵向切片，而不是先造一批空接口。

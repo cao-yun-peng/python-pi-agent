@@ -1,5 +1,7 @@
 # Upstream Mapping
 
+PostgresSessionStore（ADR 0051）独立实现 Python 六方法 SessionStore，复用本项目共享 Codec/prepare_*；不宣称 Pi 提供同名 SQL 适配器。DeepSeek Harness 对应 Definition=SessionStore、Provider=PG、Consumer=AgentSession、Lifecycle=借用 pool/显式迁移、Evidence=共享及真实事务契约。省略执行权、Redis 和恢复 worker；完整 JSONB/generated columns 与版本化迁移为本项目选择，见教程 49。
+
 共享 Codec（ADR 0050）属于 Python 存储内部复用，沿用现有 DurableSessionEvent/ProviderState 与显式端口映射；不新增 Pi commit 或 DeepSeek Harness API 等价承诺。省略格式升级和外部日志迁移，证据见教程 48、示例 51 与 test_session_codec。
 
 本项目是独立 Python 实现。映射用于学习设计，不承诺 API 兼容。

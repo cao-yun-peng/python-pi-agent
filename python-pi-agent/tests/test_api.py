@@ -57,6 +57,7 @@ _STABLE_EXPORTS = frozenset(
     EventProvenance EventRedactionPolicy EventSink EventSinkFailure Finish
     FullHistoryContextStrategy
     FunctionTool InMemoryEventSink InMemorySessionStore InternalError JsonlSessionStore
+    PostgresSessionStore PostgresPool PostgresSettings
     JSONObject JSONValue load_app_config LoadedAppConfig Message minimal_profile
     ModelCompactionStrategy ModelProtocolError ModelProvider ModelStreamEvent
     NextTurnContext NextTurnHook PendingControl PluginAPI PluginError PluginFactory
