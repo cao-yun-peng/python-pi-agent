@@ -87,3 +87,13 @@ run_failed 与 resolved=true 可以并存：请求次数耗尽时导出的补丁
 本批结束后执行正式 summarize，并以完全相同的参数执行 batch --resume。前后核对 185 个证据文件的内容 hash 与时间戳（排除可重建的 state/summary 和锁文件）均不变，物理请求仍为 76 次；没有新解题或新判分。这验证已完成题目的幂等跳过。冻结历史也在实测中生效：模型多次 git log 只能看到 base commit，无法沿后续提交找到修复。
 
 下一轮先修复 pydicom 测试环境，再围绕“重复查历史、碎片读取、修改后缺少测试”设计独立实验。不要在本批中追加提示、放宽预算、替换题目或反复跑失败题后仅报告成功结果。
+
+## pydicom 环境修复验证
+
+2026-11-23 按 `evaluation/images/pydicom-1139-pytest7/` 配方构建派生镜像，固定原镜像 digest，仅将 pytest 8.3.5 替换为 7.4.4，校验 wheel SHA-256 并执行 pip check。旧式 setup/teardown 的离线探针在原镜像为 1 failed / 1 error，在新镜像为 1 passed。弃用警告保留，官方源码、测试、F2P/P2P 列表和评分脚本保持原内容。
+
+正式 OfficialGrader 的参考补丁结果为 41 passed、resolved=true（F2P 3/3、P2P 38/38）。未修复对照只新增一个文本标记文件，结果为 38 passed / 3 failed、resolved=false（P2P 全过、F2P 全失败），说明测试仍能识别原始功能缺陷。任务 Runtime 也验证相同镜像、pytest 7.4.4、base-only 历史和空代码 diff。两组对照均没有调用模型。
+
+新单题输入是 `.tmp/evaluation/data/pydicom-1139-pytest7-v1/`，tasks.json 与 grader-data.json 的 image 都固定到 `sha256:207a12ce24421c982205adaf70219e1339b9b647cc298f4d586c6ed3a0e36a7c`，source 标注 environment_profile，environment.json 记录原始数据 hash 与镜像身份。原数据的其他行字段未变。未来重建可运行配方旁的 prepare.py，从本地 tag 解析新 ID 并生成独立目录。
+
+证据为 `.tmp/evaluation/controls/pydicom-pytest7-v1/verification.json`、gold/、negative/ 和 runtime-check.json。它们证明环境修复有效；dev-smoke-001 仍保留原始的 0/3 与预检失败记录。使用新环境进行模型评测时应创建新批次并使用新的两份输入。
