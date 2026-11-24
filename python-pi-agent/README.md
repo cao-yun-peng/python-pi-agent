@@ -33,7 +33,9 @@ agent.yaml -> coding_profile -> BashTool -> SandboxedBashExecutor -> Docker work
 
 ## 开发与 CI
 
-阶段 7 自动接管已实现：有界候选发现、同 Session 串行、注册配置重建与共享尾部补偿，见[第 53 章](tutorials/53-session-recovery-workers.md)、[双 Worker 示例 56](examples/56_recovery_workers.py)、[故障矩阵](docs/design/phase-1-recovery-fault-matrix.md)和 ADR 0055。真实测试覆盖独立 pool/client、进程硬终止、Redis 重启与旧 epoch 拒绝；全部使用 FakeProvider。阶段 8 继续统一开发环境与 benchmark。
+阶段 8 统一环境与 benchmark 已实现：激活虚拟环境、进入本目录并安装 `.[postgres,redis,dev]` 后，运行 `python scripts/distributed_dev.py verify --samples 20 --restart-redis`，依次完成 Compose 健康启动、显式迁移、集成测试、示例和四场景 FakeProvider benchmark。默认回环端口 55432/56379；`down` 保留 PG 数据卷。见[第 54 章](tutorials/54-distributed-dev-benchmark.md)、[测量方法](docs/benchmarks/recovery-methodology.md)与[示例 57](examples/57_recovery_benchmark.py)。报告包含版本、条件、分位数、失败分类和安全 trace；不把释放许可后的恢复延迟当成进程死亡后的 TTL 恢复 SLO。
+
+阶段 7 自动接管已实现：有界候选发现、同 Session 串行、注册配置重建与共享尾部补偿，见[第 53 章](tutorials/53-session-recovery-workers.md)、[双 Worker 示例 56](examples/56_recovery_workers.py)、[故障矩阵](docs/design/phase-1-recovery-fault-matrix.md)和 ADR 0055。真实测试覆盖独立 pool/client、进程硬终止、Redis 重启与旧 epoch 拒绝；全部使用 FakeProvider。统一开发环境与 benchmark 见第 54 章。
 
 分布式 Runtime 接线与显式 resume 已实现，见[第 52 章](tutorials/52-distributed-runtime-resume.md)、[示例 55](examples/55_distributed_runtime.py)和 ADR 0054。Builder 显式注入读取端、执行存储和租约；普通 prompt 持久接受，检查点恢复不重复 prompt/最终推理，请求序号和派发预算连续。自动接管通过可选 with_recovery 显式启用。
 

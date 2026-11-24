@@ -1,6 +1,8 @@
 # Upstream Mapping
 
-自动接管（ADR 0055）复用本项目 Session/控制/loop/尾部补偿；Pi 固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/agent-session.ts::AgentSession` 仅用于会话编排职责对照，没有对应 Worker/PG fencing API。DeepSeek Harness 对应 Definition=RecoveryDispatcher/Outcome、Provider=PG 候选与注册配置工厂、Consumer=Worker/Builder、Lifecycle=TaskGroup/心跳/显式所有权、Evidence=故障矩阵与独立进程接管。首版省略自动配置迁移、生产 HA 和外部副作用去重；统一 compose/benchmark 留给阶段 8。见教程 53、示例 56。
+统一环境与 benchmark（ADR 0056）属于本项目应用/开发工具，不新增固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的分布式 API 映射；沿用 `packages/coding-agent/src/core/agent-session.ts::AgentSession` 职责与本项目正式 loop。DeepSeek Harness 对照显式能力接缝和版本化执行证据：Definition=设置/报告格式、Provider=Fake/PG/Redis、Consumer=正式 Worker、Lifecycle=独立资源与随机 schema 清理、Evidence=故障样本与统计。首版省略生产 HA、真实模型性能/成本和多进程负载发生器；见教程 54、示例 57。
+
+自动接管（ADR 0055）复用本项目 Session/控制/loop/尾部补偿；Pi 固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/agent-session.ts::AgentSession` 仅用于会话编排职责对照，没有对应 Worker/PG fencing API。DeepSeek Harness 对应 Definition=RecoveryDispatcher/Outcome、Provider=PG 候选与注册配置工厂、Consumer=Worker/Builder、Lifecycle=TaskGroup/心跳/显式所有权、Evidence=故障矩阵与独立进程接管。首版省略自动配置迁移、生产 HA 和外部副作用去重；统一 compose/benchmark 见 ADR 0056。见教程 53、示例 56。
 
 Runtime 接线（ADR 0054）复用本项目既有 Agent loop、控制 dispatcher、插件与资源 owner；不复写模型/工具循环，不声称 Pi 固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 提供同名分布式恢复 API。DeepSeek Harness 对应 Definition=强类型配置/定向领取/派发 hook、Provider=PG/Redis/绑定 writer、Consumer=Builder/Session/同一 loop、Lifecycle=心跳退出后终态与所有权清理、Evidence=离线故障点与真实双存储重开。候选扫描、跨 Worker 配置重建与自动接管见 ADR 0055；省略外部副作用去重；见教程 52、示例 55。
 

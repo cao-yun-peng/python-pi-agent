@@ -1,12 +1,20 @@
 # Architecture
 
+## 统一开发环境与测量 ADR 0056
+
+Compose 提供带健康检查的回环 PG/Redis，仓库脚本 distributed_dev 显式编排启动、迁移、集成、示例与 benchmark。默认单测不启动服务，Redis 真实重启额外 opt in，默认 down 保留开发 PG volume。
+
+application/benchmark_report 定义强类型设置、样本与纯统计；recovery_benchmark 通过正式 Worker/Dispatcher/Builder/loop 注入四种 FakeProvider 故障；benchmark_cli 拥有独立 pool/client、随机 schema 与原子报告。计数和 trace 不参与执行授权，清理 shield/join 后才释放基础设施。核心 loop/SQL/schema 不变，PG bind_writer 的返回标注对齐 ExecutionWriter 端口。
+
+报告分开记录正确性、吞吐、完成/恢复延迟、冲突与失败，包含代码/驱动/服务版本、数据规模、资源和租约参数。恢复计时针对会释放许可的检查点中断，不包含进程死亡后的 TTL 等待；真实 kill/restart 正确性仍见故障矩阵。详见 [ADR 0056](adr/0056-distributed-dev-and-recovery-benchmark.md)、[教程 54](../tutorials/54-distributed-dev-benchmark.md)与[测量方法](benchmarks/recovery-methodology.md)。
+
 ## 自动接管编排 ADR 0055
 
 `runtime/recovery.py::SessionRecoveryWorker` 通过执行存储、租约和 RecoveryDispatcher 端口进行有界候选扫描、同 Session 串行与跨 Session 并发。冷却/活跃排除在候选 LIMIT 前生效。每次取得 Redis 后仅 claim_next 一次，已领取回执交给 dispatcher；持久终态校验后报告完成。PG epoch 继续裁决跨 Worker 写权限。
 
 `application/recovery.py::RegisteredRecoveryDispatcher` 在心跳保护下按不可变 ref/hash 注册表重建新 Runtime，验证基础设施绑定，复用 Session 的 claimed 接缝与同一 loop。共享 checkpoint 校验/unknown 补偿防止重复 prompt、最终推理或原工具；配置拒绝持久失败，失租/瞬时错误保留可接管状态。临时 Runtime 关闭保留新接受的 queued follow-up。
 
-Builder.with_recovery 显式装配 dispatcher 和资源所有权，根 Runtime 拥有 Worker。关闭先扫描/接管，再 Session/基础设施；重复取消仍等待心跳与清理。事件只含安全关联信息，后台 failure 可查询并在关闭时报告。见 [ADR 0055](adr/0055-session-recovery-orchestration.md)、[教程 53](../tutorials/53-session-recovery-workers.md)、[故障矩阵](design/phase-1-recovery-fault-matrix.md)。配置身份/权限/workspace 的有效性由应用工厂验证；本阶段未提供生产 HA 或 benchmark。
+Builder.with_recovery 显式装配 dispatcher 和资源所有权，根 Runtime 拥有 Worker。关闭先扫描/接管，再 Session/基础设施；重复取消仍等待心跳与清理。事件只含安全关联信息，后台 failure 可查询并在关闭时报告。见 [ADR 0055](adr/0055-session-recovery-orchestration.md)、[教程 53](../tutorials/53-session-recovery-workers.md)、[故障矩阵](design/phase-1-recovery-fault-matrix.md)。配置身份/权限/workspace 的有效性由应用工厂验证；生产 HA 仍省略，条件化 benchmark 见 ADR 0056。
 
 ## 分布式 Runtime 接线 ADR 0054
 

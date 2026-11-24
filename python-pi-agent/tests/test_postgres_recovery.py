@@ -218,9 +218,15 @@ class PostgresRecoveryTests(PostgresFixture, unittest.IsolatedAsyncioTestCase):
 
         details = json.loads(await docker("inspect", _RESTART_CONTAINER))[0]
         # An endpoint alone never authorizes restarting a shared service.
-        task = details["Config"]["Labels"].get("pi-agent.task", "")
-        self.assertTrue(task.startswith("step7-"))
-        self.assertEqual(details["Name"], "/pi-agent-redis-" + task)
+        labels = details["Config"]["Labels"]
+        task = labels.get("pi-agent.task", "")
+        if labels.get("pi-agent.test-redis-restart") == "true":
+            self.assertEqual(labels.get("pi-agent.environment"), "distributed-dev")
+            self.assertEqual(labels.get("com.docker.compose.service"), "redis")
+            self.assertTrue(labels.get("com.docker.compose.project", "").startswith("pi-agent-"))
+        else:
+            self.assertTrue(task.startswith("step7-"))
+            self.assertEqual(details["Name"], "/pi-agent-redis-" + task)
         self.assertEqual(
             details["NetworkSettings"]["Ports"]["6379/tcp"],
             [{"HostIp": "127.0.0.1", "HostPort": str(urlsplit(REDIS_URL).port)}],

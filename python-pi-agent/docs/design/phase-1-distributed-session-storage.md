@@ -1,7 +1,9 @@
 # Phase 1 PostgreSQL Redis 分布式会话存储与恢复开发规格
 
-> 状态：Step 1–7 已落地，包括自动候选发现、注册配置重建与跨 Worker 接管；Step 8 的统一环境和 benchmark 待开发。
+> 状态：Step 1–8 已落地，包括自动接管、统一开发环境与条件化 benchmark；生产 HA 与真实模型性能不在本阶段范围。
 > 日期：2026-11-24。
+
+> Step 8 已实现：Compose 健康检查/回环服务、跨平台显式开发入口、集成开关、四场景 FakeProvider benchmark 和版本化 JSON/trace。见 [ADR 0056](../adr/0056-distributed-dev-and-recovery-benchmark.md)、[教程 54](../../tutorials/54-distributed-dev-benchmark.md)、[测量方法](../benchmarks/recovery-methodology.md)及[示例 57](../../examples/57_recovery_benchmark.py)。恢复延迟测量为会释放许可的检查点中断，不包含真实进程死亡后的 TTL 等待。
 
 > Step 7 已实现：SessionRecoveryWorker 的有界扫描、同 Session 串行、冷却排除；RegisteredRecoveryDispatcher 在心跳内重建配置并消费已领取回执，复用 checkpoint 校验与 unknown 尾部补偿。见 [ADR 0055](../adr/0055-session-recovery-orchestration.md)、[教程 53](../../tutorials/53-session-recovery-workers.md)、[示例 56](../../examples/56_recovery_workers.py)与[第 13 节证据](phase-1-recovery-fault-matrix.md)。
 

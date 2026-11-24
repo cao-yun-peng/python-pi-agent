@@ -8,6 +8,8 @@ from hashlib import sha256
 import json
 from typing import cast
 
+from ..ports import ExecutionWriter
+
 from ..domain import (
     ControlCancellation,
     ControlClaim,
@@ -671,7 +673,7 @@ class PostgresExecutionStore:
             record, _ = await self._run(connection, session_id, run_id)
             return record
 
-    def bind_writer(self, grant: ExecutionGrant) -> _BoundExecutionWriter:
+    def bind_writer(self, grant: ExecutionGrant) -> ExecutionWriter:
         if not isinstance(grant, ExecutionGrant):
             raise SessionConflictError("execution grant required")
         return _BoundExecutionWriter(self, grant)

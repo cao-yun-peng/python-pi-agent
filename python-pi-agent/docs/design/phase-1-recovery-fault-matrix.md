@@ -43,10 +43,10 @@
 | steer 与完成真实竞争 | test_postgres_execution.test_finalization_serializes_with_accepted_steering |
 | 维护压缩与运行互斥 | [test_postgres_runtime.py](../../tests/test_postgres_runtime.py)::test_maintenance_cannot_bypass_pg_when_redis_key_is_lost |
 
-基础集成仅在同时设置 PI_AGENT_POSTGRES_TEST_DSN、PI_AGENT_REDIS_TEST_URL 时执行；其他存储测试沿用各自显式开关。真实 Redis 重启额外要求 PI_AGENT_REDIS_TEST_RESTART_CONTAINER：仅接受 `pi-agent.task=step7-<标识>`、名称 `pi-agent-redis-step7-<标识>`、HostConfig 显式固定回环端口且与测试 URL 完全一致的专用容器。此开关会关闭该测试 Redis 的 RDB/AOF 并重启，只能用于本次独占的临时服务，不能与其他测试并发运行。
+基础集成仅在同时设置 PI_AGENT_POSTGRES_TEST_DSN、PI_AGENT_REDIS_TEST_URL 时执行；其他存储测试沿用各自显式开关。真实 Redis 重启额外要求 PI_AGENT_REDIS_TEST_RESTART_CONTAINER：接受阶段 7 的专用任务容器，或阶段 8 Compose 同时标记 distributed-dev/test-redis-restart、service=redis 且 project 以 pi-agent- 开头的专用容器。两者都要求 HostConfig 显式固定回环端口且与测试 URL 完全一致。此开关会关闭该测试 Redis 的 RDB/AOF 并重启，只能用于本次独占的服务，不能与其他测试并发运行。阶段 8 的 `distributed_dev.py test --restart-redis` 自动解析对应容器身份。
 
 子进程测试用环境变量传 DSN，不把凭据写命令行；服务端到期注入只修改隔离 schema 与随机 Redis 前缀。容器重启等待实际 PING 条件并有截止时间，不靠固定 TTL sleep。默认单测不执行 Docker、不访问服务，真实重启不代表覆盖 Redis HA 复制/分区拓扑。
 
 ## 本地验收记录
 
-环境为 Windows、Python 3.12、PostgreSQL 16、Redis 7、asyncpg 0.32、redis-py 8.2；全部 FakeProvider。最终测试数量、静态检查与示例结果在本次提交对应 ADR 0055 中记录。统一 compose、CI 多版本服务矩阵、恢复延迟/吞吐 benchmark 属于阶段 8；不以本地正确性测试推算生产性能或外部副作用 exactly-once。
+环境为 Windows、Python 3.12、PostgreSQL 16、Redis 7、asyncpg 0.32、redis-py 8.2；全部 FakeProvider。最终测试数量、静态检查与示例结果在本次提交对应 ADR 0055 中记录。统一 Compose 与条件化 benchmark 已由阶段 8 提供，见教程 54 与测量方法；当前服务验证为本地 Windows/Python 3.12，不声称已运行 CI 多版本服务矩阵，不以本地正确性测试推算生产性能或外部副作用 exactly-once。

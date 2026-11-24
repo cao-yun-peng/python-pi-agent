@@ -1,0 +1,36 @@
+name: pi-agent-dev
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: pi_agent_dev
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:${PI_AGENT_DEV_PG_PORT:-55432}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pi_agent_dev"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    labels:
+      pi-agent.environment: distributed-dev
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:${PI_AGENT_DEV_REDIS_PORT:-56379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    labels:
+      pi-agent.environment: distributed-dev
+      pi-agent.test-redis-restart: "true"
+
+volumes:
+  pg-data:

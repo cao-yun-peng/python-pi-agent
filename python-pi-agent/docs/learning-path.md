@@ -1,6 +1,8 @@
 # Learning Path
 
-自动接管练习：完成第 52 章后阅读[第 53 章](../tutorials/53-session-recovery-workers.md)，运行[示例 56](../examples/56_recovery_workers.py)的最终 assistant/部分流两种中断。对照[故障矩阵](design/phase-1-recovery-fault-matrix.md)验证两个独立 Worker、真实进程终止、Redis 状态丢失与旧许可写拒绝。解释候选为何不是许可、配置为何必须显式注册、临时 Runtime 为何保留后续队列；再进入阶段 8 的统一环境与测量。
+环境与测量练习：阅读[第 54 章](../tutorials/54-distributed-dev-benchmark.md)，用同一 Python 入口运行 verify，再从干净提交运行 benchmark。对照[测量方法](benchmarks/recovery-methodology.md)解释 p99 的样本量、冲突率分母、恢复起止点与 TTL 边界；改变池大小/并发/轮询并保留带版本的 JSON，先核验正确性再比较性能。
+
+自动接管练习：完成第 52 章后阅读[第 53 章](../tutorials/53-session-recovery-workers.md)，运行[示例 56](../examples/56_recovery_workers.py)的最终 assistant/部分流两种中断。对照[故障矩阵](design/phase-1-recovery-fault-matrix.md)验证两个独立 Worker、真实进程终止、Redis 状态丢失与旧许可写拒绝。解释候选为何不是许可、配置为何必须显式注册、临时 Runtime 为何保留后续队列；再进入第 54 章的统一环境与测量。
 
 Runtime 恢复练习：阅读[第 52 章](../tutorials/52-distributed-runtime-resume.md)，运行示例 55 的正常与 assistant 后中断模式。比较同一 run_id 的 prompt_count、request_number、dispatches 和 attempt，证明最终边界恢复不再次推理；再验证工具部分提交、维护压缩许可和实际重试预算。先掌握显式 resume，再进入第 53 章的候选扫描/配置重建/自动接管。
 
