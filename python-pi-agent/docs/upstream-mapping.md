@@ -1,10 +1,12 @@
 # Upstream Mapping
 
-Runtime 接线（ADR 0054）复用本项目既有 Agent loop、控制 dispatcher、插件与资源 owner；不复写模型/工具循环，不声称 Pi 固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 提供同名分布式恢复 API。DeepSeek Harness 对应 Definition=强类型配置/定向领取/派发 hook、Provider=PG/Redis/绑定 writer、Consumer=Builder/Session/同一 loop、Lifecycle=心跳退出后终态与所有权清理、Evidence=离线故障点与真实双存储重开。省略候选扫描、跨 Worker 配置重建、自动接管、外部副作用去重；见教程 52、示例 55。
+自动接管（ADR 0055）复用本项目 Session/控制/loop/尾部补偿；Pi 固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的 `packages/coding-agent/src/core/agent-session.ts::AgentSession` 仅用于会话编排职责对照，没有对应 Worker/PG fencing API。DeepSeek Harness 对应 Definition=RecoveryDispatcher/Outcome、Provider=PG 候选与注册配置工厂、Consumer=Worker/Builder、Lifecycle=TaskGroup/心跳/显式所有权、Evidence=故障矩阵与独立进程接管。首版省略自动配置迁移、生产 HA 和外部副作用去重；统一 compose/benchmark 留给阶段 8。见教程 53、示例 56。
 
-Redis 租约与心跳（ADR 0053）是本项目新增的分布式协调机制，不声称与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 存在同名 API。它沿用现有端口、能力事件和资源 owner。DeepSeek Harness 对应 Definition=SessionLeaseManager/LeaseClock/ExecutionGrantManager、Provider=内存/Redis/PG、Consumer=独立 LeaseHeartbeat、Lifecycle=显式借用客户端/等待任务与清理退出、Evidence=手动时钟与真实双存储测试。Runtime 接线见 ADR 0054，恢复扫描、Redis 高可用部署和外部副作用去重仍省略；见教程 51、示例 54。
+Runtime 接线（ADR 0054）复用本项目既有 Agent loop、控制 dispatcher、插件与资源 owner；不复写模型/工具循环，不声称 Pi 固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 提供同名分布式恢复 API。DeepSeek Harness 对应 Definition=强类型配置/定向领取/派发 hook、Provider=PG/Redis/绑定 writer、Consumer=Builder/Session/同一 loop、Lifecycle=心跳退出后终态与所有权清理、Evidence=离线故障点与真实双存储重开。候选扫描、跨 Worker 配置重建与自动接管见 ADR 0055；省略外部副作用去重；见教程 52、示例 55。
 
-PG 执行存储（ADR 0052）将本项目既有 Run/Session replay 与显式事务接缝落地，新增 epoch 裁决、绑定 writer、完整请求摘要和历史回执引用。它不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名分布式 API 承诺。DeepSeek Harness 对应契约/Provider/Consumer/生命周期/证据：执行端口、PG、示例 53、借用 pool/显式迁移、故障与并发测试。自动接管和外部副作用去重仍待实现；独立 Redis/心跳见 ADR 0053，执行存储见教程 50。
+Redis 租约与心跳（ADR 0053）是本项目新增的分布式协调机制，不声称与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 存在同名 API。它沿用现有端口、能力事件和资源 owner。DeepSeek Harness 对应 Definition=SessionLeaseManager/LeaseClock/ExecutionGrantManager、Provider=内存/Redis/PG、Consumer=独立 LeaseHeartbeat、Lifecycle=显式借用客户端/等待任务与清理退出、Evidence=手动时钟与真实双存储测试。Runtime 接线见 ADR 0054，恢复扫描见 ADR 0055，Redis 高可用部署和外部副作用去重仍省略；见教程 51、示例 54。
+
+PG 执行存储（ADR 0052）将本项目既有 Run/Session replay 与显式事务接缝落地，新增 epoch 裁决、绑定 writer、完整请求摘要和历史回执引用。它不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名分布式 API 承诺。DeepSeek Harness 对应契约/Provider/Consumer/生命周期/证据：执行端口、PG、示例 53、借用 pool/显式迁移、故障与并发测试。自动接管见 ADR 0055，省略外部副作用去重；独立 Redis/心跳见 ADR 0053，执行存储见教程 50。
 
 PostgresSessionStore（ADR 0051）独立实现 Python 六方法 SessionStore，复用本项目共享 Codec/prepare_*；不宣称 Pi 提供同名 SQL 适配器。DeepSeek Harness 对应 Definition=SessionStore、Provider=PG、Consumer=AgentSession、Lifecycle=借用 pool/显式迁移、Evidence=共享及真实事务契约。基础 Store 不承担执行权、Redis 和恢复 worker；完整 JSONB/generated columns 与版本化迁移为本项目选择，见教程 49。
 
@@ -12,7 +14,7 @@ PostgresSessionStore（ADR 0051）独立实现 Python 六方法 SessionStore，�
 
 本项目是独立 Python 实现。映射用于学习设计，不承诺 API 兼容。
 
-Run 执行契约（ADR 0049）复用本项目已有的 Session replay、稳定事件引用和显式端口概念。独立 Run journal、检查点及 PG epoch 是 Python 侧新增设计，不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名 API 或分布式恢复等价承诺。DeepSeek Harness 对应 Definition/Provider/Consumer/Lifecycle/Evidence 接缝：值对象/端口、纯转换、示例与契约测试、无隐式副作用、可重放证据。首版省略 PG/Redis Provider、实际 RecoveryWorker 和外部副作用去重；详见第 47 章与后续开发规格。
+Run 执行契约（ADR 0049）复用本项目已有的 Session replay、稳定事件引用和显式端口概念。独立 Run journal、检查点及 PG epoch 是 Python 侧新增设计，不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名 API 或分布式恢复等价承诺。DeepSeek Harness 对应 Definition/Provider/Consumer/Lifecycle/Evidence 接缝：值对象/端口、纯转换、示例与契约测试、无隐式副作用、可重放证据。PG/Redis Provider 与 RecoveryWorker 已由后续 ADR 落地，仍省略外部副作用去重；详见第 47 章与后续开发规格。
 
 可观测层的现状证据与演进边界见[补充设计](design/observability-evolution.md)。新增错误分类投影、投递健康、性能指标与外部 parent trace 绑定属于 Python 侧待实现方案；沿用下表的 lifecycle/telemetry 概念映射，不表示上游已提供同名能力。
 

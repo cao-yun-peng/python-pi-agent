@@ -1,20 +1,22 @@
 # Phase 1 PostgreSQL Redis 分布式会话存储与恢复开发规格
 
-> 状态：分步开发中，存储、租约、Runtime 接线与显式恢复已落地；自动候选发现/跨 Worker 接管仍待 Step 7。
-> 日期：2026-11-23。
+> 状态：Step 1–7 已落地，包括自动候选发现、注册配置重建与跨 Worker 接管；Step 8 的统一环境和 benchmark 待开发。
+> 日期：2026-11-24。
+
+> Step 7 已实现：SessionRecoveryWorker 的有界扫描、同 Session 串行、冷却排除；RegisteredRecoveryDispatcher 在心跳内重建配置并消费已领取回执，复用 checkpoint 校验与 unknown 尾部补偿。见 [ADR 0055](../adr/0055-session-recovery-orchestration.md)、[教程 53](../../tutorials/53-session-recovery-workers.md)、[示例 56](../../examples/56_recovery_workers.py)与[第 13 节证据](phase-1-recovery-fault-matrix.md)。
 
 > Step 6 已实现：Builder/Session/受许可 writer 注入、安全边界与显式 resume、维护压缩许可；普通 prompt 持久接受，同 Run 不重复 prompt，最终 assistant 后恢复零推理，请求/派发/attempt 预算连续。新增 claim_run 在 PG 锁内拒绝错误目标且不消耗其他 Run 的 attempt；新增 RepairToolTail 关闭旧终态遗留的 unknown 工具尾部。见 ADR 0054、教程 52、示例 55。
 
-> Step 5 已实现：SessionLeaseManager 的内存/Redis 适配器、手动时钟与受监督 LeaseHeartbeat；真实 Redis/PG 验证互斥、过期、键丢失、PG epoch 拒绝和终态顺序，离线测试覆盖超时、失租取消与任务清理。见 ADR 0053、教程 51、示例 54。Runtime 接线由 Step 6 提供，恢复扫描仍待 Step 7。
+> Step 5 已实现：SessionLeaseManager 的内存/Redis 适配器、手动时钟与受监督 LeaseHeartbeat；真实 Redis/PG 验证互斥、过期、键丢失、PG epoch 拒绝和终态顺序，离线测试覆盖超时、失租取消与任务清理。见 ADR 0053、教程 51、示例 54。Runtime 接线由 Step 6 提供，恢复扫描由 Step 7 提供。
 
-> Step 4 已实现：Run journal、检查点、完整请求幂等、PG epoch、绑定 writer 及不确定提交查询。见 ADR 0052、教程 50、示例 53。002 为 Run/操作数据面，回执通过历史引用重建原结果；Redis/后台心跳由 Step 5 实现，Runtime 接线由 Step 6 提供，自动恢复接线尚未实现。
+> Step 4 已实现：Run journal、检查点、完整请求幂等、PG epoch、绑定 writer 及不确定提交查询。见 ADR 0052、教程 50、示例 53。002 为 Run/操作数据面，回执通过历史引用重建原结果；Redis/后台心跳由 Step 5 实现，Runtime 接线由 Step 6 提供，自动恢复接线由 Step 7 提供。
 
 > Step 2 已完成：共享 schema v6 codec 与 JSONL/模型请求快照复用；见 ADR 0050、教程 48 和示例 51。
 > Step 3 已完成：PG 六方法、借用 pool、显式迁移、共享契约和真实事务测试；见 ADR 0051、教程 49、示例 52。001 迁移只创建基础表，Run 表和 active_run 外键在 Step 4 加入；完整 v6 envelope 存入 JSONB，索引字段使用生成列。
 > 源码基线：`dfcf7de`；适用包：`python-pi-agent/src/pi_agent_py`。
 > 决策级别：本文确定本阶段的建议实现路线；实现前将重要决定写入新 ADR，并明确修订 ADR 0017 的恢复范围。
 
-> Step 1 已加入执行值对象、端口、纯状态机与契约测试，见 [ADR 0049](../adr/0049-execution-journal-contracts.md) 和[教程 47](../../tutorials/47-execution-journal-contracts.md)。该纯契约已由 Step 4 接入 PG 执行存储，Redis/心跳已由 Step 5 实现，运行时接线由 Step 6 提供，自动接管尚未实现。领域类型位于 `execution_domain.py`，纯转换位于 `storage/execution_transitions.py`；绑定 writer 的完整操作摘要与纯命令摘要须分开。
+> Step 1 已加入执行值对象、端口、纯状态机与契约测试，见 [ADR 0049](../adr/0049-execution-journal-contracts.md) 和[教程 47](../../tutorials/47-execution-journal-contracts.md)。该纯契约已由 Step 4 接入 PG 执行存储，Redis/心跳已由 Step 5 实现，运行时接线由 Step 6 提供，自动接管由 Step 7 提供。领域类型位于 `execution_domain.py`，纯转换位于 `storage/execution_transitions.py`；绑定 writer 的完整操作摘要与纯命令摘要须分开。
 
 本阶段解决两个问题：将会话事件持久化到 PostgreSQL；在执行进程崩溃后，由其他 Worker 安全取得执行权，继续未完成的 Run。PostgreSQL 保存会话历史、Run 检查点和执行权代次，Redis 提供执行租约协调。租约过期不等于工具副作用已经停止，恢复始终保留“外部执行结果未知”的语义。
 
@@ -321,6 +323,8 @@ session_controls 按复制后的日志重建，复合主键允许源与目标保
 Step 3 可先独立交付单执行者 PG 存储；Step 7 前不得把已有 PG+Redis 适配器描述为完成自动故障恢复。
 
 ## 13 测试矩阵
+
+阶段 7 已逐行关联可执行测试，见[故障矩阵与真实集成条件](phase-1-recovery-fault-matrix.md)。默认离线，双 Worker、真实进程终止与 Redis 重启采用显式专用服务开关；阶段 8 的性能测量单独验收。
 
 ### 13.1 默认离线测试
 

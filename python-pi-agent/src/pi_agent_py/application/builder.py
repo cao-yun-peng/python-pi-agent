@@ -11,6 +11,8 @@ from ._observation import _RuntimeObservation
 from .runtime import AgentRuntime, SessionPoolPolicy
 from ..runtime.components import AgentComponents
 from ..runtime.execution_config import DistributedExecution, DistributedExecutionSettings
+from ..runtime.recovery import SessionRecoveryWorker, RecoveryWorkerSettings
+from ..ports import RecoveryDispatcher
 from ..ports import SessionExecutionStore, SessionLeaseManager, LeaseClock
 from ..runtime.session_spec import SessionSpecResolver
 from ..runtime.middleware import Middleware
@@ -76,6 +78,8 @@ class AgentRuntimeBuilder:
         self._distributed_execution: DistributedExecution | None = None
         self._execution_resource: ManagedResource[SessionExecutionStore] | None = None
         self._lease_resource: ManagedResource[SessionLeaseManager] | None = None
+        self._recovery_resource: ManagedResource[RecoveryDispatcher] | None = None
+        self._recovery_settings = RecoveryWorkerSettings()
         self._session_spec_resolver: ManagedResource[SessionSpecResolver] | None = None
         self._session_spec_resolver_factory: (
             Callable[[AgentComponents], SessionSpecResolver] | None
@@ -186,6 +190,20 @@ class AgentRuntimeBuilder:
             "session-spec-resolver", resolver, ownership, cleanup
         )
         self._session_spec_resolver_factory = None
+        return self
+
+    def with_recovery(
+        self,
+        dispatcher: RecoveryDispatcher,
+        *,
+        settings: RecoveryWorkerSettings = RecoveryWorkerSettings(),
+        ownership: ResourceOwnership = "borrowed",
+        cleanup: Cleanup | None = None,
+    ) -> AgentRuntimeBuilder:
+        self._recovery_resource = ManagedResource(
+            "recovery-dispatcher", dispatcher, ownership, cleanup
+        )
+        self._recovery_settings = settings
         return self
 
     def with_session_spec_resolver_factory(
@@ -346,6 +364,13 @@ class AgentRuntimeBuilder:
                 lifecycle.manage(self._execution_resource)
             if self._lease_resource is not None:
                 lifecycle.manage(self._lease_resource)
+            dispatcher = (
+                lifecycle.manage(self._recovery_resource)
+                if self._recovery_resource is not None
+                else None
+            )
+            if dispatcher is not None and self._distributed_execution is None:
+                raise ConfigurationError("recovery requires distributed execution")
             if self._distributed_execution is not None and getattr(store, "supports_distributed_execution", False) is not True:
                 raise ConfigurationError("distributed execution requires an explicitly supplied fencing-aware session reader")
             configured_plugins: list[tuple[str, PluginFactory]] = []
@@ -422,11 +447,20 @@ class AgentRuntimeBuilder:
             if resolver is not None and not callable(getattr(resolver, "resolve", None)):
                 raise TypeError("session resolver must implement resolve")
 
-            return AgentRuntime(
+            worker = None
+            if dispatcher is not None:
+                assert self._distributed_execution is not None
+                worker = SessionRecoveryWorker(
+                    self._distributed_execution, dispatcher,
+                    settings=self._recovery_settings, event_sink=event_sink,
+                )
+                lifecycle.push("recovery-worker", worker.aclose)
+            runtime = AgentRuntime(
                 components,
                 store,
                 _observation=observation,
                 distributed_execution=self._distributed_execution,
+                recovery_worker=worker,
                 plugin_host=session_plugin_host,
                 session_pool_policy=self._session_pool_policy,
                 session_spec_resolver=resolver,
@@ -434,6 +468,9 @@ class AgentRuntimeBuilder:
                 lifecycle=lifecycle,
                 observer_lifecycle=observer_lifecycle,
             )
+            if worker is not None:
+                await worker.start()
+            return runtime
         except asyncio.CancelledError:
             await _rollback(lifecycle, observer_lifecycle)
             raise

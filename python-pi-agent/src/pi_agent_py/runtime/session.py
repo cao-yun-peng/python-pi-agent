@@ -11,6 +11,7 @@ from .components import AgentComponents
 from ..domain import (
     AgentResult,
     EventProvenance,
+    EventKind,
     Message,
     SessionEventContext,
     SessionSnapshot,
@@ -33,8 +34,11 @@ from .control import _QueuedSessionRun, _SessionControl
 from .loop import Agent, _AgentWiring
 from .execution_config import DistributedExecution
 from .distributed_control import _DistributedSessionControl
-from .distributed_execution import _DistributedSessionExecution
+from .distributed_execution import _DistributedSessionExecution, _Outcome
 from .tool_recovery import interrupted_tool_result
+from .lease_heartbeat import LeaseHeartbeat
+from .execution_writer import _ExecutionSessionWriter
+from ..execution_domain import ExecutionReceipt
 
 
 class AgentSession:
@@ -176,6 +180,84 @@ class AgentSession:
         return RunHandle(
             run_id, events, queued.future, lambda: self._control._cancel_submission(queued)
         )
+
+    async def _begin_claimed(
+        self, receipt: ExecutionReceipt, scope: LeaseHeartbeat
+    ) -> _ExecutionSessionWriter:
+        await self.restore()
+        control = self._control
+        if not isinstance(control, _DistributedSessionControl):
+            raise SessionControlError("claimed recovery requires distributed execution")
+        async with control._control_lock:
+            if (
+                not control.is_idle or control._queued_runs
+                or control._dispatcher_task is not None
+            ):
+                raise SessionControlError("claimed recovery requires an idle controller")
+            writer = control.execution.prepare_claimed(receipt, scope)
+            record = writer.record
+            from typing import cast
+            control._active_task = cast(asyncio.Task[AgentResult], asyncio.current_task())
+            control._active_run = _QueuedSessionRun(
+                record.submission.run_id, record.submission.prompt,
+                "prompt", asyncio.get_running_loop().create_future(),
+            )
+            control._external_claim = True
+            control._state = "running"
+            control._accepting_steer = True
+            control._idle_event.clear()
+            self._events.emit("run_started", run_id=record.submission.run_id, channel="live")
+            return writer
+
+    async def _work_claimed(self, writer: _ExecutionSessionWriter) -> _Outcome:
+        assert isinstance(self._control, _DistributedSessionControl)
+        async with self._run_lock:
+            return await self._control.execution.work_claimed(writer, self._control, self._plugin_lease)
+
+    async def _finish_claimed(
+        self, writer: _ExecutionSessionWriter, outcome: _Outcome
+    ) -> None:
+        assert isinstance(self._control, _DistributedSessionControl)
+        await self._control.execution.finish_claimed(writer, self._control, outcome)
+        kind: EventKind = "run_completed" if outcome.error is None else "run_failed"
+        if isinstance(outcome.error, asyncio.CancelledError):
+            kind = "run_cancelled"
+        self._events.emit(
+            kind, run_id=writer.record.submission.run_id, channel="live",
+            model_requests=writer.record.checkpoint.request_number,
+            dispatches=writer.record.checkpoint.dispatches, attempt=writer.record.attempt,
+        )
+
+    async def _end_claimed(self) -> None:
+        control = self._control
+        if not isinstance(control, _DistributedSessionControl) or not control._external_claim:
+            return
+        async with control._control_lock:
+            run_id = control.active_run_id
+            if control._active_run is not None:
+                control._active_run.future.cancel()
+            # A reconstructed Runtime owns this attempt, not later admissions.
+            # Its local handles end, while queued Runs remain for the worker.
+            for queued in tuple(control._queued_runs):
+                control._fail_queued_run(
+                    queued, SessionControlError(
+                        "Run remains durably queued after recovery scope closed"
+                    ),
+                )
+            control._queued_runs.clear()
+            control._active_run = None
+            control._active_task = None
+            control._accepting_steer = False
+            control._external_claim = False
+            control._steering.clear()
+            control.execution.writer = None
+            control.execution.work_task = None
+            control.execution.cancel_requested = False
+            control._state = "idle"
+            control._idle_event.set()
+        if run_id is not None:
+            self._notify_run_settled(run_id)
+            self._events.emit("run_settled", run_id=run_id, channel="live")
 
     async def steer(self, prompt: str) -> None:
         """Insert a user instruction at the active run's next safe boundary."""

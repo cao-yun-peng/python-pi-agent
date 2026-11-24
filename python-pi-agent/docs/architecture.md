@@ -1,8 +1,16 @@
 # Architecture
 
+## 自动接管编排 ADR 0055
+
+`runtime/recovery.py::SessionRecoveryWorker` 通过执行存储、租约和 RecoveryDispatcher 端口进行有界候选扫描、同 Session 串行与跨 Session 并发。冷却/活跃排除在候选 LIMIT 前生效。每次取得 Redis 后仅 claim_next 一次，已领取回执交给 dispatcher；持久终态校验后报告完成。PG epoch 继续裁决跨 Worker 写权限。
+
+`application/recovery.py::RegisteredRecoveryDispatcher` 在心跳保护下按不可变 ref/hash 注册表重建新 Runtime，验证基础设施绑定，复用 Session 的 claimed 接缝与同一 loop。共享 checkpoint 校验/unknown 补偿防止重复 prompt、最终推理或原工具；配置拒绝持久失败，失租/瞬时错误保留可接管状态。临时 Runtime 关闭保留新接受的 queued follow-up。
+
+Builder.with_recovery 显式装配 dispatcher 和资源所有权，根 Runtime 拥有 Worker。关闭先扫描/接管，再 Session/基础设施；重复取消仍等待心跳与清理。事件只含安全关联信息，后台 failure 可查询并在关闭时报告。见 [ADR 0055](adr/0055-session-recovery-orchestration.md)、[教程 53](../tutorials/53-session-recovery-workers.md)、[故障矩阵](design/phase-1-recovery-fault-matrix.md)。配置身份/权限/workspace 的有效性由应用工厂验证；本阶段未提供生产 HA 或 benchmark。
+
 ## 分布式 Runtime 接线 ADR 0054
 
-Builder.with_distributed_execution 将显式执行存储、租约、配置与资源所有权传到 AgentSession。_DistributedSessionControl 复用 FIFO dispatcher/RunHandle，替换 admission、控制写入与恢复入口：普通 prompt/follow-up 均先持久接受，打开 Session 不再启动旧 follow-up 恢复路径。RuntimeSession.resume(run_id) 显式恢复；阶段 7 再提供候选扫描和自动接管。
+Builder.with_distributed_execution 将显式执行存储、租约、配置与资源所有权传到 AgentSession。_DistributedSessionControl 复用 FIFO dispatcher/RunHandle，替换 admission、控制写入与恢复入口：普通 prompt/follow-up 均先持久接受，打开 Session 不再启动旧 follow-up 恢复路径。RuntimeSession.resume(run_id) 显式恢复；自动接管见 ADR 0055。
 
 `runtime/distributed_execution.py` 协调 Redis/PG 定向 claim_run、心跳和终态，`runtime/execution_writer.py` 绑定每次提交的 grant/完整摘要；同一 Agent loop 通过 assistant Finish、boundary、dispatch gate 与内部 resume 接缝继续原 Run。PG 锁内检查目标优先顺序，拒绝消耗其他 Run 的 attempt；旧 claim_next 不变。before_prompt 原子保存 system/user，awaiting_model 不重写 prompt，awaiting_boundary 使用已提交 assistant，终态结果按历史前缀重建。
 
@@ -16,19 +24,19 @@ ModelDispatchHook/bind_dispatch 将检查带到实际重试前，作用域绑定
 
 `runtime/lease_heartbeat.py` 只依赖租约、窄 ExecutionGrantManager 和时钟端口。run 启动前重新验证 Redis → PG，随后 TaskGroup 拥有工作和心跳；失租/超时/异常关闭派发门、取消并等待工作。finalize 在心跳退出后有界提交终态，避免与清除 grant 竞争。最后有界比较释放 PG → Redis，重复取消也等待清理结束；清理错误进入事件和 cleanup_failures。应用拥有客户端资源，工作必须协作取消且每次新派发前 ensure_active。
 
-Redis 清空不允许绕过 PG 当前许可。心跳不自动产生 Run 终态，不撤销外部副作用；AgentRuntime 注入与显式 resume 由 ADR 0054 提供，自动恢复编排仍待步骤 7。见 [ADR 0053](adr/0053-redis-leases-and-supervised-heartbeat.md)、[教程 51](../tutorials/51-redis-leases-heartbeat.md)和示例 54。
+Redis 清空不允许绕过 PG 当前许可。心跳不自动产生 Run 终态，不撤销外部副作用；AgentRuntime 注入与显式 resume 由 ADR 0054 提供，自动恢复编排由 ADR 0055 提供。见 [ADR 0053](adr/0053-redis-leases-and-supervised-heartbeat.md)、[教程 51](../tutorials/51-redis-leases-heartbeat.md)和示例 54。
 
 ## PostgreSQL 执行存储 ADR 0052
 
 `storage/execution.py` 实现 SessionExecutionStore 与绑定 writer。002 增加 Run journal、Run/检查点投影、幂等回执、队列计数和 active_run 外键。Session → Run 锁顺序内更新事件、控制、进度和回执；PG 在取得锁后读取时间并裁决 epoch。`execution_mutations.py` 校验实际模型历史与检查点命令，`execution_codec.py` 提供 v1 journal 格式及完整请求摘要。
 
-历史回执通过 Session 日志前缀、当时 Run record/grant 重建。COMMIT 回复失联时抛 SessionCommitUnknownError 并允许按操作身份查询；重试同 key 返回原结果，旧许可不能写新事实。执行存储和 ADR 0053 的独立租约/心跳已可使用；AgentRuntime 显式注入见 ADR 0054，自动恢复编排仍未实现。见 ADR 0052、教程 50 和示例 53。
+历史回执通过 Session 日志前缀、当时 Run record/grant 重建。COMMIT 回复失联时抛 SessionCommitUnknownError 并允许按操作身份查询；重试同 key 返回原结果，旧许可不能写新事实。执行存储和 ADR 0053 的独立租约/心跳已可使用；AgentRuntime 显式注入见 ADR 0054，自动恢复编排见 ADR 0055。见 ADR 0052、教程 50 和示例 53。
 
 ## PostgreSQL 基础存储 ADR 0051
 
 `storage/postgres.py` 借用外部 pool 实现六方法 SessionStore；行锁、共享 prepare_* 和唯一约束保证同版本写入竞争，事件/版本/控制投影原子提交。读取与 fork 使用 repeatable-read，一份完整 v6 JSONB envelope 配合 generated columns 保持索引与内容一致。`postgres_migrations.py` 和显式 migrate CLI 使用 advisory lock、版本/checksum 与事务 DDL；SQL 随 wheel 发布，驱动属于可选 postgres extra。
 
-基础存储仅提供 local 模式写入；distributed 标记拒绝无许可写及直接 fork。执行日志与 PG grant 由 ADR 0052 的独立端口提供，Redis/心跳已独立实现，Runtime 已显式接入，RecoveryWorker 尚未实现。见 [ADR 0051](adr/0051-postgres-session-store.md)、[教程 49](../tutorials/49-postgres-session-store.md)、示例 52 和三种 Store 的共享契约。
+基础存储仅提供 local 模式写入；distributed 标记拒绝无许可写及直接 fork。执行日志与 PG grant 由 ADR 0052 的独立端口提供，Redis/心跳已独立实现，Runtime 已显式接入，RecoveryWorker 由 ADR 0055 提供。见 [ADR 0051](adr/0051-postgres-session-store.md)、[教程 49](../tutorials/49-postgres-session-store.md)、示例 52 和三种 Store 的共享契约。
 
 共享会话 codec（ADR 0050）：`storage/_codec.py` 独占 schema v6 事件/消息格式；JSONL 只处理文件 I/O，模型请求快照也改为依赖共享模块。字段、错误和编码字节语义保持不变。见教程 48、示例 51 与 test_session_codec。
 

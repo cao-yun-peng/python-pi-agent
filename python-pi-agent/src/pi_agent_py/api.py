@@ -166,6 +166,11 @@ from .runtime.lease_heartbeat import (
     LeaseHeartbeat, LeaseHeartbeatSettings, LeaseCleanupFailure,
 )
 from .runtime.execution_config import DistributedExecutionSettings, DistributedExecution
+from .runtime.recovery import SessionRecoveryWorker, RecoveryWorkerSettings, RecoveryPass, RecoveryAttempt
+from .application.recovery import RegisteredRecoveryDispatcher, RecoveryDispatchSettings, RecoveryRuntimeFactory
+from .ports import RecoveryDispatcher
+from .execution_domain import RecoveryOutcome
+from .errors import RecoveryConfigurationError
 from .execution_domain import RepairToolTail, ClaimRunExecutionRequest
 from .ports import ModelDispatchHook, DispatchBindableModelProvider
 from .errors import LeaseLostError, LeaseStorageError, LeaseTimeoutError
@@ -232,6 +237,9 @@ from .tools.workspace.find import FindTool
 from .tools.workspace.grep import GrepTool
 
 __all__ = [
+    "SessionRecoveryWorker", "RecoveryWorkerSettings", "RecoveryPass", "RecoveryAttempt",
+    "RegisteredRecoveryDispatcher", "RecoveryDispatchSettings", "RecoveryRuntimeFactory",
+    "RecoveryDispatcher", "RecoveryOutcome", "RecoveryConfigurationError",
     "DistributedExecutionSettings", "DistributedExecution", "RepairToolTail", "ClaimRunExecutionRequest", "ModelDispatchHook", "DispatchBindableModelProvider",
     "SessionLeaseManager", "ExecutionGrantManager", "LeaseClock", "SystemLeaseClock",
     "InMemoryLeaseManager", "RedisLeaseManager", "RedisLeaseSettings", "RedisLeaseClient",

@@ -47,7 +47,7 @@ from .execution_config import DistributedExecution
 from .execution_writer import _ExecutionSessionWriter
 from .lease_heartbeat import LeaseHeartbeat
 from .loop import Agent, _AgentWiring, _LoopResume, _ModelTurn, _BoundaryDecision
-from .tool_recovery import interrupted_tool_result
+from .tool_recovery import interrupted_tool_result, validate_checkpoint_history
 
 if TYPE_CHECKING:
     from .distributed_control import _DistributedSessionControl
@@ -254,42 +254,13 @@ class _DistributedSessionExecution:
                 clock=config.clock,
                 event_sink=self.events.sink,
             )
-            writer = _ExecutionSessionWriter(
-                config.store, self.reader, receipt, scope, self.lock
-            )
-            self.writer = writer
+            writer = self.prepare_claimed(receipt, scope)
 
             async def work(guard: LeaseHeartbeat) -> _Outcome:
-                from typing import cast
-
-                self.work_task = cast(asyncio.Task[object], asyncio.current_task())
-                try:
-                    if self.cancel_requested:
-                        raise asyncio.CancelledError()
-                    return _Outcome(
-                        result=await self._resume_claimed(writer, control, plugin)
-                    )
-                except asyncio.CancelledError as error:
-                    if not self.cancel_requested or guard.lost_reason is not None:
-                        raise
-                    return _Outcome(error=error)
-                except (SessionStorageError, SessionConflictError):
-                    raise  # Unknown storage outcome or lost authority is recoverable, not a new terminal fact.
-                except AgentError as error:
-                    return _Outcome(error=error)
-                finally:
-                    self.work_task = None
+                return await self.work_claimed(writer, control, plugin)
 
             async def finalize(outcome: _Outcome, unused_grant: object) -> None:
-                async with control._control_lock:
-                    control._accepting_steer = False
-                    if isinstance(outcome.error, asyncio.CancelledError):
-                        finish = FinishRun("cancelled", "user_cancelled")
-                    elif outcome.error is not None:
-                        finish = FinishRun("failed", type(outcome.error).__name__)
-                    else:
-                        finish = FinishRun("completed")
-                    await writer.finish(finish)
+                await self.finish_claimed(writer, control, outcome)
 
             outcome = await scope.run(work, finalize=finalize)
             if outcome.error is not None:
@@ -306,13 +277,78 @@ class _DistributedSessionExecution:
                 finally:
                     await config.leases.release(lease)
 
+    def prepare_claimed(
+        self, receipt: ExecutionReceipt, scope: LeaseHeartbeat
+    ) -> _ExecutionSessionWriter:
+        if receipt.run is None or receipt.grant is None:
+            raise SessionControlError("a live claimed Run is required")
+        self.validate(
+            receipt.run.submission.recovery_spec_ref,
+            receipt.run.submission.recovery_spec_hash,
+        )
+        expected = receipt.grant
+        current = scope.grant
+        if (
+            expected.session_id, expected.owner_id, expected.claim_id,
+            expected.epoch, expected.run_id, expected.purpose,
+        ) != (
+            current.session_id, current.owner_id, current.claim_id,
+            current.epoch, current.run_id, current.purpose,
+        ):
+            raise SessionConflictError("recovery receipt differs from supervised grant")
+        writer = _ExecutionSessionWriter(
+            self.config.store, self.reader, receipt, scope, self.lock
+        )
+        self.writer = writer
+        return writer
+
+    async def work_claimed(
+        self, writer: _ExecutionSessionWriter,
+        control: "_DistributedSessionControl", plugin: "PluginSessionLease | None",
+    ) -> _Outcome:
+        from typing import cast
+        self.work_task = cast(asyncio.Task[object], asyncio.current_task())
+        try:
+            if self.cancel_requested:
+                raise asyncio.CancelledError()
+            return _Outcome(result=await self._resume_claimed(writer, control, plugin))
+        except asyncio.CancelledError as error:
+            if not self.cancel_requested or writer.scope.lost_reason is not None:
+                raise
+            return _Outcome(error=error)
+        except (SessionStorageError, SessionConflictError):
+            raise
+        except AgentError as error:
+            return _Outcome(error=error)
+        finally:
+            self.work_task = None
+
+    async def finish_claimed(
+        self, writer: _ExecutionSessionWriter,
+        control: "_DistributedSessionControl", outcome: _Outcome,
+    ) -> None:
+        async with control._control_lock:
+            control._accepting_steer = False
+            if isinstance(outcome.error, asyncio.CancelledError):
+                finish = FinishRun("cancelled", "user_cancelled")
+            elif outcome.error is not None:
+                finish = FinishRun("failed", type(outcome.error).__name__)
+            else:
+                finish = FinishRun("completed")
+            await writer.finish(finish)
+
     async def _resume_claimed(
         self,
         writer: _ExecutionSessionWriter,
         control: "_DistributedSessionControl",
         plugin: "PluginSessionLease | None",
     ) -> AgentResult:
+        await writer.refresh()
         record = writer.record
+        snapshot = validate_checkpoint_history(
+            record, await self.reader.read_events(record.submission.session_id)
+        )
+        writer.receipt = ExecutionReceipt(snapshot, record, writer.scope.grant)
         run_id, session_id = record.submission.run_id, record.submission.session_id
         context = SessionEventContext(
             run_id=run_id,

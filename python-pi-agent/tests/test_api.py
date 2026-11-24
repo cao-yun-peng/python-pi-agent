@@ -35,6 +35,9 @@ from pi_agent_py.api import (
 
 _STABLE_EXPORTS = frozenset(
     """
+    SessionRecoveryWorker RecoveryWorkerSettings RecoveryPass RecoveryAttempt
+    RegisteredRecoveryDispatcher RecoveryDispatchSettings RecoveryRuntimeFactory
+    RecoveryDispatcher RecoveryOutcome RecoveryConfigurationError
     DistributedExecutionSettings DistributedExecution RepairToolTail ClaimRunExecutionRequest ModelDispatchHook DispatchBindableModelProvider
     SessionLeaseManager ExecutionGrantManager LeaseClock SystemLeaseClock
     InMemoryLeaseManager RedisLeaseManager RedisLeaseSettings RedisLeaseClient

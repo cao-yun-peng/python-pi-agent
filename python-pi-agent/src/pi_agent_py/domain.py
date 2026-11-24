@@ -44,6 +44,19 @@ EventSource: TypeAlias = Literal[
 ]
 SessionState: TypeAlias = Literal["idle", "running", "aborting", "settled"]
 EventKind: TypeAlias = Literal[
+    "recovery_candidates",
+    "recovery_started",
+    "recovery_rebuilding",
+    "recovery_rejected",
+    "recovery_completed",
+    "recovery_busy",
+    "recovery_failed",
+    "recovery_stopped",
+    "recovery_scan_failed",
+    "recovery_cleanup_failed",
+    "recovery_worker_started",
+    "recovery_worker_stopped",
+    "recovery_worker_failed",
     "lease_heartbeat_started",
     "lease_renewed",
     "lease_lost",

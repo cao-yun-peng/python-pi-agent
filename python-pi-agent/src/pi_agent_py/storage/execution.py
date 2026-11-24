@@ -462,8 +462,10 @@ class PostgresExecutionStore:
             )
             return record
 
-    async def list_candidates(self, limit: int) -> tuple[str, ...]:
+    async def list_candidates(self, limit: int, *, exclude: tuple[str, ...] = ()) -> tuple[str, ...]:
         _integer(limit, "limit", 1)
+        from ..execution_domain import _ids
+        _ids(exclude, "excluded sessions")
         async with postgres_transaction(
             self._pool, self._settings, readonly=True
         ) as connection:
@@ -471,8 +473,10 @@ class PostgresExecutionStore:
                 """SELECT session_id FROM sessions s WHERE execution_mode='distributed'
                 AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
                 AND (active_run_id IS NOT NULL OR EXISTS(SELECT 1 FROM session_runs r WHERE r.session_id=s.session_id AND r.state='queued'))
+                AND NOT (s.session_id=ANY($2::text[]))
                 ORDER BY updated_at,session_id LIMIT $1""",
                 limit,
+                list(exclude),
             )
             return tuple(cast(str, row["session_id"]) for row in rows)
 

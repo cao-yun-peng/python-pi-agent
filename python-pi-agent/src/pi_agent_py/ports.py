@@ -10,6 +10,7 @@ from typing import Literal, Protocol
 from .execution_domain import (
     ExecutionGrant, ExecutionMutation, ExecutionReceipt, FinishRun,
     OperationIdentity, ProgressCommand, RunRecord, RunSubmission, SessionLease,
+    RecoveryOutcome,
 )
 
 from .domain import (
@@ -405,7 +406,7 @@ class SessionExecutionStore(ExecutionGrantManager, Protocol):
         """
         ...
 
-    async def list_candidates(self, limit: int) -> tuple[str, ...]:
+    async def list_candidates(self, limit: int, *, exclude: tuple[str, ...] = ()) -> tuple[str, ...]:
         """Discover unique Session IDs, without granting execution ownership."""
         ...
 
@@ -470,6 +471,18 @@ class SessionExecutionStore(ExecutionGrantManager, Protocol):
     ) -> ExecutionReceipt | None:
         """Return committed receipt; None is not proof a concurrent commit failed."""
         ...
+
+
+class RecoveryDispatcher(Protocol):
+    """Borrowed recovery scheduler; never re-submit or re-claim the receipt.
+
+    Start supervision before rebuilding registered configuration, reuse the
+    shared Run loop and settle under the same grant. Preserve cancellation;
+    finish/join all owned work before returning. The worker also compare-cleans
+    the original holdings, including when preparation fails.
+    """
+
+    async def recover(self, receipt: ExecutionReceipt, lease: SessionLease) -> RecoveryOutcome: ...
 
 
 class SchemaValidator(Protocol):

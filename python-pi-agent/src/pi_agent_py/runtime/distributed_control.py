@@ -20,6 +20,7 @@ from .distributed_execution import _DistributedSessionExecution
 
 class _DistributedSessionControl(_SessionControl):
     execution: _DistributedSessionExecution
+    _external_claim: bool = False
 
     async def _enqueue_run(
         self, prompt: str, *, delivery: str, run_id: str | None = None
@@ -57,7 +58,7 @@ class _DistributedSessionControl(_SessionControl):
         queued.future.add_done_callback(_consume_background_result)
         self._queued_runs.append(queued)
         self._idle_event.clear()
-        if self._dispatcher_task is None and self._active_compaction_task is None:
+        if self._dispatcher_task is None and self._active_compaction_task is None and not self._external_claim:
             self._start_dispatcher_locked()
         return queued
 

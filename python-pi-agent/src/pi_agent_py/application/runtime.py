@@ -38,6 +38,7 @@ from ..ports import (
 from ..storage._writer import _call_session_store
 from ..runtime.session import AgentSession
 from ..runtime.execution_config import DistributedExecution
+from ..runtime.recovery import SessionRecoveryWorker
 from ..runtime.run_handle import RunHandle
 from ..runtime.session_spec import SessionSpec, SessionSpecResolver, StaticSessionSpecResolver
 from ..observability.usage import PricingTable, UsageLedger, UsageSummary
@@ -209,6 +210,7 @@ class AgentRuntime:
         clock: Clock = time.monotonic,
         _observation: _RuntimeObservation | None = None,
         distributed_execution: DistributedExecution | None = None,
+        recovery_worker: SessionRecoveryWorker | None = None,
     ) -> None:
         if not isinstance(components, AgentComponents):
             raise TypeError("AgentRuntime requires AgentComponents")
@@ -226,6 +228,7 @@ class AgentRuntime:
         self._components = components
         self._session_store = session_store
         self._distributed_execution = distributed_execution
+        self._recovery_worker = recovery_worker
         self._session_spec_resolver = (
             session_spec_resolver
             if session_spec_resolver is not None
@@ -253,6 +256,10 @@ class AgentRuntime:
     @property
     def state(self) -> RuntimeState:
         return self._state
+
+    @property
+    def recovery_worker(self) -> SessionRecoveryWorker | None:
+        return self._recovery_worker
 
     @property
     def active_session_count(self) -> int:
@@ -401,6 +408,11 @@ class AgentRuntime:
                 self._sessions.clear()
 
             failures: list[BaseException] = []
+            if self._recovery_worker is not None:
+                try:
+                    await self._recovery_worker.aclose()
+                except BaseException as error:
+                    failures.append(error)
             if entries and self._graceful_shutdown_seconds > 0:
                 try:
                     async with asyncio.timeout(self._graceful_shutdown_seconds):

@@ -554,3 +554,21 @@ def same_lease(first: SessionLease, second: SessionLease) -> bool:
         second.claim_id,
         second.nonce,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryOutcome:
+    session_id: str
+    run_id: str
+    state: Literal["completed", "failed", "cancelled"]
+    epoch: int
+    attempt: int
+    error_code: str | None = None
+
+    def __post_init__(self) -> None:
+        _text(self.session_id, "session_id")
+        _text(self.run_id, "run_id")
+        _integer(self.epoch, "epoch", 1)
+        _integer(self.attempt, "attempt", 1)
+        if self.state not in ("completed", "failed", "cancelled"):
+            raise SessionValidationError("recovery requires a terminal outcome")

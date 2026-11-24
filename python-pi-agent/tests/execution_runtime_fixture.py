@@ -47,11 +47,25 @@ class ExecutionMemory(InMemorySessionStore):
         self.fail_after_tool = False
         self.fail_after_continue = False
         self.unknown_finish = False
+        self.unknown_after_tool = False
         self.claims = 0
         self.maintenance_claims = 0
 
     def authority(self, sid):
         return self.authorities.get(sid, ExecutionAuthority(sid))
+
+    async def list_candidates(self, limit, *, exclude=()):
+        candidates = []
+        for sid in dict.fromkeys(s for s, _ in self.journals):
+            if sid in exclude:
+                continue
+            authority = self.authority(sid)
+            if authority.grant is not None and authority.grant.expires_at > self.clock.unix_time():
+                continue
+            records = [await self.load_execution(s, r) for s, r in self.journals if s == sid]
+            if any(r.state in ("queued", "running") for r in records):
+                candidates.append(sid)
+        return tuple(candidates[:limit])
 
     async def load_execution(self, sid, rid):
         from pi_agent_py.storage.execution_transitions import replay_run
@@ -231,6 +245,9 @@ class ExecutionMemory(InMemorySessionStore):
         if self.fail_after_tool and isinstance(command, CommitToolResults):
             self.fail_after_tool = False
             raise SessionStorageError("injected crash after first tool result")
+        if self.unknown_after_tool and isinstance(command, CommitToolResults):
+            self.unknown_after_tool = False
+            raise SessionCommitUnknownError(grant.session_id, operation.operation_id)
         if self.fail_after_continue and isinstance(command, ContinueRun):
             self.fail_after_continue = False
             raise SessionStorageError("injected crash before next request")

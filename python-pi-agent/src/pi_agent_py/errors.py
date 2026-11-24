@@ -13,6 +13,19 @@ class ConfigurationError(AgentError):
     """A component was created with invalid or missing configuration."""
 
 
+class RecoveryConfigurationError(ConfigurationError):
+    """A registered recovery binding cannot safely reconstruct this Run."""
+
+    def __init__(self, code: str) -> None:
+        if code not in (
+            "recovery_spec_missing", "recovery_spec_mismatch", "recovery_build_failed",
+            "recovery_binding_mismatch", "recovery_permissions_mismatch", "recovery_workspace_mismatch",
+        ):
+            raise ValueError("unknown recovery rejection code")
+        super().__init__("recovery configuration rejected: " + code)
+        self.code = code
+
+
 class ProviderError(AgentError):
     """The model provider failed before producing a valid response."""
 
