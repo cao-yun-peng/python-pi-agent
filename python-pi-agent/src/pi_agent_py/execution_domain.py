@@ -276,6 +276,18 @@ class CommitToolResults:
 
 
 @dataclass(frozen=True, slots=True)
+class RepairToolTail:
+    """Close an earlier terminal Run's unknown tool tail before a new prompt."""
+
+    tool_call_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        _ids(self.tool_call_ids, "tool_call_ids")
+        if not self.tool_call_ids:
+            raise SessionValidationError("repair requires unresolved tools")
+
+
+@dataclass(frozen=True, slots=True)
 class ContinueRun:
     steering_events: tuple[DurableEventIdentity, ...] = ()
 
@@ -307,6 +319,7 @@ RunCommand: TypeAlias = (
     | DispatchModel
     | CommitAssistant
     | CommitToolResults
+    | RepairToolTail
     | ContinueRun
     | FinishRun
 )
@@ -435,7 +448,7 @@ ExecutionMutation: TypeAlias = (
     | CompactExecutionHistory
 )
 ProgressCommand: TypeAlias = (
-    CommitPrompt | DispatchModel | CommitAssistant | CommitToolResults | ContinueRun
+    CommitPrompt | DispatchModel | CommitAssistant | CommitToolResults | RepairToolTail | ContinueRun
 )
 
 
@@ -458,6 +471,17 @@ class ClaimExecutionRequest:
         _time(self.ttl, "ttl")
         if self.ttl <= 0 or self.purpose not in ("run", "maintenance"):
             raise SessionValidationError("invalid execution claim request")
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimRunExecutionRequest:
+    lease: SessionLease
+    ttl: float
+    run_id: str
+
+    def __post_init__(self) -> None:
+        ClaimExecutionRequest(self.lease, self.ttl)
+        _text(self.run_id, "run_id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,6 +527,7 @@ class CancelQueuedRequest:
 ExecutionRequest: TypeAlias = (
     RunSubmission
     | ClaimExecutionRequest
+    | ClaimRunExecutionRequest
     | ExecutionStepRequest
     | FinishExecutionRequest
     | CancelQueuedRequest

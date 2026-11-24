@@ -14,6 +14,7 @@ from ..execution_domain import (
     CommitAssistant,
     CommitPrompt,
     CommitToolResults,
+    RepairToolTail,
     ContinueRun,
     DispatchModel,
     ExecutionAuthority,
@@ -229,7 +230,10 @@ def _apply(
         )
     if record.state != "running":
         raise SessionValidationError("progress requires a running run")
-    if isinstance(command, CommitPrompt):
+    if isinstance(command, RepairToolTail):
+        if cp.phase != "before_prompt":
+            raise SessionValidationError("tail repair requires before_prompt")
+    elif isinstance(command, CommitPrompt):
         if cp.phase != "before_prompt":
             raise SessionValidationError("prompt is already committed")
         _reference(record, command.event)

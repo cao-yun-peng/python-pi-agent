@@ -10,7 +10,7 @@ from ..domain import (
     RecordedModelRequest, ToolDefinition,
 )
 from ..errors import AgentError, SessionStorageError
-from ..ports import ModelProvider, ModelRequestStore
+from ..ports import ModelProvider, ModelRequestStore, ModelDispatchHook
 
 
 class RecordingModelProvider:
@@ -29,6 +29,10 @@ class RecordingModelProvider:
         self._provider = provider
         self._store = store
         self._target = target
+
+    def bind_dispatch(self, hook: "ModelDispatchHook") -> "RecordingModelProvider":
+        from .dispatch import bind_model_dispatch
+        return RecordingModelProvider(bind_model_dispatch(self._provider, hook), self._store, self._target)
 
     async def stream(
         self, messages: Sequence[Message], tools: Sequence[ToolDefinition] = (),

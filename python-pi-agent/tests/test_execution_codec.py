@@ -10,6 +10,7 @@ from pi_agent_py.domain import (
     Message,
     SessionEventContext,
     ToolCall,
+    EventProvenance,
 )
 from pi_agent_py.errors import SessionReplayError, SessionValidationError
 from pi_agent_py.execution_domain import (
@@ -18,6 +19,7 @@ from pi_agent_py.execution_domain import (
     CommitAssistant,
     CommitPrompt,
     CommitToolResults,
+    RepairToolTail,
     ContinueRun,
     DispatchModel,
     ExecutionGrant,
@@ -42,6 +44,57 @@ from pi_agent_py.storage.execution_mutations import plan_execution_mutations
 
 
 class ExecutionCodecTests(unittest.TestCase):
+    def test_tail_repair_requires_complete_unknown_results_and_recovery_provenance(
+        self,
+    ):
+        from pi_agent_py.runtime.tool_recovery import interrupted_tool_result
+
+        calls = (ToolCall("a", "do", {}), ToolCall("b", "do", {}))
+        history = (
+            DurableSessionEvent("s", 1, "message_committed", Message("user", "old")),
+            DurableSessionEvent(
+                "s", 2, "message_committed", Message("assistant", "", tool_calls=calls)
+            ),
+        )
+        record = RunRecord(
+            RunSubmission("s", "new", "next", "key", "profile", "hash"),
+            2,
+            2,
+            "running",
+            attempt=1,
+            epoch=1,
+        )
+        grant = ExecutionGrant("s", "owner", "claim", 1, 100, run_id="new")
+        context = SessionEventContext(
+            run_id="new", provenance=EventProvenance("recovery", "tool-call-recovery")
+        )
+        messages = tuple(interrupted_tool_result(c) for c in calls)
+        mutation = AppendExecutionMessages(messages, context)
+        command = RepairToolTail(("a", "b"))
+        _, snapshot = plan_execution_mutations(
+            history, grant, record, command, (mutation,)
+        )
+        self.assertEqual(
+            [m.tool_call_id for m in snapshot.messages if m.role == "tool"], ["a", "b"]
+        )
+        for invalid in (
+            replace(mutation, messages=(messages[0],)),
+            replace(
+                mutation, messages=(replace(messages[0], is_error=False), messages[1])
+            ),
+            replace(mutation, context=SessionEventContext(run_id="new")),
+        ):
+            with self.assertRaises(SessionValidationError):
+                plan_execution_mutations(history, grant, record, command, (invalid,))
+        wrong_phase = replace(
+            record,
+            checkpoint=RunCheckpoint(
+                "awaiting_model", prompt_event=DurableEventIdentity("s", 1, "s:1")
+            ),
+        )
+        with self.assertRaises(SessionValidationError):
+            plan_execution_mutations(history, grant, wrong_phase, command, (mutation,))
+
     def test_mutations_reject_checkpoint_and_actual_message_disagreement(self):
         grant = ExecutionGrant("s", "owner", "claim", 1, 100, run_id="r")
         ref = DurableEventIdentity("s", 1, "s:1")
@@ -99,6 +152,7 @@ class ExecutionCodecTests(unittest.TestCase):
             DispatchModel(),
             CommitAssistant(ref, "tool_calls", ("c",)),
             CommitToolResults(("c",)),
+            RepairToolTail(("c",)),
             ContinueRun((ref,)),
             FinishRun("completed"),
             FinishRun("failed", "reason"),

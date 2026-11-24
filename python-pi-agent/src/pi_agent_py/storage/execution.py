@@ -480,6 +480,19 @@ class PostgresExecutionStore:
         self, lease: SessionLease, ttl: float, operation: OperationIdentity
     ) -> ExecutionReceipt | None:
         self._verify(operation, ClaimExecutionRequest(lease, ttl))
+        return await self._claim(lease, ttl, operation)
+
+    async def claim_run(
+        self, lease: SessionLease, run_id: str, ttl: float, operation: OperationIdentity
+    ) -> ExecutionReceipt | None:
+        from ..execution_domain import ClaimRunExecutionRequest
+        self._verify(operation, ClaimRunExecutionRequest(lease, ttl, run_id))
+        return await self._claim(lease, ttl, operation, expected_run_id=run_id)
+
+    async def _claim(
+        self, lease: SessionLease, ttl: float, operation: OperationIdentity, *,
+        expected_run_id: str | None = None,
+    ) -> ExecutionReceipt | None:
         async with self._locked(lease.session_id, operation) as (
             connection,
             authority,
@@ -507,6 +520,8 @@ class PostgresExecutionStore:
                     connection, lease.session_id, operation, "claim", None
                 )
                 return None
+            if expected_run_id is not None and expected_run_id != run_id:
+                raise SessionConflictError("an earlier durable Run must be resumed first")
             record, journal = await self._run(
                 connection, lease.session_id, run_id, lock=True
             )

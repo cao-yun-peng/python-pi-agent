@@ -26,6 +26,10 @@ class _SessionEvents:
         self._session_id = session_id
         self._event_sink = event_sink
 
+    @property
+    def sink(self) -> EventSink:
+        return self._event_sink
+
     def emit(
         self,
         kind: EventKind,

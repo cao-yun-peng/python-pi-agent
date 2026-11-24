@@ -24,7 +24,7 @@ from ..errors import (
     CompactionNotNeededError,
     CompactionPolicyError,
 )
-from ..ports import ModelProvider, TokenEstimator
+from ..ports import ModelProvider, TokenEstimator, ModelDispatchHook
 
 _TOOL_RESULT_MAX_CHARS = 2_000
 _SUMMARY_PREFIX = "<conversation-summary>"
@@ -167,6 +167,10 @@ class ModelCompactionStrategy:
             raise ValueError("compaction system_prompt must not be empty")
         self._provider = provider
         self._system_prompt = system_prompt
+
+    def bind_dispatch(self, hook: ModelDispatchHook) -> ModelCompactionStrategy:
+        from ..providers.dispatch import bind_model_dispatch
+        return ModelCompactionStrategy(bind_model_dispatch(self._provider, hook), system_prompt=self._system_prompt)
 
     async def summarize(
         self,

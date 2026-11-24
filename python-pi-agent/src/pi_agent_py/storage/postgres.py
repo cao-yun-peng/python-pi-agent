@@ -39,9 +39,11 @@ from .transitions import (
 class PostgresSessionStore:
     """Borrowed pool, no constructor I/O, explicit migrations, no automatic retry.
 
-    Only local-mode execution writes are supported in this stage. Distributed
-    rows remain readable, but require a future execution-authorized writer.
+    Unfenced writes authorize local mode only. Distributed rows remain readable;
+    execution mutations use the separate SessionExecutionStore writer.
     """
+
+    supports_distributed_execution = True
 
     def __init__(
         self, pool: PostgresPool, *, settings: PostgresSettings = PostgresSettings()

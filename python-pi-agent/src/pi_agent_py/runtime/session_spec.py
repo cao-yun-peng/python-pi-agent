@@ -9,6 +9,7 @@ from typing import Protocol
 from .._metadata import _freeze_metadata
 from .components import AgentComponents
 from ..domain import JSONValue, SessionOpenRequest
+from ..execution_domain import _text
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,11 +18,18 @@ class SessionSpec:
 
     components: AgentComponents
     metadata: Mapping[str, JSONValue] = field(default_factory=dict)
+    recovery_spec_ref: str | None = None
+    recovery_spec_hash: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.components, AgentComponents):
             raise TypeError("SessionSpec requires AgentComponents")
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+        if (self.recovery_spec_ref is None) != (self.recovery_spec_hash is None):
+            raise ValueError("recovery reference and hash must coexist")
+        if self.recovery_spec_ref is not None and self.recovery_spec_hash is not None:
+            _text(self.recovery_spec_ref, "recovery_spec_ref")
+            _text(self.recovery_spec_hash, "recovery_spec_hash")
 
     def _matches(self, other: SessionSpec) -> bool:
         """Compare configuration values and capability identities, never port equality."""
@@ -47,7 +55,9 @@ class SessionSpec:
                     return False
             elif first is not second:
                 return False
-        return self.metadata == other.metadata
+        return (self.metadata == other.metadata and
+                self.recovery_spec_ref == other.recovery_spec_ref and
+                self.recovery_spec_hash == other.recovery_spec_hash)
 
 
 class SessionSpecResolver(Protocol):

@@ -1,8 +1,10 @@
 # Learning Path
 
-租约与心跳练习：阅读[第 51 章](../tutorials/51-redis-leases-heartbeat.md)，先用手动时钟验证互斥、续期超时、失租取消与零剩余任务，再运行示例 54 的成功/失租模式。解释 Redis key 丢失为何不能越过 PG 当前 grant，比较终态 finalize 与续期的顺序，说明客户端和作用域各自的关闭责任。Runtime 自动接线与恢复扫描留到后续阶段。
+Runtime 恢复练习：阅读[第 52 章](../tutorials/52-distributed-runtime-resume.md)，运行示例 55 的正常与 assistant 后中断模式。比较同一 run_id 的 prompt_count、request_number、dispatches 和 attempt，证明最终边界恢复不再次推理；再验证工具部分提交、维护压缩许可和实际重试预算。先掌握显式 resume，再进入候选扫描/配置重建/自动接管。
 
-执行存储练习：阅读[第 50 章](../tutorials/50-postgres-execution-storage.md)并运行 FakeProvider 示例 53，比较当前历史与原操作回执。解释为什么完整请求摘要要包含实际消息、为什么 COMMIT 回复丢失不能重跑工具，再验证旧 epoch 和事务取消回滚。合成协调租约只作本章边界替身，真实 Redis/心跳见第 51 章，Runtime 接线仍按后续步骤完成。
+租约与心跳练习：阅读[第 51 章](../tutorials/51-redis-leases-heartbeat.md)，先用手动时钟验证互斥、续期超时、失租取消与零剩余任务，再运行示例 54 的成功/失租模式。解释 Redis key 丢失为何不能越过 PG 当前 grant，比较终态 finalize 与续期的顺序，说明客户端和作用域各自的关闭责任。Runtime 接线见第 52 章，恢复扫描留到下一阶段。
+
+执行存储练习：阅读[第 50 章](../tutorials/50-postgres-execution-storage.md)并运行 FakeProvider 示例 53，比较当前历史与原操作回执。解释为什么完整请求摘要要包含实际消息、为什么 COMMIT 回复丢失不能重跑工具，再验证旧 epoch 和事务取消回滚。合成协调租约只作本章边界替身，真实 Redis/心跳见第 51 章，Runtime 接线见第 52 章，自动接管仍按后续步骤完成。
 
 数据库存储练习：完成共享 Codec 后阅读[第 49 章](../tutorials/49-postgres-session-store.md)，使用自己准备的 PG 数据库显式迁移，运行 FakeProvider 示例 52，再用独立连接池验证冲突、回滚、重开与 fork。理解基础 SessionStore 与独立执行租约控制面的区别。
 

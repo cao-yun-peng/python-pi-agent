@@ -12,6 +12,7 @@ from ..execution_domain import (
     CommitAssistant,
     CommitPrompt,
     CommitToolResults,
+    RepairToolTail,
     ContinueRun,
     DispatchModel,
     ExecutionGrant,
@@ -170,9 +171,10 @@ def decode_command(value: object) -> RunCommand:
             cast(FinishReason, _s(data["finish_reason"])),
             tuple(_s(v) for v in _require_array(data["tool_call_ids"], "calls")),
         )
-    if kind == "CommitToolResults":
+    if kind in ("CommitToolResults", "RepairToolTail"):
         data = _object(value, "tool_call_ids")
-        return CommitToolResults(
+        cls = CommitToolResults if kind == "CommitToolResults" else RepairToolTail
+        return cls(
             tuple(_s(v) for v in _require_array(data["tool_call_ids"], "calls"))
         )
     if kind == "ContinueRun":

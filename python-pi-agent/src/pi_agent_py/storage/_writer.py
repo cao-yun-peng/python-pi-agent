@@ -13,6 +13,7 @@ from ..domain import (
     SessionCompaction,
     SessionEventContext,
     SessionSnapshot,
+    ProviderRequestContext,
     session_event_id,
 )
 from ..errors import AgentError, SessionStorageError
@@ -54,6 +55,12 @@ class _SessionWriter:
     @property
     def snapshot(self) -> SessionSnapshot:
         return self._snapshot
+
+    def ensure_active(self) -> None:
+        """Local writes use the controller lock rather than a distributed grant."""
+
+    async def before_dispatch(self, context: ProviderRequestContext) -> None:
+        self.ensure_active()
 
     async def commit(
         self,

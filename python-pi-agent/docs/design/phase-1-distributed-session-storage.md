@@ -1,18 +1,20 @@
 # Phase 1 PostgreSQL Redis 分布式会话存储与恢复开发规格
 
-> 状态：分步开发中，基础会话存储已落地；不代表当前项目已支持分布式执行。
+> 状态：分步开发中，存储、租约、Runtime 接线与显式恢复已落地；自动候选发现/跨 Worker 接管仍待 Step 7。
 > 日期：2026-11-23。
 
-> Step 5 已实现：SessionLeaseManager 的内存/Redis 适配器、手动时钟与受监督 LeaseHeartbeat；真实 Redis/PG 验证互斥、过期、键丢失、PG epoch 拒绝和终态顺序，离线测试覆盖超时、失租取消与任务清理。见 ADR 0053、教程 51、示例 54。Runtime 自动注入与恢复扫描仍待 Step 6–7。
+> Step 6 已实现：Builder/Session/受许可 writer 注入、安全边界与显式 resume、维护压缩许可；普通 prompt 持久接受，同 Run 不重复 prompt，最终 assistant 后恢复零推理，请求/派发/attempt 预算连续。新增 claim_run 在 PG 锁内拒绝错误目标且不消耗其他 Run 的 attempt；新增 RepairToolTail 关闭旧终态遗留的 unknown 工具尾部。见 ADR 0054、教程 52、示例 55。
 
-> Step 4 已实现：Run journal、检查点、完整请求幂等、PG epoch、绑定 writer 及不确定提交查询。见 ADR 0052、教程 50、示例 53。002 为 Run/操作数据面，回执通过历史引用重建原结果；Redis/后台心跳由 Step 5 实现，Runtime/恢复接线尚未实现。
+> Step 5 已实现：SessionLeaseManager 的内存/Redis 适配器、手动时钟与受监督 LeaseHeartbeat；真实 Redis/PG 验证互斥、过期、键丢失、PG epoch 拒绝和终态顺序，离线测试覆盖超时、失租取消与任务清理。见 ADR 0053、教程 51、示例 54。Runtime 接线由 Step 6 提供，恢复扫描仍待 Step 7。
+
+> Step 4 已实现：Run journal、检查点、完整请求幂等、PG epoch、绑定 writer 及不确定提交查询。见 ADR 0052、教程 50、示例 53。002 为 Run/操作数据面，回执通过历史引用重建原结果；Redis/后台心跳由 Step 5 实现，Runtime 接线由 Step 6 提供，自动恢复接线尚未实现。
 
 > Step 2 已完成：共享 schema v6 codec 与 JSONL/模型请求快照复用；见 ADR 0050、教程 48 和示例 51。
 > Step 3 已完成：PG 六方法、借用 pool、显式迁移、共享契约和真实事务测试；见 ADR 0051、教程 49、示例 52。001 迁移只创建基础表，Run 表和 active_run 外键在 Step 4 加入；完整 v6 envelope 存入 JSONB，索引字段使用生成列。
 > 源码基线：`dfcf7de`；适用包：`python-pi-agent/src/pi_agent_py`。
 > 决策级别：本文确定本阶段的建议实现路线；实现前将重要决定写入新 ADR，并明确修订 ADR 0017 的恢复范围。
 
-> Step 1 已加入执行值对象、端口、纯状态机与契约测试，见 [ADR 0049](../adr/0049-execution-journal-contracts.md) 和[教程 47](../../tutorials/47-execution-journal-contracts.md)。该纯契约已由 Step 4 接入 PG 执行存储，Redis/心跳已由 Step 5 实现，运行时接线尚未实现。领域类型位于 `execution_domain.py`，纯转换位于 `storage/execution_transitions.py`；绑定 writer 的完整操作摘要与纯命令摘要须分开。
+> Step 1 已加入执行值对象、端口、纯状态机与契约测试，见 [ADR 0049](../adr/0049-execution-journal-contracts.md) 和[教程 47](../../tutorials/47-execution-journal-contracts.md)。该纯契约已由 Step 4 接入 PG 执行存储，Redis/心跳已由 Step 5 实现，运行时接线由 Step 6 提供，自动接管尚未实现。领域类型位于 `execution_domain.py`，纯转换位于 `storage/execution_transitions.py`；绑定 writer 的完整操作摘要与纯命令摘要须分开。
 
 本阶段解决两个问题：将会话事件持久化到 PostgreSQL；在执行进程崩溃后，由其他 Worker 安全取得执行权，继续未完成的 Run。PostgreSQL 保存会话历史、Run 检查点和执行权代次，Redis 提供执行租约协调。租约过期不等于工具副作用已经停止，恢复始终保留“外部执行结果未知”的语义。
 
@@ -110,6 +112,7 @@
 | --- | --- | --- |
 | `submit_run` | Submission，含 session/run、prompt、delivery、幂等键、恢复配置引用；返回持久 receipt | 普通 prompt 和 follow-up 均先持久接受；follow-up 同事务关联原有 control enqueue |
 | `list_candidates` | limit；返回去重的 Session 候选 | 仅发现，不宣称已领取；使用 PG 时间判断过期 |
+| `claim_run` | 指定 Run 的 lease、TTL、独立类型 operation 请求；返回 receipt | 与 claim_next 共用事务，在更新 epoch/attempt 前验证 active/FIFO 优先目标，拒绝误扣其他 Run 的恢复次数 |
 | `claim_next` | Session、owner/claim、协调租约身份；返回 grant 与 RunRecord | 锁 Session，选择未终态活跃 Run 或最早 queued Run；推进 epoch、attempt，写执行日志 |
 | `renew_grant` | grant、TTL；返回更新许可 | 精确校验身份和旧有效期；过期许可不能通过续租复活 |
 | `claim_maintenance/release_grant` | Session、维护种类、owner/claim；返回维护 grant，或比较释放既有 grant | 与 Run 共用 Session 行锁、epoch 和有效期；持有有效 Run 许可或存在待恢复 active_run 时不能领取维护许可 |

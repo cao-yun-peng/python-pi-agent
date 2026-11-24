@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from uuid import uuid4
+from typing import Protocol, cast
 
 from ..context.compaction import (
     CompactionPreparation,
@@ -31,9 +32,17 @@ from ..errors import (
     ConfigurationError,
     ContextPreparationError,
 )
-from ..ports import NextTurnHook
+from ..ports import NextTurnHook, ModelDispatchHook, CompactionStrategy
 from ..observability._session_events import _SessionEvents, _duration_ms
-from ..storage._writer import _SessionWriter, _latest_durable_identity
+from ..storage._writer import _latest_durable_identity
+
+
+class _CompactionWriter(Protocol):
+    def ensure_active(self) -> None: ...
+    async def before_dispatch(self, context: ProviderRequestContext) -> None: ...
+    @property
+    def snapshot(self) -> SessionSnapshot: ...
+    async def compact(self, compaction: SessionCompaction, event_context: SessionEventContext, /) -> SessionSnapshot: ...
 
 
 class _SessionCompactor:
@@ -50,7 +59,7 @@ class _SessionCompactor:
         self._events = events
 
     def next_turn_hook(
-        self, writer: _SessionWriter, hook: NextTurnHook | None
+        self, writer: _CompactionWriter, hook: NextTurnHook | None
     ) -> NextTurnHook | None:
         if self._compaction is None or self._compaction.policy is None:
             return hook
@@ -61,7 +70,7 @@ class _SessionCompactor:
 
     async def compact(
         self,
-        load_writer: Callable[[], Awaitable[_SessionWriter]],
+        load_writer: Callable[[], Awaitable[_CompactionWriter]],
         *,
         keep_recent_turns: int,
     ) -> SessionSnapshot:
@@ -104,7 +113,7 @@ class _SessionCompactor:
 
     async def maybe_auto_compact(
         self,
-        writer: _SessionWriter,
+        writer: _CompactionWriter,
         pending_messages: Sequence[Message] = (),
         *,
         request_number: int = 1,
@@ -208,7 +217,7 @@ class _SessionCompactor:
 
     async def _execute_compaction(
         self,
-        writer: _SessionWriter,
+        writer: _CompactionWriter,
         preparation: CompactionPreparation,
         *,
         automatic: bool,
@@ -219,6 +228,9 @@ class _SessionCompactor:
         if compaction is None:
             raise ConfigurationError("compaction strategy is not configured")
         strategy = compaction.strategy
+        binder = getattr(strategy, "bind_dispatch", None)
+        if callable(binder):
+            strategy = cast(Callable[[ModelDispatchHook], CompactionStrategy], binder)(writer)
 
         source_version = writer.snapshot.version
         request_context = ProviderRequestContext(
@@ -244,6 +256,7 @@ class _SessionCompactor:
             kept_message_count=len(preparation.kept_messages),
         )
         try:
+            writer.ensure_active()
             summary = await strategy.summarize(
                 preparation.messages_to_summarize,
                 context=request_context,
@@ -319,7 +332,7 @@ class _SessionNextTurnHook:
 
     def __init__(
         self,
-        writer: _SessionWriter,
+        writer: _CompactionWriter,
         compactor: _SessionCompactor,
     ) -> None:
         self._writer = writer

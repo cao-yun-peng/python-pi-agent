@@ -10,6 +10,8 @@ from typing import TypeVar, cast
 from ._observation import _RuntimeObservation
 from .runtime import AgentRuntime, SessionPoolPolicy
 from ..runtime.components import AgentComponents
+from ..runtime.execution_config import DistributedExecution, DistributedExecutionSettings
+from ..ports import SessionExecutionStore, SessionLeaseManager, LeaseClock
 from ..runtime.session_spec import SessionSpecResolver
 from ..runtime.middleware import Middleware
 from .capability_catalog import CapabilityCatalog, default_capability_catalog
@@ -71,6 +73,9 @@ class AgentRuntimeBuilder:
         self._provider_state_owners: frozenset[str] = frozenset()
         self._resilience = ProviderResilienceSettings()
         self._session_store: ManagedResource[SessionStore] | None = None
+        self._distributed_execution: DistributedExecution | None = None
+        self._execution_resource: ManagedResource[SessionExecutionStore] | None = None
+        self._lease_resource: ManagedResource[SessionLeaseManager] | None = None
         self._session_spec_resolver: ManagedResource[SessionSpecResolver] | None = None
         self._session_spec_resolver_factory: (
             Callable[[AgentComponents], SessionSpecResolver] | None
@@ -157,6 +162,17 @@ class AgentRuntimeBuilder:
             ownership=ownership,
             cleanup=cleanup,
         )
+        return self
+
+    def with_distributed_execution(
+        self, store: SessionExecutionStore, leases: SessionLeaseManager, *,
+        settings: DistributedExecutionSettings, clock: LeaseClock | None = None,
+        store_ownership: ResourceOwnership = "borrowed", store_cleanup: Cleanup | None = None,
+        lease_ownership: ResourceOwnership = "borrowed", lease_cleanup: Cleanup | None = None,
+    ) -> AgentRuntimeBuilder:
+        self._execution_resource = ManagedResource("execution-store", store, store_ownership, store_cleanup)
+        self._lease_resource = ManagedResource("lease-manager", leases, lease_ownership, lease_cleanup)
+        self._distributed_execution = DistributedExecution(store, leases, settings, clock)
         return self
 
     def with_session_spec_resolver(
@@ -320,12 +336,18 @@ class AgentRuntimeBuilder:
             event_sink = observation.sink
             store = lifecycle.manage(
                 self._session_store
-                or ManagedResource(
+                or ManagedResource[SessionStore](
                     name="session-store",
                     value=InMemorySessionStore(),
                     ownership="owned",
                 )
             )
+            if self._execution_resource is not None:
+                lifecycle.manage(self._execution_resource)
+            if self._lease_resource is not None:
+                lifecycle.manage(self._lease_resource)
+            if self._distributed_execution is not None and getattr(store, "supports_distributed_execution", False) is not True:
+                raise ConfigurationError("distributed execution requires an explicitly supplied fencing-aware session reader")
             configured_plugins: list[tuple[str, PluginFactory]] = []
             if self._loaded_config is not None:
                 catalog = (
@@ -404,6 +426,7 @@ class AgentRuntimeBuilder:
                 components,
                 store,
                 _observation=observation,
+                distributed_execution=self._distributed_execution,
                 plugin_host=session_plugin_host,
                 session_pool_policy=self._session_pool_policy,
                 session_spec_resolver=resolver,

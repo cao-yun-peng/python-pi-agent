@@ -8,6 +8,7 @@ import random
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
+from copy import copy
 from uuid import uuid4
 
 from ..domain import (
@@ -18,6 +19,8 @@ from ..domain import (
     ToolDefinition,
 )
 from ..errors import (
+    AgentLoopLimitError,
+    SessionStorageError,
     ProviderExhaustedError,
     ProviderHTTPError,
     ProviderRateLimitError,
@@ -147,6 +150,12 @@ class DirectModelRuntime:
         self._event_sink = ensure_isolated_event_sink(event_sink)
         self._clock = clock
 
+    def bind_dispatch(self, hook: _ports.ModelDispatchHook) -> DirectModelRuntime:
+        from .dispatch import bind_model_dispatch
+        bound = copy(self)
+        bound._provider = bind_model_dispatch(self._provider, hook)
+        return bound
+
     @property
     def event_sink_failures(self) -> tuple[EventSinkFailure, ...]:
         return self._event_sink.failures
@@ -273,6 +282,20 @@ class ResilientModelRuntime:
         self._max_elapsed_seconds = float(max_elapsed_seconds)
         self._sleep = sleep
         self._clock = clock
+        self._dispatch_hook: _ports.ModelDispatchHook | None = None
+        self._delegated_dispatch: frozenset[str] = frozenset()
+
+    def bind_dispatch(self, hook: _ports.ModelDispatchHook) -> ResilientModelRuntime:
+        from .dispatch import bind_model_dispatch
+        bound = copy(self)
+        bound._dispatch_hook = hook
+        delegated = frozenset(c.name for c in self._candidates if callable(getattr(c.provider, "bind_dispatch", None)))
+        bound._candidates = tuple(
+            replace(c, provider=bind_model_dispatch(c.provider, hook)) if c.name in delegated else c
+            for c in self._candidates
+        )
+        bound._delegated_dispatch = delegated
+        return bound
 
     @property
     def event_sink_failures(self) -> tuple[EventSinkFailure, ...]:
@@ -346,6 +369,9 @@ class ResilientModelRuntime:
                 )
                 attempt_started_at = self._clock()
                 output_started = False
+                # Reject before opening an attempt span or entering retry policy.
+                if self._dispatch_hook is not None and candidate.name not in self._delegated_dispatch:
+                    await self._dispatch_hook.before_dispatch(attempt_context)
                 self._emit(
                     "provider_attempt_started",
                     attempt_context,
@@ -407,6 +433,8 @@ class ResilientModelRuntime:
                         parent_span_id=context.request_id,
                         duration_ms=duration_ms,
                     )
+                    if self._dispatch_hook is not None and isinstance(error, (AgentLoopLimitError, SessionStorageError)):
+                        raise  # A nested dispatch gate is never a provider retry decision.
                     failure = _ports.AttemptFailure(
                         provider_name=candidate.name,
                         error=error,

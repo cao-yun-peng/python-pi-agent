@@ -1,6 +1,8 @@
 # Upstream Mapping
 
-Redis 租约与心跳（ADR 0053）是本项目新增的分布式协调机制，不声称与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 存在同名 API。它沿用现有端口、能力事件和资源 owner。DeepSeek Harness 对应 Definition=SessionLeaseManager/LeaseClock/ExecutionGrantManager、Provider=内存/Redis/PG、Consumer=独立 LeaseHeartbeat、Lifecycle=显式借用客户端/等待任务与清理退出、Evidence=手动时钟与真实双存储测试。省略 Runtime 自动注入、恢复扫描、Redis 高可用部署和外部副作用去重；见教程 51、示例 54。
+Runtime 接线（ADR 0054）复用本项目既有 Agent loop、控制 dispatcher、插件与资源 owner；不复写模型/工具循环，不声称 Pi 固定 commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 提供同名分布式恢复 API。DeepSeek Harness 对应 Definition=强类型配置/定向领取/派发 hook、Provider=PG/Redis/绑定 writer、Consumer=Builder/Session/同一 loop、Lifecycle=心跳退出后终态与所有权清理、Evidence=离线故障点与真实双存储重开。省略候选扫描、跨 Worker 配置重建、自动接管、外部副作用去重；见教程 52、示例 55。
+
+Redis 租约与心跳（ADR 0053）是本项目新增的分布式协调机制，不声称与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 存在同名 API。它沿用现有端口、能力事件和资源 owner。DeepSeek Harness 对应 Definition=SessionLeaseManager/LeaseClock/ExecutionGrantManager、Provider=内存/Redis/PG、Consumer=独立 LeaseHeartbeat、Lifecycle=显式借用客户端/等待任务与清理退出、Evidence=手动时钟与真实双存储测试。Runtime 接线见 ADR 0054，恢复扫描、Redis 高可用部署和外部副作用去重仍省略；见教程 51、示例 54。
 
 PG 执行存储（ADR 0052）将本项目既有 Run/Session replay 与显式事务接缝落地，新增 epoch 裁决、绑定 writer、完整请求摘要和历史回执引用。它不新增与固定 Pi commit `56b25ff4ebbd8a119ef9185447c7b2416059dbcb` 的同名分布式 API 承诺。DeepSeek Harness 对应契约/Provider/Consumer/生命周期/证据：执行端口、PG、示例 53、借用 pool/显式迁移、故障与并发测试。自动接管和外部副作用去重仍待实现；独立 Redis/心跳见 ADR 0053，执行存储见教程 50。
 

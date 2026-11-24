@@ -49,6 +49,12 @@ from .domain import (
 )
 
 
+class ModelDispatchHook(Protocol):
+    """Reserve a physical model dispatch before network I/O, including retries."""
+
+    async def before_dispatch(self, context: ProviderRequestContext) -> None: ...
+
+
 class ModelProvider(Protocol):
     """Produces a normalized stream independently of any model vendor SDK."""
 
@@ -61,6 +67,16 @@ class ModelProvider(Protocol):
     ) -> AsyncIterator[ModelStreamEvent]:
         """Stream one assistant response for the supplied model-visible history."""
         ...
+
+
+class DispatchBindableModelProvider(ModelProvider, Protocol):
+    """Retrying/wrapping providers bind hooks per run without mutating themselves.
+
+    Raw providers without this optional capability must perform one physical
+    invocation per stream; SDK retries must be disabled at their boundary.
+    """
+
+    def bind_dispatch(self, hook: ModelDispatchHook) -> ModelProvider: ...
 
 
 class ModelRequestStore(Protocol):
@@ -408,6 +424,11 @@ class SessionExecutionStore(ExecutionGrantManager, Protocol):
         self, lease: SessionLease, ttl: float, operation: OperationIdentity,
     ) -> ExecutionGrant:
         """Acquire compact-only permission; interrupted active Runs take priority."""
+        ...
+
+    async def claim_run(self, lease: SessionLease, run_id: str, ttl: float,
+                        operation: OperationIdentity) -> ExecutionReceipt | None:
+        """Claim only if this Run has FIFO/active priority; mismatch spends no attempt."""
         ...
 
     async def load_execution(self, session_id: str, run_id: str) -> RunRecord | None: ...

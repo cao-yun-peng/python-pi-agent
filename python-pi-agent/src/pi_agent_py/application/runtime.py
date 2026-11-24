@@ -6,7 +6,7 @@ import asyncio
 import math
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from ._observation import _RuntimeObservation
@@ -37,6 +37,7 @@ from ..ports import (
 )
 from ..storage._writer import _call_session_store
 from ..runtime.session import AgentSession
+from ..runtime.execution_config import DistributedExecution
 from ..runtime.run_handle import RunHandle
 from ..runtime.session_spec import SessionSpec, SessionSpecResolver, StaticSessionSpecResolver
 from ..observability.usage import PricingTable, UsageLedger, UsageSummary
@@ -128,6 +129,11 @@ class RuntimeSession:
                 prompt, self._runtime.event_hub, follow_up=True, max_buffer=max_buffer
             )
 
+    async def resume(self, run_id: str) -> AgentResult:
+        self._ensure_usable()
+        with self._runtime._observation.session_scope(self.metadata):
+            return await self._entry.session.resume(run_id)
+
     @property
     def usage(self) -> UsageSummary:
         self._ensure_open()
@@ -202,6 +208,7 @@ class AgentRuntime:
         observer_lifecycle: LifecycleScope | None = None,
         clock: Clock = time.monotonic,
         _observation: _RuntimeObservation | None = None,
+        distributed_execution: DistributedExecution | None = None,
     ) -> None:
         if not isinstance(components, AgentComponents):
             raise TypeError("AgentRuntime requires AgentComponents")
@@ -218,6 +225,7 @@ class AgentRuntime:
             raise TypeError("session_store is required")
         self._components = components
         self._session_store = session_store
+        self._distributed_execution = distributed_execution
         self._session_spec_resolver = (
             session_spec_resolver
             if session_spec_resolver is not None
@@ -443,6 +451,13 @@ class AgentRuntime:
             entry.last_used_at = self._clock()
 
     def _new_session(self, session_id: str, spec: SessionSpec) -> AgentSession:
+        execution = self._distributed_execution
+        if execution is not None:
+            if spec.recovery_spec_ref is not None and spec.recovery_spec_hash is not None:
+                execution = replace(execution, settings=replace(execution.settings,
+                    recovery_spec_ref=spec.recovery_spec_ref, recovery_spec_hash=spec.recovery_spec_hash))
+            elif spec.components is not self._components:
+                raise ConfigurationError("a selected distributed SessionSpec requires its own recovery reference/hash")
         return AgentSession._for_runtime(
             session_id,
             self._session_store,
@@ -452,6 +467,7 @@ class AgentRuntime:
                 use_default_pricing=spec.components.provider is self._components.provider,
             ),
             plugin_host=self._plugin_host,
+            distributed_execution=execution,
         )
 
     def _remove_expired_locked(self, now: float) -> list[_SessionEntry]:

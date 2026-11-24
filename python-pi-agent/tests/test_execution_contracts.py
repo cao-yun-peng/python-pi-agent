@@ -24,6 +24,7 @@ from pi_agent_py.execution_domain import (
     CommitAssistant,
     CommitPrompt,
     CommitToolResults,
+    RepairToolTail,
     ContinueRun,
     DispatchModel,
     ExecutionAuthority,
@@ -122,6 +123,25 @@ class Journal:
 
 
 class RunJournalTests(unittest.TestCase):
+    def test_tail_repair_is_only_a_claimed_before_prompt_transition(self) -> None:
+        journal = Journal()
+        with self.assertRaises(SessionConflictError):
+            journal.step(RepairToolTail(("a",)))
+        journal.claim()
+        before = journal.record.checkpoint
+        journal.step(RepairToolTail(("a",)))
+        self.assertEqual(journal.record.checkpoint, before)
+        for phase in ("awaiting_model", "awaiting_tools", "awaiting_boundary", "terminal"):
+            journal = Journal()
+            if phase == "awaiting_model":
+                journal.model()
+            else:
+                journal.boundary(tools=phase == "awaiting_tools")
+                if phase == "terminal":
+                    journal.step(FinishRun("completed"))
+            with self.subTest(phase=phase), self.assertRaises(SessionValidationError):
+                journal.step(RepairToolTail(("a",)))
+
     def test_ordinary_prompt_acceptance_is_replayable_without_control(self) -> None:
         journal = Journal()
         restored = replay_run("s", "r", tuple(journal.events))

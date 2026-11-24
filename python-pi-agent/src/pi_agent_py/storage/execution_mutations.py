@@ -22,6 +22,7 @@ from ..execution_domain import (
     CommitPrompt,
     CommitAssistant,
     CommitToolResults,
+    RepairToolTail,
     ContinueRun,
     DispatchModel,
     RunRecord,
@@ -67,7 +68,7 @@ def plan_execution_mutations(
             raise SessionValidationError("message changes require a progress command")
         if isinstance(mutation, AppendExecutionMessages):
             if not isinstance(
-                command, (CommitPrompt, CommitAssistant, CommitToolResults)
+                command, (CommitPrompt, CommitAssistant, CommitToolResults, RepairToolTail)
             ):
                 raise SessionValidationError("append does not match execution command")
             plan = prepare_session_append(
@@ -204,12 +205,25 @@ def plan_execution_mutations(
             )
         if tuple(c.id for c in messages[0].tool_calls) != command.tool_call_ids:
             raise SessionValidationError("checkpoint tool calls differ from assistant")
-    elif isinstance(command, CommitToolResults):
+    elif isinstance(command, (CommitToolResults, RepairToolTail)):
         if (
             any(m.role != "tool" for m in messages)
             or tuple(m.tool_call_id for m in messages) != command.tool_call_ids
         ):
             raise SessionValidationError("tool result facts differ from checkpoint")
+        if isinstance(command, RepairToolTail):
+            unresolved = find_unresolved_tool_calls(before.messages)
+            if (
+                record.checkpoint.phase != "before_prompt"
+                or command.tool_call_ids != tuple(call.id for call in unresolved)
+                or any(
+                    not message.is_error
+                    or message.structured_content != {"status": "interrupted", "outcome": "unknown", "recovered": True}
+                    for message in messages
+                )
+                or any(m.context.provenance.source != "recovery" for m in mutations)
+            ):
+                raise SessionValidationError("invalid unknown tool tail repair")
     elif isinstance(command, ContinueRun):
         if any(e.kind != "control_delivered" for e in visible) or tuple(
             e.event_id for e in visible

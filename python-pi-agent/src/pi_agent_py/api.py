@@ -165,6 +165,9 @@ from .storage.redis_lease import RedisLeaseManager, RedisLeaseSettings, RedisLea
 from .runtime.lease_heartbeat import (
     LeaseHeartbeat, LeaseHeartbeatSettings, LeaseCleanupFailure,
 )
+from .runtime.execution_config import DistributedExecutionSettings, DistributedExecution
+from .execution_domain import RepairToolTail, ClaimRunExecutionRequest
+from .ports import ModelDispatchHook, DispatchBindableModelProvider
 from .errors import LeaseLostError, LeaseStorageError, LeaseTimeoutError
 from .execution_domain import (
     RunSubmission, RunRecord, RunCheckpoint, ExecutionGrant, ExecutionReceipt,
@@ -229,6 +232,7 @@ from .tools.workspace.find import FindTool
 from .tools.workspace.grep import GrepTool
 
 __all__ = [
+    "DistributedExecutionSettings", "DistributedExecution", "RepairToolTail", "ClaimRunExecutionRequest", "ModelDispatchHook", "DispatchBindableModelProvider",
     "SessionLeaseManager", "ExecutionGrantManager", "LeaseClock", "SystemLeaseClock",
     "InMemoryLeaseManager", "RedisLeaseManager", "RedisLeaseSettings", "RedisLeaseClient",
     "LeaseHeartbeat", "LeaseHeartbeatSettings", "LeaseCleanupFailure",

@@ -31,13 +31,10 @@ from ..storage._writer import _SessionWriter, _call_session_store
 from .compaction_orchestration import _SessionCompactor
 from .control import _QueuedSessionRun, _SessionControl
 from .loop import Agent, _AgentWiring
-
-
-_INTERRUPTED_TOOL_RESULT = (
-    "Tool execution did not produce a durable result because the previous "
-    "agent run was interrupted. The external side-effect outcome is unknown. "
-    "Do not assume the call failed or retry it automatically."
-)
+from .execution_config import DistributedExecution
+from .distributed_control import _DistributedSessionControl
+from .distributed_execution import _DistributedSessionExecution
+from .tool_recovery import interrupted_tool_result
 
 
 class AgentSession:
@@ -53,6 +50,7 @@ class AgentSession:
         plugin_host: PluginHost | None = None,
         control_claim_lease_seconds: float = 30.0,
         clock: Callable[[], float] = time.time,
+        distributed_execution: DistributedExecution | None = None,
     ) -> None:
         if not isinstance(components, AgentComponents):
             raise TypeError("AgentSession requires AgentComponents")
@@ -70,7 +68,10 @@ class AgentSession:
         self._restored = False
         self._closed = False
         self._events = _SessionEvents(session_id, self._event_sink)
-        self._control = _SessionControl(
+        if distributed_execution is not None and getattr(session_store, "supports_distributed_execution", False) is not True:
+            raise ConfigurationError("distributed execution requires a fencing-aware session reader")
+        control_type = _SessionControl if distributed_execution is None else _DistributedSessionControl
+        self._control = control_type(
             session_id=session_id,
             session_store=session_store,
             durable_lock=self._durable_lock,
@@ -83,14 +84,23 @@ class AgentSession:
         self._compactor = _SessionCompactor(
             session_id, self._components.compaction, self._events
         )
+        if isinstance(self._control, _DistributedSessionControl):
+            assert distributed_execution is not None
+            self._control.observe_dispatch_start = True
+            self._control.execution = _DistributedSessionExecution(
+                distributed_execution, session_store, components,
+                self._compactor, self._events, self._durable_lock,
+            )
 
     @classmethod
     def _for_runtime(
         cls, session_id: str, store: SessionStore, components: AgentComponents, *,
         event_sink: EventSink, plugin_host: PluginHost | None,
+        distributed_execution: DistributedExecution | None = None,
     ) -> AgentSession:
         session = cls(
-            session_id, store, components, event_sink=event_sink, plugin_host=plugin_host
+            session_id, store, components, event_sink=event_sink, plugin_host=plugin_host,
+            distributed_execution=distributed_execution,
         )
         session._control.observe_dispatch_start = True
         return session
@@ -137,6 +147,13 @@ class AgentSession:
 
         await self.restore()
         return await self._control.follow_up(prompt)
+
+    async def resume(self, run_id: str) -> AgentResult:
+        """Resume a durably accepted Run without resubmission or a new identity."""
+        await self.restore()
+        if not isinstance(self._control, _DistributedSessionControl):
+            raise SessionControlError("resume requires distributed execution")
+        return await self._control.resume(run_id)
 
     async def _submit_handle(
         self, prompt: str, hub: EventHub, *, follow_up: bool, max_buffer: int
@@ -236,6 +253,11 @@ class AgentSession:
         prompt = queued.prompt
         run_id = queued.run_id
         async with self._run_lock:
+            if isinstance(self._control, _DistributedSessionControl):
+                queued.entered_agent_loop = True
+                return await self._control.execution.execute(
+                    self._session_id, run_id, self._control, self._plugin_lease,
+                )
             writer = await self._load_recovered_writer(run_id=run_id)
 
             components = self._components
@@ -329,6 +351,8 @@ class AgentSession:
         await self._control.begin_compaction()
         try:
             async with self._run_lock:
+                if isinstance(self._control, _DistributedSessionControl):
+                    return await self._control.execution.compact(self._session_id, keep_recent_turns)
                 return await self._compactor.compact(
                     self._load_recovered_writer,
                     keep_recent_turns=keep_recent_turns,
@@ -360,18 +384,7 @@ class AgentSession:
 
         source_version = writer.snapshot.version
         for call in unresolved:
-            recovered = Message(
-                role="tool",
-                content=_INTERRUPTED_TOOL_RESULT,
-                tool_call_id=call.id,
-                tool_name=call.name,
-                is_error=True,
-                structured_content={
-                    "status": "interrupted",
-                    "outcome": "unknown",
-                    "recovered": True,
-                },
-            )
+            recovered = interrupted_tool_result(call)
             recovery_context = SessionEventContext(
                 run_id=run_id,
                 provenance=EventProvenance(

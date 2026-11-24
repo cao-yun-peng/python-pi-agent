@@ -51,14 +51,23 @@ from ..errors import (
     ToolExecutionDeniedError,
     ToolValidationError,
 )
-from ..observability.events import EventSinkFailure, ensure_isolated_event_sink, make_agent_event
+from ..observability.events import (
+    EventSinkFailure,
+    ensure_isolated_event_sink,
+    make_agent_event,
+)
 from ..ports import (
     EventSink,
     NextTurnHook,
     ProviderRequestHook,
     Tool,
 )
-from ..observability._session_events import _duration_ms, _message_payload, _run_error_fields, _turn_id
+from ..observability._session_events import (
+    _duration_ms,
+    _message_payload,
+    _run_error_fields,
+    _turn_id,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,12 +105,34 @@ _SteeringReceiver = Callable[[bool], Awaitable[tuple[_SteeringInstruction, ...]]
 
 
 @dataclass(frozen=True, slots=True)
+class _BoundaryDecision:
+    continue_run: bool
+    messages: tuple[Message, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _LoopResume:
+    request_number: int
+    boundary_turn: _ModelTurn | None = None
+    prepare_turn: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _AgentWiring:
     message_committer: _MessageCommitter | None = None
     steering_committer: _SteeringCommitter | None = None
     provider_request_hook: ProviderRequestHook | None = None
     steering_receiver: _SteeringReceiver | None = None
     dispatch_started: bool = False
+    assistant_committer: (
+        Callable[
+            [Message, SessionEventContext, Finish], Awaitable[DurableEventIdentity]
+        ]
+        | None
+    ) = None
+    boundary: Callable[[], Awaitable[_BoundaryDecision]] | None = None
+    dispatch_gate: Callable[[], None] | None = None
+    external_settlement: bool = False
 
 
 class Agent:
@@ -185,6 +216,7 @@ class Agent:
         *,
         run_id: str | None = None,
         prompt_already_committed: bool = False,
+        _resume: _LoopResume | None = None,
     ) -> AgentResult:
         """Run model/tool turns until a final assistant message is committed."""
         if not prompt.strip():
@@ -213,27 +245,37 @@ class Agent:
                         ),
                     )
                 max_requests = self._components.max_model_requests
-                for request_number in range(1, max_requests + 1):
+                first_request = _resume.request_number if _resume is not None else 1
+                if _resume is not None and _resume.prepare_turn:
+                    await self._prepare_next_turn(first_request)
+                for request_number in range(first_request, max_requests + 1):
                     self._active_turn_id = _turn_id(
                         self._active_run_id,
                         request_number,
                     )
-                    turn = await self._request_model(request_number)
-                    total_usage = _merge_usage(total_usage, turn.usage)
-                    await self._commit(
-                        turn.message,
-                        SessionEventContext(
-                            run_id=self._active_run_id,
-                            turn_id=self._active_turn_id,
-                            provenance=EventProvenance(
-                                source="model",
-                                actor_id=type(self._components.provider).__name__,
-                            ),
-                        ),
+                    boundary_turn = (
+                        _resume.boundary_turn
+                        if _resume is not None and request_number == first_request
+                        else None
                     )
+                    turn = boundary_turn or await self._request_model(request_number)
+                    total_usage = _merge_usage(total_usage, turn.usage)
+                    if boundary_turn is None:
+                        await self._commit(
+                            turn.message,
+                            SessionEventContext(
+                                run_id=self._active_run_id,
+                                turn_id=self._active_turn_id,
+                                provenance=EventProvenance(
+                                    source="model",
+                                    actor_id=type(self._components.provider).__name__,
+                                ),
+                            ),
+                            finish=turn.finish,
+                        )
 
                     has_tool_calls = bool(turn.message.tool_calls)
-                    if has_tool_calls:
+                    if has_tool_calls and boundary_turn is None:
                         if turn.finish.reason == "length":
                             await self._fail_truncated_tool_calls(
                                 turn.message.tool_calls
@@ -243,9 +285,18 @@ class Agent:
                                 turn.message.tool_calls,
                                 request_number=request_number,
                             )
-                    steering = await self._receive_steering(
-                        close_if_empty=not has_tool_calls
-                    )
+                    if self._wiring.boundary is not None:
+                        decision = await self._wiring.boundary()
+                        self._messages = list(decision.messages)
+                        if decision.continue_run:
+                            await self._prepare_next_turn(request_number + 1)
+                            continue
+                        steering: tuple[_SteeringInstruction, ...] = ()
+                        has_tool_calls = False
+                    else:
+                        steering = await self._receive_steering(
+                            close_if_empty=not has_tool_calls
+                        )
                     if steering:
                         next_turn_id = _turn_id(
                             self._active_run_id,
@@ -274,13 +325,16 @@ class Agent:
                             f"run exceeded {max_requests} model requests"
                         )
 
-                    self._emit(
-                        "run_completed",
-                        "live",
-                        finish_reason=turn.finish.reason,
-                        model_requests=request_number,
-                        usage=asdict(total_usage) if total_usage is not None else None,
-                    )
+                    if not self._wiring.external_settlement:
+                        self._emit(
+                            "run_completed",
+                            "live",
+                            finish_reason=turn.finish.reason,
+                            model_requests=request_number,
+                            usage=asdict(total_usage)
+                            if total_usage is not None
+                            else None,
+                        )
                     return AgentResult(
                         message=turn.message,
                         messages=self.messages,
@@ -292,17 +346,21 @@ class Agent:
                     f"run exceeded {max_requests} model requests"
                 )
             except asyncio.CancelledError:
-                self._emit("run_cancelled", "live")
+                if not self._wiring.external_settlement:
+                    self._emit("run_cancelled", "live")
                 raise
             except AgentError as error:
-                self._emit("run_failed", "live", **_run_error_fields(error))
+                if not self._wiring.external_settlement:
+                    self._emit("run_failed", "live", **_run_error_fields(error))
                 raise
             except Exception as error:
                 wrapped = InternalError("agent run failed unexpectedly")
-                self._emit("run_failed", "live", **_run_error_fields(wrapped))
+                if not self._wiring.external_settlement:
+                    self._emit("run_failed", "live", **_run_error_fields(wrapped))
                 raise wrapped from error
             finally:
-                self._emit("run_settled", "live")
+                if not self._wiring.external_settlement:
+                    self._emit("run_settled", "live")
                 self._active_run_id = None
                 self._active_turn_id = None
 
@@ -609,6 +667,8 @@ class Agent:
         request_number: int,
     ) -> None:
         for call_index, call in enumerate(calls, start=1):
+            if self._wiring.dispatch_gate is not None:
+                self._wiring.dispatch_gate()
             tool = self._tools.get(call.name)
             if tool is None:
                 self._emit(
@@ -692,7 +752,10 @@ class Agent:
             execution = deepcopy(context)
             output, outcome = await self._run_tool(tool, context)
             output = await self._middleware.transform(
-                ToolResultContext(execution, outcome, self._active_run_id, self._active_turn_id), output
+                ToolResultContext(
+                    execution, outcome, self._active_run_id, self._active_turn_id
+                ),
+                output,
             )
             await self._commit_tool_result(call, output)
 
@@ -753,6 +816,8 @@ class Agent:
         tool: Tool,
         context: ToolExecutionContext,
     ) -> tuple[ToolOutput, str]:
+        if self._wiring.dispatch_gate is not None:
+            self._wiring.dispatch_gate()
         call = context.call
         span_id = uuid4().hex
         started_at = time.perf_counter()
@@ -905,6 +970,8 @@ class Agent:
         self,
         message: Message,
         event_context: SessionEventContext | None = None,
+        *,
+        finish: Finish | None = None,
     ) -> None:
         context = event_context or SessionEventContext(
             run_id=self._active_run_id,
@@ -912,7 +979,11 @@ class Agent:
         )
         durable_identity: DurableEventIdentity | None = None
         committer = self._wiring.message_committer
-        if committer is not None:
+        if finish is not None and self._wiring.assistant_committer is not None:
+            durable_identity = await self._wiring.assistant_committer(
+                message, context, finish
+            )
+        elif committer is not None:
             durable_identity = await committer(message, context)
 
         self._messages.append(message)
@@ -999,7 +1070,10 @@ def _merge_usage(
     if current is None:
         return incoming
     cached_tokens: int | None = None
-    if current.cached_input_tokens is not None or incoming.cached_input_tokens is not None:
+    if (
+        current.cached_input_tokens is not None
+        or incoming.cached_input_tokens is not None
+    ):
         cached_tokens = (current.cached_input_tokens or 0) + (
             incoming.cached_input_tokens or 0
         )
